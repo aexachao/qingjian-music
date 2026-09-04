@@ -62,6 +62,13 @@ export interface FnosProviderDeps {
   deviceId: string
   fetchImpl?: typeof fetch
   timeoutMs?: number
+  /**
+   * token 失效时取回明文密码用于静默重登（RN 侧读 Keychain）。
+   * 返回 undefined 表示不要重登，错误直接抛给 UI。
+   */
+  recoverPassword?(connection: ServerConnection): Promise<string | undefined>
+  /** 静默重登成功后回调，宿主可以顺手把新会话写回存储 */
+  onSessionRefreshed?(connection: ServerConnection, session: ProviderSession): void | Promise<void>
 }
 
 export const FNOS_CAPABILITIES: Capabilities = {
@@ -115,8 +122,19 @@ export class FnosProvider implements MusicProvider {
       token: session?.token,
       timeoutMs: deps.timeoutMs,
       fetchImpl: deps.fetchImpl,
+      ...(deps.recoverPassword ? { reauthorize: () => this.silentRelogin() } : {}),
     })
     this.session = session
+  }
+
+  /** token 过期后的静默重登：拿 Keychain 里的密码换新 token，失败就放弃 */
+  private async silentRelogin(): Promise<string | undefined> {
+    if (!this.deps.recoverPassword) return undefined
+    const password = await this.deps.recoverPassword(this.connection)
+    if (!password) return undefined
+    const session = await this.login({ password })
+    await this.deps.onSessionRefreshed?.(this.connection, session)
+    return session.token
   }
 
   // ---- 认证 ----

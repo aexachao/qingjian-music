@@ -38,7 +38,7 @@ export function AlbumDetailScreen() {
       serverId: connection.id,
       tracks: items,
       startIndex,
-      sourceLabel: album?.name ? `专辑 · ${album.name}` : '专辑',
+      source: { kind: 'album', id, label: album?.name ? `专辑 · ${album.name}` : '专辑' },
     })
     if (shuffle) await toggleShuffle()
   }

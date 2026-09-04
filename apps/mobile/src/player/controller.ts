@@ -1,5 +1,5 @@
 import TrackPlayer, { RepeatMode as RntpRepeatMode, type AddTrack } from 'react-native-track-player'
-import type { QueueItem, RepeatMode, Track } from '@qj/core-domain'
+import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
 import { ensurePlayer } from './setup'
@@ -17,6 +17,9 @@ export function toQueueItem(track: Track, provider: MusicProvider, serverId: str
     title: track.title,
     artistText: track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家',
     ...(track.album?.name ? { albumText: track.album.name } : {}),
+    ...(track.album?.id ? { albumId: track.album.id } : {}),
+    ...(track.artists[0]?.id ? { artistId: track.artists[0].id } : {}),
+    ...(track.isFavorite === undefined ? {} : { isFavorite: track.isFavorite }),
     durationMs: track.durationMs,
     ...(artwork ? { artwork: provider.image(artwork, ARTWORK_SIZE) } : {}),
   }
@@ -42,17 +45,11 @@ export interface PlayListInput {
   serverId: string
   tracks: Track[]
   startIndex: number
-  sourceLabel: string
+  source: PlaySource
 }
 
 /** 从一个列表开始播放（专辑、艺术家、搜索结果都走这里） */
-export async function playTrackList({
-  provider,
-  serverId,
-  tracks,
-  startIndex,
-  sourceLabel,
-}: PlayListInput): Promise<void> {
+export async function playTrackList({ provider, serverId, tracks, startIndex, source }: PlayListInput): Promise<void> {
   if (tracks.length === 0) return
   await ensurePlayer()
 
@@ -63,7 +60,7 @@ export async function playTrackList({
   await TrackPlayer.add(rntpTracks)
   const safeIndex = Math.min(Math.max(startIndex, 0), items.length - 1)
   if (safeIndex > 0) await TrackPlayer.skip(safeIndex)
-  usePlayerStore.getState().setQueue(items, safeIndex, sourceLabel)
+  usePlayerStore.getState().setQueue(items, safeIndex, source)
   await TrackPlayer.play()
   void refreshArtwork(safeIndex)
 }
@@ -117,6 +114,49 @@ export async function skipToNextSafe(): Promise<void> {
   }
 }
 
+/** 队列页点某一行：直接跳到该曲目并播放 */
+export async function skipToIndex(index: number): Promise<void> {
+  await ensurePlayer()
+  try {
+    await TrackPlayer.skip(index)
+    await TrackPlayer.play()
+  } catch {
+    // 下标越界（队列刚被改过）时忽略
+  }
+}
+
+/** 队列页拖动排序：先改播放器队列，再同步本地展示顺序 */
+export async function moveInQueue(from: number, to: number): Promise<void> {
+  if (from === to) return
+  await ensurePlayer()
+  try {
+    await TrackPlayer.move(from, to)
+  } catch {
+    return
+  }
+  usePlayerStore.getState().moveItem(from, to)
+}
+
+/** 队列页删除一首；当前播放那首不允许删（避免打断播放） */
+export async function removeFromQueue(index: number): Promise<void> {
+  const { index: current } = usePlayerStore.getState()
+  if (index === current) return
+  await ensurePlayer()
+  try {
+    await TrackPlayer.remove([index])
+  } catch {
+    return
+  }
+  usePlayerStore.getState().removeItem(index)
+}
+
+/** 清空队列并停止播放 */
+export async function clearQueue(): Promise<void> {
+  await ensurePlayer()
+  await TrackPlayer.reset()
+  usePlayerStore.getState().clear()
+}
+
 const REPEAT_ORDER: RepeatMode[] = ['off', 'queue', 'one']
 
 export async function cycleRepeat(): Promise<RepeatMode> {
@@ -139,7 +179,7 @@ export async function toggleShuffle(): Promise<boolean> {
   store.setShuffle(next)
   if (!next) return next
 
-  const { queue, index } = usePlayerStore.getState()
+  const { queue, index, source } = usePlayerStore.getState()
   if (index < 0 || queue.length - index < 3) return next
 
   const head = queue.slice(0, index + 1)
@@ -160,7 +200,7 @@ export async function toggleShuffle(): Promise<boolean> {
     const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
     await TrackPlayer.add(rntpTracks)
   }
-  usePlayerStore.getState().setQueue(reordered, index, usePlayerStore.getState().sourceLabel)
+  usePlayerStore.getState().setQueue(reordered, index, source)
   return next
 }
 

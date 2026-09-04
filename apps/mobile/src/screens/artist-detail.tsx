@@ -49,7 +49,7 @@ export function ArtistDetailScreen() {
       serverId: connection.id,
       tracks,
       startIndex,
-      sourceLabel: artistName ? `艺术家 · ${artistName}` : '艺术家',
+      source: { kind: 'artist', id, label: artistName ? `艺术家 · ${artistName}` : '艺术家' },
     })
     if (shuffle) await toggleShuffle()
   }

@@ -162,7 +162,7 @@ export function SearchScreen() {
               serverId: connection.id,
               tracks: tracks.items,
               startIndex: index,
-              sourceLabel: `搜索 · ${keyword}`,
+              source: { kind: 'search', label: `搜索 · ${keyword}` },
             })
           }}
         />

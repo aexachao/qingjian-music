@@ -45,6 +45,8 @@ export interface Track {
   year?: number
   isrc?: string
   isCue: boolean
+  /** 是否已收藏；后端不返回该字段时为 undefined */
+  isFavorite?: boolean
   /** unix 秒 */
   addedAt?: number
   updatedAt?: number

@@ -10,7 +10,7 @@ export function FavoritesScreen() {
       queryKey={['favorites', connection?.id]}
       enabled={Boolean(provider?.favorites)}
       fetchPage={(page) => provider!.favorites!({ page, size: 50 })}
-      sourceLabel="我喜欢的音乐"
+      source={{ kind: 'favorites', label: '我喜欢的音乐' }}
       emptyText="还没有收藏的歌曲"
     />
   )

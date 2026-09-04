@@ -31,6 +31,10 @@ export default function RootLayout() {
                 name="player"
                 options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
               />
+              <Stack.Screen
+                name="queue"
+                options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
+              />
               <Stack.Screen name="dev-smoke" options={{ title: '自检' }} />
             </Stack>
           </ServerSessionProvider>

@@ -44,7 +44,7 @@ export default function DevSmokeScreen() {
           serverId: connection.id,
           tracks: tracks.items,
           startIndex: 0,
-          sourceLabel: `自检 · ${album.name}`,
+          source: { kind: 'album', id: album.id, label: `专辑 · ${album.name}` },
         })
         push('已调用 playTrackList')
         // 起播后回到资料库，顺便验证迷你播放条

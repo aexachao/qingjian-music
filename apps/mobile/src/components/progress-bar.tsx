@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
+import Animated, { runOnJS, useAnimatedStyle, useDerivedValue, useSharedValue } from 'react-native-reanimated'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 const TRACK_HEIGHT = 6
@@ -27,8 +27,8 @@ export function ProgressBar({ position, duration, onSeek }: ProgressBarProps) {
   const [dragSeconds, setDragSeconds] = useState<number | null>(null)
 
   const ratio = duration > 0 ? Math.min(Math.max(position / duration, 0), 1) : 0
-  const playedRatio = useSharedValue(ratio)
-  playedRatio.value = ratio
+  // 播放进度每半秒变一次：用派生值同步到 UI 线程，不能在 render 里直接写 shared value
+  const playedRatio = useDerivedValue(() => ratio, [ratio])
 
   const commitSeek = useCallback(
     (value: number) => {

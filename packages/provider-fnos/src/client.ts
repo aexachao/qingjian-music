@@ -1,4 +1,4 @@
-import { MusicError } from '@qj/core-domain'
+import { isMusicError, MusicError } from '@qj/core-domain'
 import { HttpClient, type QueryValue, type RequestOptions } from '@qj/provider-api'
 import type { z } from 'zod'
 import { FNOS_API_PREFIX, FNOS_CODES } from './endpoints'
@@ -10,6 +10,11 @@ export interface FnosClientOptions {
   token?: string
   timeoutMs?: number
   fetchImpl?: typeof fetch
+  /**
+   * token 失效时用来换新 token（静默重登）。返回 undefined 表示换不到，
+   * 错误会原样抛给上层，由 UI 决定是否退到登录页。
+   */
+  reauthorize?: () => Promise<string | undefined>
 }
 
 /**
@@ -19,9 +24,13 @@ export interface FnosClientOptions {
 export class FnosClient {
   private token: string | undefined
   private readonly http: HttpClient
+  private readonly reauthorize: (() => Promise<string | undefined>) | undefined
+  /** 单飞：并发请求同时 401 时只重登一次 */
+  private refreshing: Promise<string | undefined> | null = null
 
   constructor(options: FnosClientOptions) {
     this.token = options.token
+    this.reauthorize = options.reauthorize
     this.http = new HttpClient({
       baseUrl: `${options.baseUrl.replace(/\/+$/, '')}${FNOS_API_PREFIX}`,
       timeoutMs: options.timeoutMs,
@@ -52,11 +61,37 @@ export class FnosClient {
   }
 
   async get<T>(path: string, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
-    return this.unwrap(await this.http.getJson(path, options), schema, path)
+    return this.withReauth(path, schema, () => this.http.getJson(path, options))
   }
 
   async post<T>(path: string, body: unknown, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
-    return this.unwrap(await this.http.postJson(path, body, options), schema, path)
+    return this.withReauth(path, schema, () => this.http.postJson(path, body, options))
+  }
+
+  /** 请求一次；若因 token 失效被拒，静默重登后再试一次 */
+  private async withReauth<T>(path: string, schema: z.ZodType<T>, run: () => Promise<unknown>): Promise<T> {
+    try {
+      return this.unwrap(await run(), schema, path)
+    } catch (error) {
+      const expired = isMusicError(error) && error.code === 'unauthorized'
+      // 重登过程中自身的请求（login）不再触发重登，避免递归
+      if (!expired || !this.reauthorize || this.refreshing) throw error
+      const token = await this.refreshToken()
+      if (!token) throw error
+      return this.unwrap(await run(), schema, path)
+    }
+  }
+
+  private async refreshToken(): Promise<string | undefined> {
+    if (!this.reauthorize) return undefined
+    this.refreshing = this.reauthorize()
+    try {
+      return await this.refreshing
+    } catch {
+      return undefined
+    } finally {
+      this.refreshing = null
+    }
   }
 
   private unwrap<T>(payload: unknown, schema: z.ZodType<T>, path: string): T {

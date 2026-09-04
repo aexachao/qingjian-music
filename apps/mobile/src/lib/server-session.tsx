@@ -45,7 +45,15 @@ let registryReady = false
 async function ensureRegistry(): Promise<void> {
   if (registryReady) return
   const deviceId = await getDeviceId()
-  providerRegistry.register(createFnosFactory({ sha256Hex, deviceId }))
+  providerRegistry.register(
+    createFnosFactory({
+      sha256Hex,
+      deviceId,
+      // token 过期时用 Keychain 里的密码静默重登，用户无感
+      recoverPassword: async (connection) => (await getPassword(connection.id)) ?? undefined,
+      onSessionRefreshed: (connection, refreshed) => saveSession(connection.id, refreshed),
+    }),
+  )
   registryReady = true
 }
 

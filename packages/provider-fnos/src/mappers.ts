@@ -65,6 +65,7 @@ export function mapTrack(track: FnTrack): Track {
     year: opt(track.year),
     isrc: opt(track.isrc),
     isCue: opt(track.isCue) ?? false,
+    isFavorite: opt(track.isFavorite),
     addedAt: opt(track.createdAt),
     updatedAt: opt(track.updatedAt),
     audio: mapAudioSpec(track.audioSpec),

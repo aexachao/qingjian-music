@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { FlatList, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
-import type { Page, Track } from '@qj/core-domain'
+import type { Page, PlaySource, Track } from '@qj/core-domain'
 import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -14,8 +14,8 @@ import { spacing } from '@/theme/tokens'
 interface TrackListScreenProps {
   queryKey: QueryKey
   fetchPage: (page: number) => Promise<Page<Track>>
-  /** 播放来源，显示在正在播放页顶部 */
-  sourceLabel: string
+  /** 播放来源：正在播放页顶部展示，队列页据此跳回来源 */
+  source: PlaySource
   emptyText: string
   header?: ReactElement
   /** 专辑内显示序号，其它列表显示封面 */
@@ -27,7 +27,7 @@ interface TrackListScreenProps {
 export function TrackListScreen({
   queryKey,
   fetchPage,
-  sourceLabel,
+  source,
   emptyText,
   header,
   leading = 'cover',
@@ -60,7 +60,7 @@ export function TrackListScreen({
           playing={playingQid === `${connection?.id}:${item.id}`}
           onPress={() => {
             if (!provider || !connection) return
-            void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, sourceLabel })
+            void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, source })
           }}
         />
       )}

@@ -68,6 +68,8 @@ export const fnTrackSchema = z.object({
   isrc: z.string().nullish(),
   duration: z.number().nullish(),
   isCue: z.boolean().nullish(),
+  /** 实测 /track/list 会带这个字段，收藏按钮拿它做初始状态 */
+  isFavorite: z.boolean().nullish(),
   createdAt: z.number().nullish(),
   updatedAt: z.number().nullish(),
   album: fnAlbumRefSchema.nullish(),

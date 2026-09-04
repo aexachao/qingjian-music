@@ -10,7 +10,7 @@ export function HistoryScreen() {
       queryKey={['history', connection?.id]}
       enabled={Boolean(provider?.history)}
       fetchPage={(page) => provider!.history!({ page, size: 50 })}
-      sourceLabel="最近播放"
+      source={{ kind: 'history', label: '最近播放' }}
       emptyText="还没有播放记录"
     />
   )

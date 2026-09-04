@@ -12,7 +12,7 @@ export function PlaylistDetailScreen() {
         queryKey={['playlist-tracks', connection?.id, id]}
         enabled={Boolean(provider && id)}
         fetchPage={(page) => provider!.playlistTracks(id, { page, size: 50 })}
-        sourceLabel={name ? `歌单 · ${name}` : '歌单'}
+        source={{ kind: 'playlist', id: id, label: name ? `歌单 · ${name}` : '歌单' }}
         emptyText="这个歌单还没有歌曲"
       />
     </>

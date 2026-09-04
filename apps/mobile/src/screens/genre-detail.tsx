@@ -12,7 +12,7 @@ export function GenreDetailScreen() {
         queryKey={['genre-tracks', connection?.id, id]}
         enabled={Boolean(provider && id)}
         fetchPage={(page) => provider!.genreTracks(id, { page, size: 50 })}
-        sourceLabel={name ? `流派 · ${name}` : '流派'}
+        source={{ kind: 'genre', id: id, label: name ? `流派 · ${name}` : '流派' }}
         emptyText="这个流派下还没有歌曲"
       />
     </>

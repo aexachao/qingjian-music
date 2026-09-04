@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "prebuild:ios": "expo prebuild --platform ios",
     "typecheck": "tsc -p tsconfig.json",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "vitest run test/unit"
   },
   "dependencies": {
     "@expo/ui": "~57.0.16",
@@ -44,6 +45,7 @@
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.1",
+    "react-native-reorderable-list": "^0.18.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-track-player": "^4.1.2",
@@ -54,6 +56,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.0"
   }
 }

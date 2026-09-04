@@ -8,6 +8,7 @@ import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-playe
 import { CoverImage } from '@/components/cover-image'
 import { LyricView } from '@/components/lyric-view'
 import { ProgressBar } from '@/components/progress-bar'
+import { useToggleFavorite } from '@/lib/favorites'
 import { cycleRepeat, skipToNextSafe, skipToPreviousSmart, togglePlay, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
@@ -20,11 +21,12 @@ export default function PlayerScreen() {
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const current = usePlayerStore(selectCurrent)
-  const sourceLabel = usePlayerStore((state) => state.sourceLabel)
+  const source = usePlayerStore((state) => state.source)
   const playMode = usePlayerStore((state) => state.playMode)
   const { playing } = useIsPlaying()
   const progress = useProgress(500)
   const [showLyrics, setShowLyrics] = useState(false)
+  const toggleFavorite = useToggleFavorite()
 
   const artSize = Math.min(width - spacing.xl * 2, 420)
   const translateX = useSharedValue(0)
@@ -68,7 +70,7 @@ export default function PlayerScreen() {
           <Text style={styles.handle}>▾</Text>
         </Pressable>
         <Text numberOfLines={1} style={styles.source}>
-          {sourceLabel ?? '正在播放'}
+          {source?.label ?? '正在播放'}
         </Text>
         <View style={styles.handleSpacer} />
       </View>
@@ -125,6 +127,17 @@ export default function PlayerScreen() {
 
       <View style={styles.footer}>
         <Pressable
+          onPress={() => {
+            void toggleFavorite(current.trackId, !current.isFavorite)
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
+        >
+          <Text style={[styles.footerIcon, current.isFavorite && styles.footerIconActive]}>
+            {current.isFavorite ? '♥' : '♡'}
+          </Text>
+        </Pressable>
+        <Pressable
           onPress={() => void toggleShuffle()}
           accessibilityRole="button"
           accessibilityLabel={playMode.shuffle ? '关闭随机播放' : '开启随机播放'}
@@ -146,6 +159,9 @@ export default function PlayerScreen() {
           <Text style={[styles.footerIcon, playMode.repeat !== 'off' && styles.footerIconActive]}>
             {REPEAT_LABEL[playMode.repeat]}
           </Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/queue')} accessibilityRole="button" accessibilityLabel="查看播放队列">
+          <Text style={styles.footerIcon}>☰</Text>
         </Pressable>
       </View>
     </View>
