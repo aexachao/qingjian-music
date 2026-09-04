@@ -39,7 +39,7 @@ export default function LoginScreen() {
     setError(null)
     try {
       await signIn({ baseUrl, username, password, displayName })
-      router.replace('/albums')
+      router.replace('/library')
     } catch (caught) {
       if (isMusicError(caught)) {
         setError(caught.code === 'protocol' ? '账号或密码不正确' : caught.message)

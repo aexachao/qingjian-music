@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Text } from 'react-native'
+import { useRouter } from 'expo-router'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
@@ -12,6 +13,7 @@ import { colors, spacing, typography } from '@/theme/tokens'
  * 生产包里这个页面直接返回 null。
  */
 export default function DevSmokeScreen() {
+  const router = useRouter()
   const { provider, connection, status } = useServerSession()
   const [log, setLog] = useState<string[]>([])
   const progress = useProgress(500)
@@ -45,6 +47,8 @@ export default function DevSmokeScreen() {
           sourceLabel: `自检 · ${album.name}`,
         })
         push('已调用 playTrackList')
+        // 起播后回到资料库，顺便验证迷你播放条
+        setTimeout(() => router.replace('/library'), 6000)
         setTimeout(() => {
           void (async () => {
             const state = await TrackPlayer.getPlaybackState()

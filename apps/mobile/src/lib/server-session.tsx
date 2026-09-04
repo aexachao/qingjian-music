@@ -33,6 +33,8 @@ interface ServerSessionValue {
   servers: ServerConnection[]
   signIn(input: SignInInput): Promise<void>
   signOut(): Promise<void>
+  /** 切到已保存的另一台服务器：优先用存的 token，失效则用 Keychain 里的密码重登 */
+  switchServer(serverId: string): Promise<void>
 }
 
 const ServerSessionContext = createContext<ServerSessionValue | null>(null)
@@ -128,6 +130,28 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
     [activate],
   )
 
+  const switchServer = useCallback(
+    async (serverId: string) => {
+      const target = (await listServers()).find((item) => item.id === serverId)
+      if (!target) throw new Error('找不到这台服务器')
+      await ensureRegistry()
+      const stored = await getSession(serverId)
+      if (stored) {
+        await setActiveServerId(serverId)
+        await activate(target, stored)
+        return
+      }
+      const password = await getPassword(serverId)
+      if (!password) throw new Error('这台服务器需要重新登录')
+      const instance = providerRegistry.get(target.providerId).create(target)
+      const fresh = await instance.login({ password })
+      await saveSession(serverId, fresh)
+      await setActiveServerId(serverId)
+      await activate(target, fresh)
+    },
+    [activate],
+  )
+
   const signOut = useCallback(async () => {
     if (connection) {
       try {
@@ -144,8 +168,8 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   }, [connection, provider])
 
   const value = useMemo<ServerSessionValue>(
-    () => ({ status, connection, session, provider, servers, signIn, signOut }),
-    [status, connection, session, provider, servers, signIn, signOut],
+    () => ({ status, connection, session, provider, servers, signIn, signOut, switchServer }),
+    [status, connection, session, provider, servers, signIn, signOut, switchServer],
   )
 
   return <ServerSessionContext value={value}>{children}</ServerSessionContext>
