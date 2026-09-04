@@ -1,39 +1,41 @@
 import { Image } from 'expo-image'
 import { StyleSheet, View } from 'react-native'
+import type { HttpResource } from '@qj/core-domain'
 import { colors, radius } from '@/theme/tokens'
 import { useServerSession } from '@/lib/server-session'
 
 interface CoverImageProps {
+  /** 传 coverId 由组件自己拼鉴权地址 */
   coverId?: string | undefined
+  /** 或者直接给已经算好的资源（队列元素里就是这种） */
+  resource?: HttpResource | undefined
   size: number
   /** 圆角，艺术家用圆形时传 size / 2 */
   borderRadius?: number
 }
 
 /** 飞牛的封面接口需要鉴权头，所以统一走 provider.image() 拿 url + headers */
-export function CoverImage({ coverId, size, borderRadius = radius.md }: CoverImageProps) {
+export function CoverImage({ coverId, resource, size, borderRadius = radius.md }: CoverImageProps) {
   const { provider } = useServerSession()
-  const resource = coverId && provider ? provider.image(coverId, Math.round(size * 2)) : null
+  const target = resource ?? (coverId && provider ? provider.image(coverId, Math.round(size * 2)) : null)
 
-  if (!resource) {
+  if (!target) {
     return <View style={[styles.placeholder, { width: size, height: size, borderRadius }]} />
   }
 
   return (
     <Image
-      source={{ uri: resource.url, headers: resource.headers }}
+      source={{ uri: target.url, headers: target.headers }}
       style={{ width: size, height: size, borderRadius, backgroundColor: colors.surfaceElevated }}
       contentFit="cover"
       transition={160}
       cachePolicy="memory-disk"
-      recyclingKey={coverId}
+      recyclingKey={target.url}
       accessibilityIgnoresInvertColors
     />
   )
 }
 
 const styles = StyleSheet.create({
-  placeholder: {
-    backgroundColor: colors.surfaceElevated,
-  },
+  placeholder: { backgroundColor: colors.surfaceElevated },
 })

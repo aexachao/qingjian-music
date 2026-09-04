@@ -1,0 +1,14 @@
+轻简音乐（qingjian-music）
+Copyright 2026 Chris Li
+
+本项目的播放体验设计（正在播放页布局、封面左右滑动切歌的阈值、歌词整屏切换与
+时间轴偏移调节、迷你播放条的信息层级）参考了下列开源项目的实现思路：
+
+  CyMusic
+  https://github.com/gyc-12/Cymusic
+  Copyright (c) gyc-12
+  Licensed under the Apache License, Version 2.0
+
+本项目未直接复制其源码文件；相关界面均针对 Expo SDK 57 / React Native 新架构
+重写，且不包含其音源（第三方平台抓取）相关的任何代码。
+Apache License 2.0 全文见 http://www.apache.org/licenses/LICENSE-2.0

@@ -11,6 +11,20 @@ NOT working: Authorization Bearer, x-music-token, ?token=
 NAS OAuth: /sys/config -> nasOAuth.clientId ; POST /user/auth-login {code, deviceId}
 password change uses sha256(new). Account ban exists (/user/unbanned, admin only).
 
+## verified param names (2026-09-04, probe against live NAS)
+/track/album-detail/list?albumGUID=      (guid / albumGuid -> 100002)
+/track/artist-detail/list?artistGUID=
+/track/genre-detail/list?genreGUID=
+/track/playlist-detail/list?playlistGUID=
+/album/artist-detail/list?artistGUID=
+/track/metadata?guid=
+/lyric/list?trackGUID=
+/search/*?q=
+POST /favorite-track/create|delete  { trackGuid }   (guid -> 100001, trackGUID -> 100002)
+GET  /track/roam-start?deviceId=                     (POST falls back to SPA html!)
+GET  /track/roam-next|roam-previous?deviceId=&relativeRoamId=
+     roam response: { current: { roamId, track {...} }, next: { roamId, track } }
+
 ## paging
 page (1-based) + size ; sort="createdAt,desc" | "title,asc" ; resp {list,total,sort}
 hasMore = list.length===size && page*size < total
@@ -49,11 +63,17 @@ direct: GET /track/stream?guid=<guid> with Range -> 206, audio/flac, Accept-Rang
 HEAD is NOT routed (returns SPA html 9126 bytes) -> probe with GET+Range
 transcode: POST /track/transcode {guid, output:{...quality, channel}} -> {status}; then /track/hls/{guid}/preset.m3u8 ; requires periodic /track/transcode/heartbeat and /track/transcode/quit on stop. exact output fields TBD.
 web player private schemes: hls://<fileId>?quality=original , aac://<fileId>?bitrate=128
-roam(radio): /track/roam-start {deviceId} -> {current,next} ; roam-next {deviceId,relativeRoamId} ; roam-previous
+roam(radio): GET /track/roam-start?deviceId= -> {current:{roamId,track},next:{...}} ; GET roam-next?deviceId=&relativeRoamId= ; roam-previous same
 web audio cache: Cache Storage dir "music-cache", 1.2GB / 20 entries, cache key strips token/sign/expires params
 
 ## permissions
 member role: /settings/user and /settings/server -> 100003 forbidden, admin only. Library/task/user mgmt = admin only.
+
+## client mapping (this repo)
+Endpoint table: packages/provider-fnos/src/endpoints.ts (only place allowed to hold endpoint strings)
+Response schemas: packages/provider-fnos/src/schemas.ts (zod, tolerant nullish)
+Contract tests: packages/provider-fnos/test/contract (FNOS_BASE_URL/FNOS_USERNAME/FNOS_PASSWORD env, skipped without them)
+Param probe helper: packages/provider-fnos/scripts/probe-params.mts
 
 ## caveat
 Private, undocumented, mediasrv still 0.8.x -> centralize endpoint defs, strict schema validation, contract tests against the real NAS.

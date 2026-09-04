@@ -24,3 +24,6 @@ expo-env.d.ts
 # macOS / 编辑器
 .DS_Store
 *.log
+
+# 参考项目源码（只读研究用，不进版本库）
+reference/
