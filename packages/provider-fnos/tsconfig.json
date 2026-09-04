@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // pnpm 的布局下 TypeScript 6 不会自动带上 @types，这里显式声明 Node 类型（契约测试与探测脚本要用）
+    "types": ["node"],
+    "typeRoots": ["./node_modules/@types"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.mts"]
+}

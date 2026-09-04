@@ -1,0 +1,19 @@
+{
+  "name": "qingjian-music",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.8.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:contract": "pnpm --filter @qj/provider-fnos test:contract",
+    "start": "pnpm --filter @qj/mobile start",
+    "ios": "pnpm --filter @qj/mobile ios",
+    "android": "pnpm --filter @qj/mobile android",
+    "prebuild:ios": "pnpm --filter @qj/mobile prebuild:ios"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,26 @@
+node_modules/
+.pnpm-store/
+.cache/
+dist/
+build/
+*.tsbuildinfo
+
+# Expo / 原生产物
+.expo/
+apps/mobile/ios/
+apps/mobile/android/
+expo-env.d.ts
+.metro-health-check*
+
+# 本地环境与凭据
+.env
+.env*.local
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.jks
+
+# macOS / 编辑器
+.DS_Store
+*.log

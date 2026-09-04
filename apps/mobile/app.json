@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "轻简音乐",
+    "slug": "qingjian-music",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "qingjianmusic",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#14121B",
+    "ios": {
+      "bundleIdentifier": "com.chrisli.music",
+      "supportsTablet": false,
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "CFBundleDisplayName": "轻简音乐",
+        "UIBackgroundModes": ["audio"],
+        "NSLocalNetworkUsageDescription": "用于连接局域网内的飞牛音乐服务器，读取你的音乐库并播放。",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.chrisli.music",
+      "adaptiveIcon": {
+        "backgroundColor": "#14121B",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#14121B",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
