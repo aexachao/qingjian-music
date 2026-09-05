@@ -39,6 +39,14 @@ export interface PlaybackReport {
   finished: boolean
 }
 
+export interface LyricOffsetUpdate {
+  trackId: string
+  /** 服务端歌词条目 id，来自 LyricSheet.id */
+  lyricId: string
+  /** 正值表示歌词提前（毫秒） */
+  offsetMs: number
+}
+
 /**
  * 所有后端都要实现的统一契约。
  * 带 `?` 的方法由 capabilities 决定是否存在，UI 必须先查能力再调用。
@@ -92,7 +100,13 @@ export interface MusicProvider {
   radioPrevious?(cursor: string): Promise<RadioSlice>
 
   // ---- 上报 ----
+  /**
+   * 上报播放。飞牛这类后端只记一次「起播」事件（用 positionMs 反推起播时刻，
+   * finished 会被忽略）；Emby 这类支持进度上报的后端才会用到完整字段。
+   */
   reportPlayback?(report: PlaybackReport): Promise<void>
+  /** 歌词时间偏移写回服务端，capabilities.lyricOffsetWriteback 为 true 时才存在 */
+  setLyricOffset?(update: LyricOffsetUpdate): Promise<void>
 }
 
 export interface ProviderFactory {

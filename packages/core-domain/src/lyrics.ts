@@ -6,6 +6,8 @@ export interface LyricLine {
 }
 
 export interface LyricSheet {
+  /** 服务端歌词条目 id（飞牛是 lyricGUID）；写回偏移时必须带上 */
+  id?: string
   /** true 表示带时间轴（LRC），false 表示纯文本 */
   synced: boolean
   lines: LyricLine[]

@@ -19,7 +19,9 @@ import {
 } from '@qj/core-domain'
 import type {
   Credentials,
+  LyricOffsetUpdate,
   MusicProvider,
+  PlaybackReport,
   ProviderFactory,
   ProviderSession,
   RadioSlice,
@@ -28,18 +30,17 @@ import type {
 } from '@qj/provider-api'
 import { z } from 'zod'
 import { FnosClient } from './client'
-import { FNOS_ENDPOINTS } from './endpoints'
+import { FNOS_ENDPOINTS, FNOS_EVENT_TYPES } from './endpoints'
 import {
-  extractLyricText,
   formatSort,
   mapAlbum,
   mapArtist,
   mapAudioSpec,
   mapGenre,
+  mapLyricSheet,
   mapPlaylist,
   mapTrack,
   mapUser,
-  parseLyrics,
 } from './mappers'
 import {
   fnAlbumSchema,
@@ -76,8 +77,8 @@ export const FNOS_CAPABILITIES: Capabilities = {
   playlists: 'write',
   playHistory: true,
   lyrics: 'synced',
-  // 歌词偏移回写属于 web 端的能力，接口参数待实测确认后再打开（M4）
-  lyricOffsetWriteback: false,
+  // 实测确认：POST /event/report 的 lyric_offset_change 会写进 /lyric/list 的 offset 字段
+  lyricOffsetWriteback: true,
   radio: true,
   // 转码会话（/track/transcode 的 output 字段）尚未实测确认，M4 打开
   transcode: false,
@@ -285,16 +286,56 @@ export class FnosProvider implements MusicProvider {
 
   async lyrics(trackId: string): Promise<LyricSheet | null> {
     const data = await this.client.get(FNOS_ENDPOINTS.lyric.list, fnLyricListSchema, { query: { trackGUID: trackId } })
-    const entries = data.list ?? []
-    const preferred = isRecord(data.preferred) ? extractLyricText(data.preferred) : null
-    const picked = preferred ?? entries.map(extractLyricText).find((item) => item !== null) ?? null
-    if (!picked) return null
-    return parseLyrics(picked.text, picked.source)
+    return mapLyricSheet(data.list ?? [], data.preferred)
   }
 
   async audioSpec(trackId: string): Promise<AudioSpec | null> {
     const data = await this.client.get(FNOS_ENDPOINTS.track.metadata, fnMetadataSchema, { query: { guid: trackId } })
     return mapAudioSpec(data.audioSpec) ?? null
+  }
+
+  // ---- 上报 ----
+
+  /**
+   * 飞牛只收「起播」这一个播放事件（web 端用 sendBeacon 发同样的负载），
+   * 没有进度与完成度概念：occurredAt 取起播时刻（毫秒），finished 忽略。
+   * 上报成功后 /play-history/list 立刻能查到这首。
+   */
+  async reportPlayback(report: PlaybackReport): Promise<void> {
+    await this.client.post(
+      FNOS_ENDPOINTS.event.report,
+      {
+        events: [
+          {
+            eventType: FNOS_EVENT_TYPES.trackPlay,
+            occurredAt: Date.now() - Math.max(0, Math.round(report.positionMs)),
+            payload: { trackGUID: report.trackId },
+          },
+        ],
+      },
+      z.unknown(),
+    )
+  }
+
+  /** 歌词偏移写回：服务端存在歌词条目上，回读走 /lyric/list 的 offset（毫秒） */
+  async setLyricOffset(update: LyricOffsetUpdate): Promise<void> {
+    await this.client.post(
+      FNOS_ENDPOINTS.event.report,
+      {
+        events: [
+          {
+            eventType: FNOS_EVENT_TYPES.lyricOffsetChange,
+            occurredAt: Date.now(),
+            payload: {
+              trackGUID: update.trackId,
+              lyricGUID: update.lyricId,
+              offset: Math.round(update.offsetMs),
+            },
+          },
+        ],
+      },
+      z.unknown(),
+    )
   }
 
   // ---- 漫游电台 ----
@@ -360,10 +401,6 @@ function pickRoamTrack(entry: { track?: unknown; file?: unknown } | null | undef
   if (!raw) return undefined
   const parsed = fnTrackSchema.safeParse(raw)
   return parsed.success ? mapTrack(parsed.data) : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 export function createFnosFactory(deps: FnosProviderDeps): ProviderFactory {

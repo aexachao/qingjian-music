@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractLyricText, formatSort, mapTrack, parseLyrics } from '../../src/mappers'
+import { formatSort, mapLyricSheet, mapTrack, parseLyrics } from '../../src/mappers'
 import { fnTrackSchema } from '../../src/schemas'
 
 const rawTrack = {
@@ -81,10 +81,29 @@ describe('parseLyrics', () => {
   })
 })
 
-describe('extractLyricText', () => {
-  it('从多种候选字段里取正文', () => {
-    expect(extractLyricText({ content: '[00:01.00]hi', source: 'cloud' })).toEqual({ text: '[00:01.00]hi', source: 'cloud' })
-    expect(extractLyricText({ lyric: 'plain' })?.text).toBe('plain')
-    expect(extractLyricText({ other: 1 })).toBeNull()
+describe('mapLyricSheet', () => {
+  const entries = [
+    { guid: 'ly-1', content: '[00:01.00]第一条', source: 3, isLRC: true, offset: 0 },
+    { guid: 'ly-2', content: '[00:02.00]第二条', source: 1, isLRC: true, offset: 250 },
+  ]
+
+  it('优先取 preferred 指向的条目，并带回条目 id 与服务端偏移', () => {
+    const sheet = mapLyricSheet(entries, 'ly-2')
+    expect(sheet?.id).toBe('ly-2')
+    expect(sheet?.offsetMs).toBe(250)
+    expect(sheet?.lines[0]?.text).toBe('第二条')
+    expect(sheet?.source).toBe('1')
+  })
+
+  it('preferred 缺失或指不到时退回第一条有正文的', () => {
+    expect(mapLyricSheet(entries)?.id).toBe('ly-1')
+    expect(mapLyricSheet(entries, '不存在的-guid')?.id).toBe('ly-1')
+    expect(mapLyricSheet([{ guid: 'empty', content: '   ' }, entries[1]!])?.id).toBe('ly-2')
+  })
+
+  it('服务端 isLRC 覆盖解析结果，没有可用条目时返回 null', () => {
+    expect(mapLyricSheet([{ guid: 'ly-3', content: '纯文本', isLRC: false }])?.synced).toBe(false)
+    expect(mapLyricSheet([])).toBeNull()
+    expect(mapLyricSheet([{ guid: 'ly-4', content: null }])).toBeNull()
   })
 })

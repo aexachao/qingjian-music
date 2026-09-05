@@ -144,6 +144,42 @@ describe.skipIf(!configured)('飞牛音乐契约测试', () => {
     }
   })
 
+  it('播放上报会写进播放历史', async () => {
+    const before = await provider.history({ page: 1, size: 5 })
+    await provider.reportPlayback({ trackId: sampleTrackId, positionMs: 0, finished: false })
+    // 服务端写入有极短延迟
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const after = await provider.history({ page: 1, size: 5 })
+    expect(after.items.some((item) => item.id === sampleTrackId)).toBe(true)
+    expect(after.total).toBeGreaterThanOrEqual(before.total)
+  }, 30_000)
+
+  it('歌词偏移能写回并回读（跑完还原成 0）', async () => {
+    // 找一首真的有歌词的曲目：偏移存在歌词条目上，没歌词就没有可写的对象
+    const candidates = await provider.tracks({ page: 1, size: 40 })
+    let target: { trackId: string; lyricId: string } | undefined
+    for (const track of candidates.items) {
+      const sheet = await provider.lyrics(track.id)
+      if (sheet?.id) {
+        target = { trackId: track.id, lyricId: sheet.id }
+        break
+      }
+    }
+    if (!target) {
+      // 曲库里这一页没有带歌词的曲目，跳过而不是失败
+      expect(target).toBeUndefined()
+      return
+    }
+
+    await provider.setLyricOffset({ ...target, offsetMs: 300 })
+    const written = await provider.lyrics(target.trackId)
+    expect(written?.offsetMs).toBe(300)
+
+    await provider.setLyricOffset({ ...target, offsetMs: 0 })
+    const restored = await provider.lyrics(target.trackId)
+    expect(restored?.offsetMs).toBe(0)
+  }, 120_000)
+
   it('封面需要鉴权头，且返回图片', async () => {
     const track = (await provider.tracks({ page: 1, size: 30 })).items.find((item) => item.coverId)
     expect(track?.coverId).toBeTruthy()

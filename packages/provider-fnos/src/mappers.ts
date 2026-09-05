@@ -13,7 +13,7 @@ import type {
   SortSpec,
   Track,
 } from '@qj/core-domain'
-import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnPlaylist, FnTrack, FnUser } from './schemas'
+import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnTrack, FnUser } from './schemas'
 
 /** null -> undefined，领域模型里统一只用 undefined 表示缺失 */
 function opt<T>(value: T | null | undefined): T | undefined {
@@ -151,15 +151,21 @@ export function parseLyrics(raw: string, source?: string): LyricSheet {
   return { synced, lines, offsetMs: 0, source }
 }
 
-/** 从宽松的歌词条目里挑出正文与来源，字段名待真实数据确认后再收紧 */
-export function extractLyricText(entry: Record<string, unknown>): { text: string; source?: string } | null {
-  const candidates = ['content', 'lyric', 'lyrics', 'text', 'body', 'data']
-  for (const key of candidates) {
-    const value = entry[key]
-    if (typeof value === 'string' && value.trim()) {
-      const source = typeof entry['source'] === 'string' ? entry['source'] : undefined
-      return { text: value, source }
-    }
+/**
+ * 把 /lyric/list 的结果映射成歌词表：
+ * 优先取 `preferred`（首选条目的 guid）指向的那条，取不到就用第一条有正文的。
+ * 服务端的 `offset` 单位是毫秒、正值表示歌词提前（与 web 端 `currentTime + offset` 的用法一致）。
+ */
+export function mapLyricSheet(entries: FnLyricEntry[], preferredGuid?: string | null): LyricSheet | null {
+  const usable = entries.filter((entry) => typeof entry.content === 'string' && entry.content.trim().length > 0)
+  if (usable.length === 0) return null
+  const picked = usable.find((entry) => entry.guid === preferredGuid) ?? usable[0]!
+  const source = picked.source === null || picked.source === undefined ? undefined : String(picked.source)
+  const sheet = parseLyrics(picked.content!, source)
+  return {
+    ...sheet,
+    id: picked.guid,
+    offsetMs: Math.round(picked.offset ?? 0),
+    synced: picked.isLRC ?? sheet.synced,
   }
-  return null
 }

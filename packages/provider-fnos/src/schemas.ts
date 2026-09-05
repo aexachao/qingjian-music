@@ -124,16 +124,33 @@ export const fnSuggestSchema = z.object({
   playlist: z.object({ total: z.number().nullish(), items: z.array(fnPlaylistSchema).nullish() }).nullish(),
 })
 
-/** 歌词条目字段名尚未在真实数据上确认，先宽松接收再由 mapper 提取文本 */
+/**
+ * 歌词条目字段已用真实响应确认：
+ * `{guid, source: 3, content: "[00:15.97]…", createdAt, updatedAt, isLRC: true, offset: 0}`，
+ * 顶层 `preferred` 是「首选歌词条目的 guid」字符串，不是对象。
+ */
+export const fnLyricEntrySchema = z.object({
+  guid: z.string(),
+  content: z.string().nullish(),
+  /** 来源编号（实测是数字，含义未知） */
+  source: z.union([z.string(), z.number()]).nullish(),
+  isLRC: z.boolean().nullish(),
+  /** 服务端保存的时间偏移，单位毫秒 */
+  offset: z.number().nullish(),
+  createdAt: z.number().nullish(),
+  updatedAt: z.number().nullish(),
+})
+
 export const fnLyricListSchema = z.object({
-  list: z.array(z.record(z.string(), z.unknown())).nullish(),
-  preferred: z.unknown().nullish(),
+  list: z.array(fnLyricEntrySchema).nullish(),
+  preferred: z.string().nullish(),
 })
 
 export const fnMetadataSchema = z.object({
   audioSpec: fnAudioSpecSchema.nullish(),
 })
 
+export type FnLyricEntry = z.infer<typeof fnLyricEntrySchema>
 export type FnTrack = z.infer<typeof fnTrackSchema>
 export type FnAlbum = z.infer<typeof fnAlbumSchema>
 export type FnArtist = z.infer<typeof fnArtistSchema>

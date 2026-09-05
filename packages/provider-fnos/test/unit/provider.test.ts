@@ -109,3 +109,76 @@ describe('媒体地址', () => {
     )
   })
 })
+
+describe('歌词', () => {
+  it('按 preferred 选条目，并把服务端 offset 当作偏移带回', async () => {
+    let capturedUrl = ''
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        capturedUrl = url
+        return {
+          code: 0,
+          msg: '',
+          data: {
+            list: [
+              { guid: 'ly-1', content: '[00:01.00]第一条', source: 3, isLRC: true, offset: 0 },
+              { guid: 'ly-2', content: '[00:02.00]第二条', source: 3, isLRC: true, offset: -320 },
+            ],
+            preferred: 'ly-2',
+          },
+        }
+      }),
+    )
+
+    const sheet = await provider.lyrics('track-1')
+
+    expect(capturedUrl).toBe('http://192.168.2.100:5666/music/api/v1/lyric/list?trackGUID=track-1')
+    expect(sheet?.id).toBe('ly-2')
+    expect(sheet?.offsetMs).toBe(-320)
+    expect(sheet?.lines[0]?.text).toBe('第二条')
+  })
+
+  it('没有歌词时返回 null', async () => {
+    const provider = makeProvider(fakeFetch(() => ({ code: 0, msg: '', data: { list: [], preferred: null } })))
+    await expect(provider.lyrics('track-1')).resolves.toBeNull()
+  })
+})
+
+describe('上报', () => {
+  it('播放上报发 track_play 事件，occurredAt 是起播时刻', async () => {
+    let captured: { url: string; body: any } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    const before = Date.now()
+
+    await provider.reportPlayback({ trackId: 'track-9', positionMs: 5_000, finished: false })
+
+    expect(captured?.url).toBe('http://192.168.2.100:5666/music/api/v1/event/report')
+    expect(captured?.body.events).toHaveLength(1)
+    const event = captured?.body.events[0]
+    expect(event.eventType).toBe('track_play')
+    expect(event.payload).toEqual({ trackGUID: 'track-9' })
+    // 已播 5 秒 => 起播时刻大约是「现在 - 5 秒」
+    expect(event.occurredAt).toBeLessThanOrEqual(before)
+    expect(event.occurredAt).toBeGreaterThan(before - 6_000)
+  })
+
+  it('歌词偏移写回发 lyric_offset_change，offset 取整毫秒', async () => {
+    let body: any
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+
+    await provider.setLyricOffset({ trackId: 'track-9', lyricId: 'ly-2', offsetMs: 499.6 })
+
+    expect(body.events[0].eventType).toBe('lyric_offset_change')
+    expect(body.events[0].payload).toEqual({ trackGUID: 'track-9', lyricGUID: 'ly-2', offset: 500 })
+  })
+})

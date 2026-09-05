@@ -98,6 +98,14 @@ export const FNOS_ENDPOINTS = {
   },
 } as const
 
+/** /event/report 的事件类型，取自 web 端 bundle 里的枚举 */
+export const FNOS_EVENT_TYPES = {
+  trackPlay: 'track_play',
+  lyricPreferenceChange: 'lyric_preference_change',
+  lyricOffsetChange: 'lyric_offset_change',
+  sortingChange: 'sorting_change',
+} as const
+
 /** 飞牛自有错误码 */
 export const FNOS_CODES = {
   ok: 0,
