@@ -1,11 +1,13 @@
-import TrackPlayer, { RepeatMode as RntpRepeatMode, type AddTrack } from 'react-native-track-player'
+import TrackPlayer, { RepeatMode as RntpRepeatMode, TrackType, type AddTrack } from 'react-native-track-player'
 import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
 import { contentTypeFor } from './audio-cache-policy'
+import { needsTranscode } from './format-support'
 import { ensurePlayer } from './setup'
 import { usePlayerStore } from './store'
+import { hasTranscodeSession, startTranscodeSession, stopTranscodeSession } from './transcode-session'
 
 const ARTWORK_SIZE = 600
 /** 预取范围：当前这首 + 后面两首 */
@@ -40,17 +42,51 @@ function toCacheTarget(item: QueueItem): AudioCacheTarget {
   }
 }
 
+/** 原生放不了、或上次原生播放失败过的曲目，必须走服务端转码 */
+const forcedTranscode = new Set<string>()
+
+export function shouldTranscode(item: QueueItem): boolean {
+  return forcedTranscode.has(item.qid) || needsTranscode(item.format)
+}
+
+/** 原生播放报错后调用：这首之后一律走转码 */
+export function markForcedTranscode(qid: string): boolean {
+  if (forcedTranscode.has(qid)) return false
+  forcedTranscode.add(qid)
+  return true
+}
+
 /**
- * 队列元素 → RNTP 曲目。命中播放缓存就直接放本地文件（不需要鉴权头），
- * 否则回落到网络地址 + 鉴权头，同时由 schedulePrefetch 在后台补缓存。
+ * 队列元素 → RNTP 曲目。优先级：
+ * 1. allowTranscode 且这首需要转码 → HLS 会话（并登记保活）
+ * 2. 命中播放缓存 → 本地文件（不需要鉴权头）
+ * 3. 其余 → 网络直推 + 鉴权头，后台由 schedulePrefetch 补缓存
+ *
+ * 队列里其他需要转码的曲目故意不在这里解析：一次性给整张专辑发转码请求
+ * 只会在服务端堆一堆没人听的任务，等它真的切过去再换（ensureTranscodeForIndex）。
  */
-async function toRntpTrack(item: QueueItem, provider: MusicProvider): Promise<AddTrack> {
+async function toRntpTrack(
+  item: QueueItem,
+  provider: MusicProvider,
+  options: { allowTranscode?: boolean } = {},
+): Promise<AddTrack> {
   const base = {
     id: item.qid,
     title: item.title,
     artist: item.artistText,
     ...(item.albumText ? { album: item.albumText } : {}),
     duration: item.durationMs / 1000,
+  }
+  const transcode = Boolean(options.allowTranscode) && shouldTranscode(item)
+  if (transcode) {
+    const stream = await provider.stream(item.trackId, { quality: 'original', allowTranscode: true })
+    if (stream.session) startTranscodeSession(item.qid, stream.session)
+    return {
+      ...base,
+      url: stream.url,
+      headers: stream.headers,
+      ...(stream.transport === 'hls' ? { type: TrackType.HLS } : {}),
+    }
   }
   const cached = cachedAudioUri(toCacheTarget(item))
   if (cached) {
@@ -80,11 +116,14 @@ export async function playTrackList({ provider, serverId, tracks, startIndex, so
   await ensurePlayer()
 
   const items = tracks.map((track) => toQueueItem(track, provider, serverId))
-  const rntpTracks = await Promise.all(items.map((item) => toRntpTrack(item, provider)))
+  const safeStart = Math.min(Math.max(startIndex, 0), items.length - 1)
+  const rntpTracks = await Promise.all(
+    items.map((item, index) => toRntpTrack(item, provider, { allowTranscode: index === safeStart })),
+  )
 
   await TrackPlayer.reset()
   await TrackPlayer.add(rntpTracks)
-  const safeIndex = Math.min(Math.max(startIndex, 0), items.length - 1)
+  const safeIndex = safeStart
   if (safeIndex > 0) await TrackPlayer.skip(safeIndex)
   usePlayerStore.getState().setQueue(items, safeIndex, source)
   await TrackPlayer.play()
@@ -177,9 +216,10 @@ export async function removeFromQueue(index: number): Promise<void> {
   usePlayerStore.getState().removeItem(index)
 }
 
-/** 清空队列并停止播放 */
+/** 清空队列并停止播放；转码会话必须显式退出，否则服务端会留着转码进程 */
 export async function clearQueue(): Promise<void> {
   await ensurePlayer()
+  await stopTranscodeSession()
   await TrackPlayer.reset()
   usePlayerStore.getState().clear()
 }
@@ -241,6 +281,28 @@ export function rememberProvider(provider: MusicProvider | null): void {
 }
 
 /**
+ * 切歌之后调用：这首需要转码就换成 HLS 会话继续播，否则把上一首的会话收掉。
+ * 起播失败重试（markForcedTranscode 之后）也走这里。
+ */
+export async function ensureTranscodeForIndex(index: number): Promise<void> {
+  const provider = activeProvider
+  const item = usePlayerStore.getState().queue[index]
+  if (!provider || !item) return
+  if (!shouldTranscode(item)) {
+    await stopTranscodeSession()
+    return
+  }
+  if (hasTranscodeSession(item.qid)) return
+  await stopTranscodeSession()
+  const position = (await TrackPlayer.getProgress()).position
+  const track = await toRntpTrack(item, provider, { allowTranscode: true })
+  await TrackPlayer.load(track)
+  // 保留已播进度（原生播放失败重试时用得上）
+  if (position > 1) await TrackPlayer.seekTo(position)
+  await TrackPlayer.play()
+}
+
+/**
  * 把当前这首和后两首放进播放缓存。当前那首本次仍然走网络直连
  * （不等下载完，起播不能变慢），缓存是为了下次听得更快、离线也能听。
  */
@@ -248,7 +310,8 @@ export function schedulePrefetch(index: number): void {
   const provider = activeProvider
   if (!provider || index < 0) return
   const { queue } = usePlayerStore.getState()
-  const targets = queue.slice(index, index + 1 + PREFETCH_AHEAD)
+  // 需要转码的曲目缓存了也放不出来（存下来的是 WMA 原文件），直接跳过
+  const targets = queue.slice(index, index + 1 + PREFETCH_AHEAD).filter((item) => !shouldTranscode(item))
   if (targets.length === 0) return
   protectTracks(targets.map(toCacheTarget))
 

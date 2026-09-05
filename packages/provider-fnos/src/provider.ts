@@ -13,6 +13,7 @@ import {
   type SessionUser,
   type SortSpec,
   type StreamOptions,
+  type StreamSession,
   type StreamRequest,
   type Track,
   makePage,
@@ -53,6 +54,7 @@ import {
   fnPlaylistSchema,
   fnSuggestSchema,
   fnTrackSchema,
+  fnTranscodeSchema,
   fnUserSchema,
 } from './schemas'
 
@@ -80,12 +82,25 @@ export const FNOS_CAPABILITIES: Capabilities = {
   // 实测确认：POST /event/report 的 lyric_offset_change 会写进 /lyric/list 的 offset 字段
   lyricOffsetWriteback: true,
   radio: true,
-  // 转码会话（/track/transcode 的 output 字段）尚未实测确认，M4 打开
-  transcode: false,
+  // 实测确认：POST /track/transcode → preset.m3u8（fMP4/2 秒分片）+ 10 秒心跳 + quit
+  transcode: true,
   searchSuggest: true,
   genres: true,
   ratings: false,
   multiLibrary: true,
+}
+
+/** 心跳间隔：web 端写死 10 秒，服务端按这个节奏判活 */
+const TRANSCODE_HEARTBEAT_MS = 10_000
+
+/**
+ * 音质档位 → transcode 的 bitrate。飞牛只认 128/256/320 三档且 codec 恒为 flac，
+ * web 端永远只发 320（它的默认音质就是 original）。
+ */
+function transcodeBitrate(quality: StreamOptions['quality']): number {
+  if (quality === 'low') return 128
+  if (quality === 'medium') return 256
+  return 320
 }
 
 const trackListSchema = fnListSchema(fnTrackSchema)
@@ -267,13 +282,76 @@ export class FnosProvider implements MusicProvider {
     if (!this.client.hasToken()) {
       throw new MusicError({ code: 'unauthorized', message: '尚未登录，无法播放' })
     }
-    // 直推：实测支持 Range，AVPlayer / ExoPlayer 可直接消费。
-    // 服务端转码（HLS + 会话保活）留到 M4，届时按 options.allowTranscode 走另一条分支。
+    // 允许转码时走 HLS 会话（WMA/APE 这类 AVPlayer 解不了的格式只能这样播）
+    if (options.allowTranscode) return this.transcodeStream(trackId, options)
+    // 直推：实测支持 Range，AVPlayer / ExoPlayer 可直接消费
     return {
       url: this.client.resourceUrl(FNOS_ENDPOINTS.track.stream, { guid: trackId }),
       headers: this.client.authHeaders(),
       transport: 'progressive',
-      quality: options.quality === 'original' ? 'original' : 'original',
+      quality: 'original',
+    }
+  }
+
+  /**
+   * 服务端转码 + HLS。实测流程：
+   * 1. POST /track/transcode {guid, output:{codec:'flac', bitrate, channel}} → {status:'success', url}
+   * 2. 播放 preset.m3u8（fMP4 分片，2 秒一片；m3u8 与分片都必须带鉴权头）
+   * 3. 每 10 秒 POST /track/transcode/heartbeat {guid, timestamp: 播放位置秒}，必须严格递增；
+   *    断掉心跳后任务会被回收，分片会返回 410
+   * 4. 结束时 POST /track/transcode/quit {guid}
+   */
+  private async transcodeStream(trackId: string, options: StreamOptions): Promise<StreamRequest> {
+    const data = await this.client.post(
+      FNOS_ENDPOINTS.track.transcode,
+      { guid: trackId, output: { codec: 'flac', bitrate: transcodeBitrate(options.quality), channel: 2 } },
+      fnTranscodeSchema,
+    )
+    const status = (data.status ?? '').toLowerCase()
+    if (status !== 'success' && status !== 'ready') {
+      throw new MusicError({
+        code: 'server',
+        message: data.errmsg?.trim() || `转码失败（status=${data.status ?? '未知'}）`,
+        ...(data.errno ? { providerCode: data.errno } : {}),
+      })
+    }
+    return {
+      url: this.client.resourceUrl(FNOS_ENDPOINTS.track.hlsPreset.replace(':guid', encodeURIComponent(trackId))),
+      headers: this.client.authHeaders(),
+      transport: 'hls',
+      quality: options.quality,
+      mimeHint: 'application/vnd.apple.mpegurl',
+      session: this.transcodeSession(trackId),
+    }
+  }
+
+  private transcodeSession(trackId: string): StreamSession {
+    // 心跳时间戳必须严格递增，卡住不动就自己 +1 毫秒（对齐 web 端做法）
+    let lastSeconds = -1
+    return {
+      id: trackId,
+      heartbeatIntervalMs: TRANSCODE_HEARTBEAT_MS,
+      heartbeat: async (positionMs: number) => {
+        const seconds = Math.max(0, positionMs) / 1000
+        const timestamp = seconds > lastSeconds ? seconds : lastSeconds + 0.001
+        lastSeconds = timestamp
+        const data = await this.client.post(
+          FNOS_ENDPOINTS.track.transcodeHeartbeat,
+          { guid: trackId, timestamp: Number(timestamp.toFixed(3)) },
+          fnTranscodeSchema,
+        )
+        // 任务被回收后心跳会返回 failed（errmsg: playLink not found），交给上层重新起会话
+        if ((data.status ?? '').toLowerCase() === 'failed') {
+          throw new MusicError({
+            code: 'notFound',
+            message: data.errmsg?.trim() || '转码会话已失效',
+            ...(data.errno ? { providerCode: data.errno } : {}),
+          })
+        }
+      },
+      close: async () => {
+        await this.client.post(FNOS_ENDPOINTS.track.transcodeQuit, { guid: trackId }, fnTranscodeSchema)
+      },
     }
   }
 

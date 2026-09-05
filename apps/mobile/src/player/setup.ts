@@ -1,3 +1,4 @@
+import { Platform } from 'react-native'
 import TrackPlayer, { AppKilledPlaybackBehavior, Capability, IOSCategoryMode } from 'react-native-track-player'
 
 let setupPromise: Promise<void> | null = null
@@ -13,10 +14,15 @@ async function initialize(): Promise<void> {
     await TrackPlayer.setupPlayer({
       autoHandleInterruptions: true,
       iosCategoryMode: IOSCategoryMode.Default,
-      // 网络流的缓冲：给弱 Wi-Fi 留一点余量
-      minBuffer: 15,
-      maxBuffer: 60,
-      backBuffer: 30,
+      /**
+       * 缓冲参数只给 Android（ExoPlayer）。
+       * iOS 上 RNTP 会把 minBuffer 换算成 SwiftAudioEx 的 bufferDuration，
+       * 而 bufferDuration > 0 会连带关掉 automaticallyWaitsToMinimizeStalling；
+       * 实测这会让 HLS（转码流）停在 0 秒不动：AVPlayer 报 readyToPlay、
+       * 缓冲也满了，但时基永远不启动。直推的本地/网络文件不受影响，
+       * 所以这个坑只在转码路径上炸。
+       */
+      ...(Platform.OS === 'android' ? { minBuffer: 15, maxBuffer: 60, backBuffer: 30 } : {}),
     })
   } catch (error) {
     // 热重载时播放器可能已初始化，这不是错误

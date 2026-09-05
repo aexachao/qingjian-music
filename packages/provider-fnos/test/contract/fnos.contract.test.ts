@@ -218,6 +218,45 @@ describe.skipIf(!configured)('飞牛音乐契约测试', () => {
     expect(next.current.id).toBeTruthy()
   })
 
+  it('转码会话：POST 转码 → HLS 可下载 → 心跳 → 退出', async () => {
+    // 找一首原生播放器解不了的（这套曲库里 WMA 占约 5%）
+    let wmaId: string | undefined
+    for (let page = 1; page <= 8 && !wmaId; page += 1) {
+      const batch = await provider.tracks({ page, size: 100 })
+      wmaId = batch.items.find((item) => (item.audio?.format ?? '').toLowerCase() === 'wma')?.id
+      if (batch.items.length === 0) break
+    }
+    if (!wmaId) return // 曲库里没有需要转码的格式就跳过
+
+    const stream = await provider.stream(wmaId, { quality: 'original', allowTranscode: true })
+    expect(stream.transport).toBe('hls')
+    expect(stream.url).toMatch(/\/track\/hls\/.+\/preset\.m3u8$/)
+    expect(stream.session).toBeDefined()
+
+    try {
+      // m3u8 与分片都必须带鉴权头：AVPlayer 侧靠 RNTP 的 headers 透传
+      const playlist = await fetch(stream.url, { headers: stream.headers })
+      expect(playlist.status).toBe(200)
+      const text = await playlist.text()
+      expect(text).toContain('#EXTM3U')
+      expect(text).toContain('init.mp4')
+
+      const anonymous = await fetch(stream.url)
+      expect(anonymous.status).toBe(401)
+
+      const initUrl = stream.url.replace(/preset\.m3u8$/, 'init.mp4')
+      const init = await fetch(initUrl, { headers: stream.headers })
+      expect(init.status).toBe(200)
+      expect((await init.arrayBuffer()).byteLength).toBeGreaterThan(0)
+
+      // 心跳带播放位置，服务端靠它判活
+      await stream.session!.heartbeat(1_000)
+      await stream.session!.heartbeat(2_000)
+    } finally {
+      await stream.session!.close()
+    }
+  }, 60_000)
+
   it('收藏的写入与撤销（设置 FNOS_CONTRACT_MUTATE=1 才跑）', async () => {
     if (process.env['FNOS_CONTRACT_MUTATE'] !== '1') return
     const before = await provider.favorites({ page: 1, size: 1 })

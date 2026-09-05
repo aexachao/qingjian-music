@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef } from 'react'
 import TrackPlayer, { Event, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
 import { useServerSession } from '@/lib/server-session'
-import { refreshArtwork, rememberProvider, schedulePrefetch } from './controller'
+import {
+  ensureTranscodeForIndex,
+  markForcedTranscode,
+  refreshArtwork,
+  rememberProvider,
+  schedulePrefetch,
+} from './controller'
 import { ensurePlayer } from './setup'
 import { usePlayerStore } from './store'
+import { setSessionLostHandler } from './transcode-session'
 
 /** RNTP 偶尔会为同一次切歌连发两次事件，同一首这个时间窗内只上报一次 */
 const REPORT_DEDUPE_MS = 5_000
@@ -59,12 +66,35 @@ export function PlayerBridge() {
       void refreshArtwork(index)
       reportPlay(index, qid)
       schedulePrefetch(index)
+      // 这首必须转码就立刻换成 HLS，否则把上一首的转码会话收掉
+      void ensureTranscodeForIndex(index).catch((error: unknown) => {
+        console.warn('转码会话切换失败', error)
+      })
       return
     }
     if (event.type === Event.PlaybackError) {
       console.warn('播放失败', event.code, event.message)
+      // 原生解不了（格式白名单没覆盖到）时，改走服务端转码重试一次
+      const { queue, index } = usePlayerStore.getState()
+      const item = queue[index]
+      if (!item || !markForcedTranscode(item.qid)) return
+      void ensureTranscodeForIndex(index).catch((retryError: unknown) => {
+        console.warn('转码重试失败', retryError)
+      })
     }
   })
+
+  // 心跳失败说明服务端把转码任务回收了，原地重开一个会话继续播
+  useEffect(() => {
+    setSessionLostHandler((qid) => {
+      const { queue, index } = usePlayerStore.getState()
+      if (queue[index]?.qid !== qid) return
+      void ensureTranscodeForIndex(index).catch((error: unknown) => {
+        console.warn('转码会话重建失败', error)
+      })
+    })
+    return () => setSessionLostHandler(null)
+  }, [])
 
   // 启动就把播放器初始化好：RNTP 的任何查询（包括 useProgress / useIsPlaying）
   // 都必须在 setupPlayer 之后，否则会抛 "player is not initialized"

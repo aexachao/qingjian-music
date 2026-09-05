@@ -182,3 +182,120 @@ describe('上报', () => {
     expect(body.events[0].payload).toEqual({ trackGUID: 'track-9', lyricGUID: 'ly-2', offset: 500 })
   })
 })
+
+describe('转码与 HLS 会话', () => {
+  const okTranscode = {
+    code: 0,
+    msg: '',
+    data: {
+      status: 'success',
+      errno: '',
+      errmsg: '',
+      hlsTime: 2,
+      url: '/music/api/v1/track/hls/track-wma/preset.m3u8',
+    },
+  }
+
+  it('allowTranscode 为 false 时直推原文件，不发转码请求', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        return okTranscode
+      }),
+    )
+
+    const stream = await provider.stream('track-1', { quality: 'original', allowTranscode: false })
+
+    expect(urls).toHaveLength(0)
+    expect(stream.transport).toBe('progressive')
+    expect(stream.url).toBe('http://192.168.2.100:5666/music/api/v1/track/stream?guid=track-1')
+    expect(stream.session).toBeUndefined()
+  })
+
+  it('allowTranscode 为 true 时 POST /track/transcode 并返回 HLS 地址', async () => {
+    let captured: { url: string; body: any } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        return okTranscode
+      }),
+    )
+
+    const stream = await provider.stream('track-wma', { quality: 'original', allowTranscode: true })
+
+    expect(captured?.url).toBe('http://192.168.2.100:5666/music/api/v1/track/transcode')
+    // 实测：body 只认 guid + output{codec,bitrate,channel}，codec 恒为 flac
+    expect(captured?.body).toEqual({ guid: 'track-wma', output: { codec: 'flac', bitrate: 320, channel: 2 } })
+    expect(stream.transport).toBe('hls')
+    expect(stream.url).toBe('http://192.168.2.100:5666/music/api/v1/track/hls/track-wma/preset.m3u8')
+    expect(stream.mimeHint).toBe('application/vnd.apple.mpegurl')
+    expect(stream.session?.heartbeatIntervalMs).toBe(10_000)
+  })
+
+  it('音质档位映射到 128 / 256 / 320', async () => {
+    const bitrates: number[] = []
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        bitrates.push(JSON.parse(String(init?.body)).output.bitrate)
+        return okTranscode
+      }),
+    )
+
+    for (const quality of ['low', 'medium', 'high', 'original'] as const) {
+      await provider.stream('track-wma', { quality, allowTranscode: true })
+    }
+
+    expect(bitrates).toEqual([128, 256, 320, 320])
+  })
+
+  it('status 不是 success/ready 时抛错并带上 errmsg', async () => {
+    const provider = makeProvider(
+      fakeFetch(() => ({ code: 0, msg: '', data: { status: 'failed', errno: '68157444', errmsg: 'playLink not found' } })),
+    )
+
+    await expect(provider.stream('track-wma', { quality: 'original', allowTranscode: true })).rejects.toThrow(
+      'playLink not found',
+    )
+  })
+
+  it('心跳带播放位置（秒）且严格递增，quit 只带 guid', async () => {
+    const calls: { url: string; body: any }[] = []
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+        return okTranscode
+      }),
+    )
+
+    const stream = await provider.stream('track-wma', { quality: 'original', allowTranscode: true })
+    await stream.session?.heartbeat(1_500)
+    // 播放位置卡住不动时也必须递增，否则服务端会判定会话不活跃
+    await stream.session?.heartbeat(1_500)
+    await stream.session?.close()
+
+    expect(calls[1]?.url).toBe('http://192.168.2.100:5666/music/api/v1/track/transcode/heartbeat')
+    expect(calls[1]?.body).toEqual({ guid: 'track-wma', timestamp: 1.5 })
+    expect(calls[2]?.body).toEqual({ guid: 'track-wma', timestamp: 1.501 })
+    expect(calls[3]?.url).toBe('http://192.168.2.100:5666/music/api/v1/track/transcode/quit')
+    expect(calls[3]?.body).toEqual({ guid: 'track-wma' })
+  })
+
+  it('心跳返回 failed（任务被回收）时抛 notFound，让上层重开会话', async () => {
+    let first = true
+    const provider = makeProvider(
+      fakeFetch(() => {
+        if (first) {
+          first = false
+          return okTranscode
+        }
+        return { code: 0, msg: '', data: { status: 'failed', errno: '68157444', errmsg: 'playLink not found' } }
+      }),
+    )
+
+    const stream = await provider.stream('track-wma', { quality: 'original', allowTranscode: true })
+    await expect(stream.session?.heartbeat(1_000)).rejects.toSatisfy(
+      (error: unknown) => isMusicError(error) && error.code === 'notFound',
+    )
+  })
+})

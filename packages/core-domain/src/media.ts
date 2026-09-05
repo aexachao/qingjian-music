@@ -17,7 +17,11 @@ export interface HttpResource {
 export interface StreamSession {
   id: string
   heartbeatIntervalMs: number
-  heartbeat(): Promise<void>
+  /**
+   * 保活。飞牛要求带当前播放位置（毫秒；服务端按秒收），
+   * 且必须严格递增——具体约束由各 provider 内部消化。
+   */
+  heartbeat(positionMs: number): Promise<void>
   close(): Promise<void>
 }
 

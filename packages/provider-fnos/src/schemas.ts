@@ -146,6 +146,19 @@ export const fnLyricListSchema = z.object({
   preferred: z.string().nullish(),
 })
 
+/**
+ * /track/transcode 的实测响应：
+ * `{status:'success', errno:'', errmsg:'', hlsTime:2, url:'/music/api/v1/track/hls/<guid>/preset.m3u8'}`，
+ * 失败时 status 为 failed，errmsg 例如 "playLink not found"。
+ */
+export const fnTranscodeSchema = z.object({
+  status: z.string().nullish(),
+  errno: z.union([z.string(), z.number()]).nullish(),
+  errmsg: z.string().nullish(),
+  hlsTime: z.number().nullish(),
+  url: z.string().nullish(),
+})
+
 export const fnMetadataSchema = z.object({
   audioSpec: fnAudioSpecSchema.nullish(),
 })
