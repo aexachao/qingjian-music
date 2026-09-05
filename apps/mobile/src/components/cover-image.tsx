@@ -26,7 +26,7 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
   return (
     <Image
       source={{ uri: target.url, headers: target.headers }}
-      style={{ width: size, height: size, borderRadius, backgroundColor: colors.surfaceElevated }}
+      style={{ width: size, height: size, borderRadius, backgroundColor: colors.skeleton2 }}
       contentFit="cover"
       transition={160}
       cachePolicy="memory-disk"
@@ -37,5 +37,5 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
 }
 
 const styles = StyleSheet.create({
-  placeholder: { backgroundColor: colors.surfaceElevated },
+  placeholder: { backgroundColor: colors.skeleton2 },
 })

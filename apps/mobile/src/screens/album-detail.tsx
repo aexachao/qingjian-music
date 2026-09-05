@@ -2,6 +2,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
+import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -65,8 +66,15 @@ export function AlbumDetailScreen() {
             {items.length ? ` · ${items.length} 首` : ''}
           </Text>
           <View style={styles.actions}>
-            <Pressable style={styles.button} onPress={() => void play(0)} accessibilityRole="button" accessibilityLabel="播放专辑">
-              <Text style={styles.buttonLabel}>▶ 播放</Text>
+            {/* 一屏只留一个主操作：播放用强调色实心（对应 web --ds-action-primary-bg） */}
+            <Pressable
+              style={[styles.button, styles.buttonPrimary]}
+              onPress={() => void play(0)}
+              accessibilityRole="button"
+              accessibilityLabel="播放专辑"
+            >
+              <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
+              <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
             </Pressable>
             <Pressable
               style={styles.button}
@@ -74,7 +82,8 @@ export function AlbumDetailScreen() {
               accessibilityRole="button"
               accessibilityLabel="随机播放专辑"
             >
-              <Text style={styles.buttonLabel}>🔀 随机播放</Text>
+              <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+              <Text style={styles.buttonLabel}>随机播放</Text>
             </Pressable>
           </View>
         </View>
@@ -98,14 +107,19 @@ export function AlbumDetailScreen() {
 const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   header: { alignItems: 'center', gap: spacing.xs, marginBottom: spacing.lg },
-  name: { ...typography.title, color: colors.text, textAlign: 'center', marginTop: spacing.md },
+  name: { ...typography.title, color: colors.textPrimary, textAlign: 'center', marginTop: spacing.md },
   meta: { ...typography.footnote, color: colors.textSecondary, textAlign: 'center' },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
   button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm + 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.bgButtonSecondary,
   },
-  buttonLabel: { ...typography.headline, color: colors.accent },
+  buttonPrimary: { backgroundColor: colors.accent },
+  buttonLabel: { ...typography.headline, color: colors.textPrimary },
+  buttonLabelPrimary: { color: colors.textOnAccent },
 })

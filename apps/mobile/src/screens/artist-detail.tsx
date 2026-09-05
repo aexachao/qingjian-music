@@ -2,6 +2,7 @@ import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from
 import { Link, Stack, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
+import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -77,8 +78,15 @@ export function ArtistDetailScreen() {
             {topTracks.data?.total ? ` · ${topTracks.data.total} 首` : ''}
           </Text>
           <View style={styles.actions}>
-            <Pressable style={styles.button} onPress={() => void playTop(0)} accessibilityRole="button" accessibilityLabel="播放热门歌曲">
-              <Text style={styles.buttonLabel}>▶ 播放</Text>
+            {/* 一屏只留一个主操作：播放用强调色实心（对应 web --ds-action-primary-bg） */}
+            <Pressable
+              style={[styles.button, styles.buttonPrimary]}
+              onPress={() => void playTop(0)}
+              accessibilityRole="button"
+              accessibilityLabel="播放热门歌曲"
+            >
+              <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
+              <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
             </Pressable>
             <Pressable
               style={styles.button}
@@ -86,7 +94,8 @@ export function ArtistDetailScreen() {
               accessibilityRole="button"
               accessibilityLabel="随机播放"
             >
-              <Text style={styles.buttonLabel}>🔀 随机播放</Text>
+              <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+              <Text style={styles.buttonLabel}>随机播放</Text>
             </Pressable>
           </View>
 
@@ -131,18 +140,23 @@ export function ArtistDetailScreen() {
 const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   header: { gap: spacing.xs, marginBottom: spacing.lg, alignItems: 'center' },
-  name: { ...typography.title, color: colors.text, marginTop: spacing.md, textAlign: 'center' },
+  name: { ...typography.title, color: colors.textPrimary, marginTop: spacing.md, textAlign: 'center' },
   meta: { ...typography.footnote, color: colors.textSecondary },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
   button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm + 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.bgButtonSecondary,
   },
-  buttonLabel: { ...typography.headline, color: colors.accent },
+  buttonPrimary: { backgroundColor: colors.accent },
+  buttonLabel: { ...typography.headline, color: colors.textPrimary },
+  buttonLabelPrimary: { color: colors.textOnAccent },
   section: { alignSelf: 'stretch', marginTop: spacing.lg },
-  sectionTitle: { ...typography.headline, color: colors.text, alignSelf: 'flex-start', marginTop: spacing.lg },
-  albumName: { ...typography.subhead, color: colors.text, marginTop: spacing.sm },
+  sectionTitle: { ...typography.headline, color: colors.textPrimary, alignSelf: 'flex-start', marginTop: spacing.lg },
+  albumName: { ...typography.subhead, color: colors.textPrimary, marginTop: spacing.sm },
   albumYear: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
 })

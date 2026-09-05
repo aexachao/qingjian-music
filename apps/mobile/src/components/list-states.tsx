@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 export function LoadingState() {
   return (
@@ -36,7 +36,15 @@ export function FooterLoader({ loading }: { loading: boolean }) {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
   muted: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center' },
-  retry: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  retryLabel: { ...typography.headline, color: colors.accent },
+  // 次级按钮：胶囊 + 半透明底，和 web 端 --ds-bg-button-secondary 一致
+  retry: {
+    paddingHorizontal: spacing.xl,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.pill,
+    backgroundColor: colors.bgButtonSecondary,
+  },
+  retryLabel: { ...typography.headline, color: colors.textPrimary },
   footer: { paddingVertical: spacing.lg },
 })

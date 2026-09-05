@@ -3,9 +3,10 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { Link } from 'expo-router'
 import { DEFAULT_BROWSE_NODES, type BrowseNode, type BrowseNodeKind } from '@qj/core-domain'
+import { Icon, iconForSymbol, iconSize } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 /** i18n 前的中文文案表：以后换成 locales/zh-CN.json 的同名 key */
 const LABELS: Record<string, string> = {
@@ -68,8 +69,10 @@ export function LibraryHomeScreen() {
               accessibilityRole="button"
               accessibilityLabel={LABELS[node.titleKey] ?? node.titleKey}
             >
+              {/* 图标名存在领域层里是 SF Symbols 名，这里映射成同语义的 lucide 图标 */}
+              <Icon name={iconForSymbol(node.icon)} size={iconSize.lg} color={colors.iconMid} />
               <Text style={styles.label}>{LABELS[node.titleKey] ?? node.titleKey}</Text>
-              <Text style={styles.chevron}>›</Text>
+              <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
             </Pressable>
           </Link>
         ))}
@@ -81,15 +84,15 @@ export function LibraryHomeScreen() {
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.md },
   server: { ...typography.caption, color: colors.textTertiary },
-  card: { backgroundColor: colors.surface, borderRadius: spacing.md, overflow: 'hidden' },
+  card: { backgroundColor: colors.bgCard, borderRadius: radius.md, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md + 2,
   },
-  rowBorder: { borderTopWidth: 1, borderTopColor: 'rgba(235,235,245,0.08)' },
-  label: { ...typography.callout, color: colors.text },
-  chevron: { ...typography.headline, color: colors.textTertiary },
+  rowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  // flex 让标题占满中间，右侧箭头自然贴到行尾
+  label: { ...typography.callout, color: colors.textPrimary, flex: 1 },
 })

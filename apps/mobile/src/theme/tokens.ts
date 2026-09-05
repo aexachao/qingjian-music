@@ -1,18 +1,169 @@
 /**
- * 视觉基线：暗色优先，取向 Apple Music。
- * 强调色后续做成可切换（web 端有 5 个），所以这里集中成常量而不是散落各处。
+ * 设计 token：**逐个对照飞牛音乐 web 端的 `--ds-*` 变量移植**，不是自己配的色。
+ *
+ * 来源：`http://<NAS>/music/` 的样式表里 `body,:root,:root[data-theme=dark]` 与
+ * `:root[data-theme=light]` 两组共 124/133 个 `--ds-*` 变量（web 端用 Semi Design + Tailwind，
+ * 品牌层就是这套 `--ds-*`）。提取脚本与完整对照表见 docs/design-tokens.md。
+ *
+ * 约定：
+ * - 变量名沿用 web 端语义（bgCard / textSecondary / borderDefault …），改动时能直接回查 CSS；
+ * - 颜色保留 web 端的 8 位十六进制写法（#ffffff14 = 白 8%），RN 原生支持；
+ * - 亮色模式的值一并移植好，等做主题切换时直接用，不用再抠一遍。
+ */
+
+/** 7 个可选强调色，与 web 端 `[data-theme-accent=*]` 一致 */
+export const accents = {
+  purple: '#c934e1',
+  red: '#f62c55',
+  pink: '#f05672',
+  orange: '#fc5e25',
+  yellow: '#f8bf28',
+  green: '#6bab45',
+  blue: '#1b73fb',
+} as const
+
+export type AccentName = keyof typeof accents
+
+/** web 端默认强调色：`:root,body { --ds-accent-current: var(--ds-accent-purple) }` */
+export const DEFAULT_ACCENT: AccentName = 'purple'
+
+const darkPalette = {
+  // --- 背景 ---
+  bgPrimary: '#0f0f0f',
+  bgCard: '#ffffff14',
+  bgCardHover: '#ffffff1f',
+  bgListItem: '#ffffff0f',
+  bgListItemSoft: '#ffffff0d',
+  bgListItemHover: '#ffffff14',
+  bgListItemActive: '#ffffff1a',
+  bgInput: '#00000014',
+  bgButtonPrimary: '#ffffff14',
+  bgButtonSecondary: '#ffffff1a',
+  bgModal: '#1e1c26eb',
+  bgDropdown: '#0a0a0eb8',
+  bgFloatingPill: '#ffffff12',
+  bgProgressTrack: '#ffffff26',
+  bgOverlay: '#000000b3',
+  bgScrim: '#0000004d',
+  bgScrimStrong: '#00000073',
+  bgAvatar: '#ffffff1a',
+  queueBg: '#00000014',
+  // --- 文字与图标 ---
+  textPrimary: '#ffffff',
+  textSecondary: '#ffffffcc',
+  textTertiary: '#ffffff99',
+  textQuaternary: '#ffffff66',
+  textMuted: '#f2f3f4d9',
+  textMutedDim: '#f2f3f499',
+  iconBright: '#ffffff',
+  iconMid: '#f2f3f4cc',
+  iconDim: '#f2f3f480',
+  iconGray: '#bbbbbb',
+  textOnAccent: '#ffffff',
+  // --- 描边 ---
+  borderDefault: '#ffffff1a',
+  borderSubtle: '#ffffff12',
+  borderEmphasis: '#ffffff1f',
+  borderSelected: '#ffffff8c',
+  borderInput: '#ffffff33',
+  // --- 播放器 ---
+  playerProgressTrack: '#ffffff33',
+  playerProgressBuffer: '#ffffff14',
+  playerTextSecondary: '#ffffff59',
+  playerGlassBg: '#00000099',
+  playerGlassBorder: '#ffffff1f',
+  // --- 语义色 ---
+  danger: '#f62c55',
+  success: '#6bab45',
+  warning: '#f8bf28',
+  info: '#1b73fb',
+  // --- 骨架屏 ---
+  skeleton1: '#ffffff0a',
+  skeleton2: '#ffffff1a',
+  skeleton3: '#ffffff29',
+} as const
+
+export type PaletteKey = keyof typeof darkPalette
+/** 一套配色：键固定，值都是颜色字符串 */
+export type Palette = Record<PaletteKey, string>
+
+/** 亮色模式（web 端 `[data-theme=light]` 的同名变量），暂未接主题切换 */
+const lightPalette: Palette = {
+  bgPrimary: '#ffffff',
+  bgCard: '#0000000a',
+  bgCardHover: '#00000014',
+  bgListItem: '#00000008',
+  bgListItemSoft: '#00000006',
+  bgListItemHover: '#0000000d',
+  bgListItemActive: '#00000014',
+  bgInput: '#0000000a',
+  bgButtonPrimary: '#0000000f',
+  bgButtonSecondary: '#00000014',
+  bgModal: '#fffffff2',
+  bgDropdown: '#ffffffeb',
+  bgFloatingPill: '#ffffffb8',
+  bgProgressTrack: '#0000001f',
+  bgOverlay: '#00000066',
+  bgScrim: '#0000002e',
+  bgScrimStrong: '#0000004d',
+  bgAvatar: '#00000014',
+  queueBg: '#0000000a',
+  textPrimary: '#111111',
+  textSecondary: '#111111cc',
+  textTertiary: '#11111199',
+  textQuaternary: '#11111166',
+  textMuted: '#1c1d1fd9',
+  textMutedDim: '#1c1d1f99',
+  iconBright: '#111111',
+  iconMid: '#1c1d1fcc',
+  iconDim: '#1c1d1f80',
+  iconGray: '#666666',
+  textOnAccent: '#ffffff',
+  borderDefault: '#00000012',
+  borderSubtle: '#0000000d',
+  borderEmphasis: '#0000001f',
+  borderSelected: '#0000008c',
+  borderInput: '#00000033',
+  playerProgressTrack: '#00000033',
+  playerProgressBuffer: '#00000014',
+  playerTextSecondary: '#00000059',
+  playerGlassBg: '#ffffffcc',
+  playerGlassBorder: '#0000001f',
+  danger: '#f62c55',
+  success: '#6bab45',
+  warning: '#f8bf28',
+  info: '#1b73fb',
+  skeleton1: '#0000000a',
+  skeleton2: '#00000014',
+  skeleton3: '#00000029',
+}
+
+export const palette: { dark: Palette; light: Palette } = { dark: darkPalette, light: lightPalette }
+
+/**
+ * 当前生效的配色。首版固定暗色 + 默认强调色；
+ * accent / playing / like 三个都跟随强调色，和 web 端
+ * `--ds-state-playing-color: var(--ds-accent-current)` 的关系一致。
  */
 export const colors = {
-  background: '#000000',
-  surface: '#1C1C1E',
-  surfaceElevated: '#2C2C2E',
-  separator: 'rgba(84, 84, 88, 0.6)',
-  text: '#FFFFFF',
-  textSecondary: 'rgba(235, 235, 245, 0.6)',
-  textTertiary: 'rgba(235, 235, 245, 0.3)',
-  accent: '#FF2D55',
-  danger: '#FF453A',
-  success: '#30D158',
+  ...darkPalette,
+  accent: accents[DEFAULT_ACCENT],
+  /** 正在播放的高亮色 */
+  playing: accents[DEFAULT_ACCENT],
+  /** 收藏（喜欢）色 */
+  like: accents[DEFAULT_ACCENT],
+} as const
+
+/**
+ * 字体：web 端 `--ds-font-family-base` 首选 Montserrat（NAS 自带 4 个字重）。
+ * 中文字形 Montserrat 没有，iOS/Android 会自动回落到系统中文字体——
+ * 和 web 端的表现一致：拉丁字母与数字用 Montserrat，中文用系统字体。
+ */
+export const fonts = {
+  regular: 'Montserrat_400Regular',
+  medium: 'Montserrat_500Medium',
+  semibold: 'Montserrat_600SemiBold',
+  bold: 'Montserrat_700Bold',
 } as const
 
 export const spacing = {
@@ -24,20 +175,22 @@ export const spacing = {
   xxl: 32,
 } as const
 
+/** 圆角对齐 web 端（--semi-border-radius-small: 10px，卡片/弹层更大） */
 export const radius = {
   sm: 6,
   md: 10,
   lg: 14,
+  xl: 20,
   pill: 999,
 } as const
 
 export const typography = {
-  largeTitle: { fontSize: 34, fontWeight: '700' },
-  title: { fontSize: 22, fontWeight: '700' },
-  headline: { fontSize: 17, fontWeight: '600' },
-  body: { fontSize: 17, fontWeight: '400' },
-  callout: { fontSize: 16, fontWeight: '400' },
-  subhead: { fontSize: 15, fontWeight: '400' },
-  footnote: { fontSize: 13, fontWeight: '400' },
-  caption: { fontSize: 12, fontWeight: '400' },
+  largeTitle: { fontSize: 34, fontFamily: fonts.bold },
+  title: { fontSize: 22, fontFamily: fonts.bold },
+  headline: { fontSize: 17, fontFamily: fonts.semibold },
+  body: { fontSize: 17, fontFamily: fonts.regular },
+  callout: { fontSize: 16, fontFamily: fonts.regular },
+  subhead: { fontSize: 15, fontFamily: fonts.regular },
+  footnote: { fontSize: 13, fontFamily: fonts.medium },
+  caption: { fontSize: 12, fontFamily: fonts.regular },
 } as const

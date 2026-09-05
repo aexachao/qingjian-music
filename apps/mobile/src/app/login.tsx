@@ -80,7 +80,7 @@ export default function LoginScreen() {
           disabled={!canSubmit}
           style={({ pressed }) => [styles.button, (!canSubmit || pressed) && styles.buttonMuted]}
         >
-          {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonLabel}>连接</Text>}
+          {busy ? <ActivityIndicator color={colors.textOnAccent} /> : <Text style={styles.buttonLabel}>连接</Text>}
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -115,16 +115,19 @@ function Field({ label, hint, ...input }: FieldProps) {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.xl, paddingTop: spacing.xxl, gap: spacing.lg },
-  title: { ...typography.largeTitle, color: colors.text },
+  title: { ...typography.largeTitle, color: colors.textPrimary },
   subtitle: { ...typography.subhead, color: colors.textSecondary, marginBottom: spacing.lg },
   field: { gap: spacing.xs },
   label: { ...typography.footnote, color: colors.textSecondary },
   input: {
     ...typography.body,
-    color: colors.text,
-    backgroundColor: colors.surface,
+    color: colors.textPrimary,
+    // 输入框走 web 端的「内凹底色 + 亮描边」，不用卡片色
+    backgroundColor: colors.bgInput,
+    borderWidth: 1,
+    borderColor: colors.borderInput,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
@@ -141,5 +144,5 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   buttonMuted: { opacity: 0.6 },
-  buttonLabel: { ...typography.headline, color: '#FFFFFF' },
+  buttonLabel: { ...typography.headline, color: colors.textOnAccent },
 })

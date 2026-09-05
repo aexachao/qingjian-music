@@ -94,10 +94,11 @@ const styles = StyleSheet.create({
   track: {
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(235, 235, 245, 0.18)',
+    backgroundColor: colors.playerProgressTrack,
     overflow: 'hidden',
   },
-  fill: { height: TRACK_HEIGHT, borderRadius: radius.pill, backgroundColor: colors.text },
+  // web 端 --ds-player-progress-fill 就是当前强调色
+  fill: { height: TRACK_HEIGHT, borderRadius: radius.pill, backgroundColor: colors.accent },
   labels: { flexDirection: 'row', justifyContent: 'space-between' },
   time: { ...typography.caption, color: colors.textTertiary, fontVariant: ['tabular-nums'] },
 })

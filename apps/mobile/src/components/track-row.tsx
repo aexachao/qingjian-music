@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { Icon, iconSize } from '@/components/icon'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface TrackRowProps {
@@ -27,7 +28,14 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
       accessibilityLabel={`播放 ${track.title}，${artistText}`}
     >
       {leading === 'index' ? (
-        <Text style={[styles.trackNo, playing && styles.playing]}>{playing ? '♪' : (track.trackNo ?? index + 1)}</Text>
+        // 正在播放的那首用声波图标顶掉序号
+        playing ? (
+          <View style={styles.trackNoSlot}>
+            <Icon name="playing" size={iconSize.md} color={colors.playing} />
+          </View>
+        ) : (
+          <Text style={styles.trackNo}>{track.trackNo ?? index + 1}</Text>
+        )
       ) : (
         <CoverImage coverId={track.coverId ?? track.album?.coverId} size={48} borderRadius={radius.sm} />
       )}
@@ -48,9 +56,10 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm + 2 },
   trackNo: { ...typography.footnote, color: colors.textTertiary, width: 28, textAlign: 'center' },
+  trackNoSlot: { width: 28, alignItems: 'center' },
   text: { flex: 1, gap: 2 },
-  title: { ...typography.callout, color: colors.text },
+  title: { ...typography.callout, color: colors.textPrimary },
   subtitle: { ...typography.caption, color: colors.textSecondary },
   duration: { ...typography.caption, color: colors.textTertiary, fontVariant: ['tabular-nums'] },
-  playing: { color: colors.accent },
+  playing: { color: colors.playing },
 })

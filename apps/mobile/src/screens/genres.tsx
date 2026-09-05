@@ -46,7 +46,7 @@ export function GenresScreen() {
 const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md },
-  name: { ...typography.callout, color: colors.text },
+  name: { ...typography.callout, color: colors.textPrimary },
   meta: { ...typography.caption, color: colors.textTertiary },
-  separator: { height: 1, backgroundColor: 'rgba(235,235,245,0.08)' },
+  separator: { height: 1, backgroundColor: colors.borderSubtle },
 })

@@ -3,6 +3,7 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { Link } from 'expo-router'
 import type { Album, Artist, Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, FooterLoader } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -51,7 +52,7 @@ export function SearchScreen() {
   const header = (
     <View style={styles.header}>
       <View style={styles.searchBox}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Icon name="search" size={iconSize.md} color={colors.iconDim} />
         <TextInput
           value={input}
           onChangeText={setInput}
@@ -180,24 +181,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.bgInput,
     borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderInput,
     paddingHorizontal: spacing.md,
   },
-  searchIcon: { fontSize: 14 },
-  input: { flex: 1, paddingVertical: spacing.sm + 2, ...typography.callout, color: colors.text },
+  input: { flex: 1, paddingVertical: spacing.sm + 2, ...typography.callout, color: colors.textPrimary },
   scopes: { flexDirection: 'row', gap: spacing.sm },
   scope: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs + 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.bgCard,
   },
   scopeActive: { backgroundColor: colors.accent },
   scopeLabel: { ...typography.footnote, color: colors.textSecondary },
-  scopeLabelActive: { color: colors.text },
+  scopeLabelActive: { color: colors.textOnAccent },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   rowText: { flex: 1, gap: 2 },
-  rowTitle: { ...typography.callout, color: colors.text },
+  rowTitle: { ...typography.callout, color: colors.textPrimary },
   rowSubtitle: { ...typography.caption, color: colors.textSecondary },
 })

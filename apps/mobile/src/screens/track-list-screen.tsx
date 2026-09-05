@@ -9,7 +9,7 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { spacing } from '@/theme/tokens'
+import { colors, spacing } from '@/theme/tokens'
 
 interface TrackListScreenProps {
   queryKey: QueryKey
@@ -74,5 +74,5 @@ export function TrackListScreen({
 
 const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  separator: { height: 1, marginLeft: 60, backgroundColor: 'rgba(235,235,245,0.08)' },
+  separator: { height: 1, marginLeft: 60, backgroundColor: colors.borderSubtle },
 })

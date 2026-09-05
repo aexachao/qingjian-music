@@ -5,11 +5,11 @@ export default function StackLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.text,
-        headerTitleStyle: { color: colors.text },
+        headerStyle: { backgroundColor: colors.bgPrimary },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: { color: colors.textPrimary },
         headerBackTitle: '返回',
-        contentStyle: { backgroundColor: colors.background },
+        contentStyle: { backgroundColor: colors.bgPrimary },
       }}
     >
       <Stack.Screen name="index" options={{ title: '搜索' }} />

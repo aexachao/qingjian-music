@@ -64,6 +64,6 @@ export function AlbumsScreen() {
 const styles = StyleSheet.create({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   total: { ...typography.caption, color: colors.textTertiary, paddingBottom: spacing.md },
-  name: { ...typography.subhead, color: colors.text, marginTop: spacing.sm },
+  name: { ...typography.subhead, color: colors.textPrimary, marginTop: spacing.sm },
   artist: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
 })

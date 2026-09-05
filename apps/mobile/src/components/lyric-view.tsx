@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
 import type { LyricLine } from '@qj/core-domain'
+import { Icon, iconSize } from '@/components/icon'
 import { useServerSession } from '@/lib/server-session'
 import { usePlayerStore } from '@/player/store'
 import { colors, spacing, typography } from '@/theme/tokens'
@@ -88,7 +89,12 @@ export function LyricView({ trackId, positionMs, onSeek }: LyricViewProps) {
           accessibilityRole={synced ? 'button' : 'text'}
           accessibilityLabel={line.text}
         >
-          <Text style={[styles.line, index === activeIndex && styles.lineActive]}>{line.text || '♪'}</Text>
+          {line.text ? (
+            <Text style={[styles.line, index === activeIndex && styles.lineActive]}>{line.text}</Text>
+          ) : (
+            // 前奏/间奏这类空行用声波图标占位，不用音符字符
+            <Icon name="playing" size={iconSize.lg} color={index === activeIndex ? colors.playing : colors.iconDim} />
+          )}
           {line.translation ? (
             <Text style={[styles.translation, index === activeIndex && styles.translationActive]}>
               {line.translation}
@@ -106,7 +112,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { ...typography.subhead, color: colors.textTertiary },
   line: { ...typography.title, color: colors.textTertiary, lineHeight: 30 },
-  lineActive: { color: colors.text },
+  lineActive: { color: colors.textPrimary },
   translation: { ...typography.subhead, color: colors.textTertiary, marginTop: spacing.xs },
   translationActive: { color: colors.textSecondary },
 })

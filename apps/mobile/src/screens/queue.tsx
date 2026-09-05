@@ -3,12 +3,13 @@ import { Link, useRouter } from 'expo-router'
 import ReorderableList, { useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { QueueItem } from '@qj/core-domain'
+import { Icon, IconButton, iconSize } from '@/components/icon'
 import { formatDuration } from '@/components/track-row'
 import { clearQueue, moveInQueue, removeFromQueue, skipToIndex } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
-/** 播放队列页：点行跳播、长按拖动排序、✕ 移除，顶部可跳回来源 */
+/** 播放队列页：点行跳播、长按拖动排序、行尾图标移除，顶部可跳回来源 */
 export function QueueScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
@@ -30,9 +31,13 @@ export function QueueScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="收起队列">
-          <Text style={styles.handle}>▾</Text>
-        </Pressable>
+        <IconButton
+          name="chevronDown"
+          size={iconSize.lg}
+          color={colors.iconMid}
+          onPress={() => router.back()}
+          accessibilityLabel="收起队列"
+        />
         <View style={styles.headerCenter}>
           <Text style={styles.title}>播放队列</Text>
           <Text numberOfLines={1} style={styles.subtitle}>
@@ -57,6 +62,7 @@ export function QueueScreen() {
           accessibilityRole="button"
           accessibilityLabel="清空队列"
         >
+          {/* 破坏性操作保留中文文字按钮，不用图标 */}
           <Text style={styles.clear}>清空</Text>
         </Pressable>
       </View>
@@ -64,7 +70,8 @@ export function QueueScreen() {
       {sourceHref ? (
         <Link href={sourceHref} asChild>
           <Pressable style={styles.sourceButton} accessibilityRole="button" accessibilityLabel="查看播放来源">
-            <Text style={styles.sourceLabel}>查看来源 ›</Text>
+            <Text style={styles.sourceLabel}>查看来源</Text>
+            <Icon name="chevronRight" size={iconSize.sm} color={colors.accent} />
           </Pressable>
         </Link>
       ) : null}
@@ -95,26 +102,33 @@ function QueueRow({ item, rowIndex, playing }: { item: QueueItem; rowIndex: numb
       accessibilityRole="button"
       accessibilityLabel={`播放 ${item.title}，长按可拖动排序`}
     >
-      <Text style={[styles.rowTitle, playing && styles.rowTitleActive]} numberOfLines={1}>
-        {playing ? '♪ ' : ''}
-        {item.title}
-      </Text>
-      <Text style={styles.rowMeta} numberOfLines={1}>
-        {item.artistText}
-      </Text>
+      <View style={styles.rowMain}>
+        <View style={styles.rowTitleLine}>
+          {/* 正在播放的标记 */}
+          {playing ? <Icon name="playing" size={iconSize.sm} color={colors.playing} /> : null}
+          <Text style={[styles.rowTitle, playing && styles.rowTitleActive]} numberOfLines={1}>
+            {item.title}
+          </Text>
+        </View>
+        <Text style={styles.rowMeta} numberOfLines={1}>
+          {item.artistText}
+        </Text>
+      </View>
       <View style={styles.rowRight}>
         <Text style={styles.rowDuration}>{formatDuration(item.durationMs)}</Text>
         {playing ? (
-          <Text style={styles.handleIcon}>☰</Text>
+          // 当前播放行只给拖动把手（长按整行拖动），其余行给移除按钮：二选一，不同时出现
+          <View style={styles.dragSlot}>
+            <Icon name="drag" size={iconSize.md} color={colors.iconDim} />
+          </View>
         ) : (
-          <Pressable
+          <IconButton
+            name="close"
+            size={iconSize.md}
+            color={colors.iconDim}
             onPress={() => void removeFromQueue(rowIndex)}
-            hitSlop={10}
-            accessibilityRole="button"
             accessibilityLabel={`从队列移除 ${item.title}`}
-          >
-            <Text style={styles.remove}>✕</Text>
-          </Pressable>
+          />
         )}
       </View>
     </Pressable>
@@ -122,7 +136,7 @@ function QueueRow({ item, rowIndex, playing }: { item: QueueItem; rowIndex: numb
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.bgPrimary },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -131,32 +145,42 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   headerCenter: { flex: 1, alignItems: 'center', gap: 2 },
-  handle: { fontSize: 22, color: colors.textSecondary, width: 36 },
-  title: { ...typography.headline, color: colors.text },
+  title: { ...typography.headline, color: colors.textPrimary },
   subtitle: { ...typography.caption, color: colors.textTertiary },
-  clear: { ...typography.footnote, color: colors.accent, width: 36, textAlign: 'right' },
+  /** 宽度与左侧图标按钮的 44 命中区对齐，标题才是真正居中的 */
+  clear: { ...typography.footnote, color: colors.accent, width: 44, textAlign: 'right' },
   sourceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radius.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.bgCard,
   },
   sourceLabel: { ...typography.footnote, color: colors.accent },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
   empty: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   row: {
-    paddingVertical: spacing.sm + 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    // 固定最小高度：让「拖动把手行」和「移除按钮行」等高，拖动排序时不会跳
+    minHeight: 56,
+    paddingVertical: spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(235,235,245,0.08)',
-    backgroundColor: colors.background,
+    borderBottomColor: colors.borderSubtle,
+    backgroundColor: colors.bgPrimary,
   },
-  rowTitle: { ...typography.callout, color: colors.text, paddingRight: 76 },
-  rowTitleActive: { color: colors.accent },
-  rowMeta: { ...typography.caption, color: colors.textSecondary, paddingRight: 76, marginTop: 2 },
-  rowRight: { position: 'absolute', right: 0, top: spacing.sm + 2, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rowMain: { flex: 1, gap: 2 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  rowTitle: { ...typography.callout, color: colors.textPrimary, flexShrink: 1 },
+  rowTitleActive: { color: colors.playing },
+  rowMeta: { ...typography.caption, color: colors.textSecondary },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   rowDuration: { ...typography.caption, color: colors.textTertiary },
-  handleIcon: { fontSize: 15, color: colors.textTertiary },
-  remove: { fontSize: 15, color: colors.textTertiary },
+  /** 把手占位撑到和 IconButton 一样的 44×44，两种状态下时长文字不会左右错位 */
+  dragSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 })

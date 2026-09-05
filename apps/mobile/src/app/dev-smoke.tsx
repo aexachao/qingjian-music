@@ -86,8 +86,8 @@ export default function DevSmokeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, gap: spacing.sm, paddingTop: spacing.xxl * 2 },
-  title: { ...typography.title, color: colors.text },
+  title: { ...typography.title, color: colors.textPrimary },
   line: { ...typography.footnote, color: colors.textSecondary },
 })

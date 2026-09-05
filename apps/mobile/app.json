@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "qingjianmusic",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#14121B",
+    "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
       "supportsTablet": false,
@@ -24,7 +24,7 @@
     "android": {
       "package": "com.chrisli.music",
       "adaptiveIcon": {
-        "backgroundColor": "#14121B",
+        "backgroundColor": "#0f0f0f",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -40,7 +40,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#14121B",
+          "backgroundColor": "#0f0f0f",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
+import { Icon, iconSize } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
 import { clearArtworkCache } from '@/player/artwork'
@@ -59,7 +60,11 @@ export function SettingsScreen() {
                 {server.username} · {server.baseUrl}
               </Text>
             </View>
-            <Text style={styles.check}>{server.id === connection?.id ? '✓' : '›'}</Text>
+            {server.id === connection?.id ? (
+              <Icon name="check" size={iconSize.md} color={colors.accent} />
+            ) : (
+              <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
+            )}
           </Pressable>
         ))}
         <Pressable
@@ -68,7 +73,10 @@ export function SettingsScreen() {
           accessibilityRole="button"
           accessibilityLabel="添加服务器"
         >
-          <Text style={styles.action}>添加服务器</Text>
+          <View style={styles.actionRow}>
+            <Icon name="add" size={iconSize.sm} color={colors.accent} />
+            <Text style={styles.action}>添加服务器</Text>
+          </View>
         </Pressable>
       </View>
 
@@ -83,7 +91,10 @@ export function SettingsScreen() {
           accessibilityRole="button"
           accessibilityLabel="清理封面缓存"
         >
-          <Text style={styles.action}>清理封面缓存</Text>
+          <View style={styles.actionRow}>
+            <Icon name="trash" size={iconSize.sm} color={colors.accent} />
+            <Text style={styles.action}>清理封面缓存</Text>
+          </View>
         </Pressable>
       </View>
 
@@ -108,7 +119,10 @@ export function SettingsScreen() {
           accessibilityRole="button"
           accessibilityLabel="退出登录"
         >
-          <Text style={styles.destructive}>退出登录</Text>
+          <View style={styles.actionRow}>
+            <Icon name="signOut" size={iconSize.sm} color={colors.danger} />
+            <Text style={styles.destructive}>退出登录</Text>
+          </View>
         </Pressable>
       </View>
 
@@ -131,7 +145,7 @@ function Row({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.sm },
   sectionTitle: { ...typography.caption, color: colors.textTertiary, marginTop: spacing.md, marginLeft: spacing.xs },
-  card: { backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
+  card: { backgroundColor: colors.bgCard, borderRadius: radius.md, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -140,12 +154,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
-  rowBorder: { borderTopWidth: 1, borderTopColor: 'rgba(235,235,245,0.08)' },
+  rowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   rowText: { flex: 1, gap: 2 },
-  label: { ...typography.callout, color: colors.text },
+  label: { ...typography.callout, color: colors.textPrimary },
   value: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
-  check: { ...typography.headline, color: colors.accent },
+  /** 「图标 + 文字」的操作行：破坏性操作也必须留着中文标签 */
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   action: { ...typography.callout, color: colors.accent },
-  destructive: { ...typography.callout, color: '#FF453A' },
+  destructive: { ...typography.callout, color: colors.danger },
   footer: { ...typography.caption, color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xl },
 })

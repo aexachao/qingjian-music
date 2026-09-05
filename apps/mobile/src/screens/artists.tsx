@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
   total: { ...typography.caption, color: colors.textTertiary, paddingBottom: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   text: { flex: 1, gap: 2 },
-  name: { ...typography.callout, color: colors.text },
+  name: { ...typography.callout, color: colors.textPrimary },
   meta: { ...typography.caption, color: colors.textSecondary },
-  separator: { height: 1, marginLeft: 68, backgroundColor: 'rgba(235,235,245,0.08)' },
+  separator: { height: 1, marginLeft: 68, backgroundColor: colors.borderSubtle },
 })

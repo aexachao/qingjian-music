@@ -5,7 +5,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
+import type { RepeatMode } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { IconButton, iconSize, type IconName } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { ProgressBar } from '@/components/progress-bar'
 import { useToggleFavorite } from '@/lib/favorites'
@@ -13,7 +15,12 @@ import { cycleRepeat, skipToNextSafe, skipToPreviousSmart, togglePlay, toggleShu
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
-const REPEAT_LABEL = { off: '⇢', queue: '🔁', one: '🔂' } as const
+/** 三种循环模式对应的图标、颜色与读屏文案：关闭是灰的，开启用强调色 */
+const REPEAT_MODES: Record<RepeatMode, { icon: IconName; color: string; text: string }> = {
+  off: { icon: 'repeat', color: colors.iconDim, text: '关闭' },
+  queue: { icon: 'repeat', color: colors.accent, text: '列表循环' },
+  one: { icon: 'repeatOne', color: colors.accent, text: '单曲循环' },
+}
 
 /** 正在播放页：封面左右滑动切歌、歌词整屏切换，交互对齐 Apple Music */
 export default function PlayerScreen() {
@@ -30,6 +37,7 @@ export default function PlayerScreen() {
 
   const artSize = Math.min(width - spacing.xl * 2, 420)
   const translateX = useSharedValue(0)
+  const repeatMode = REPEAT_MODES[playMode.repeat]
 
   const commitSwipe = useCallback((direction: 1 | -1) => {
     if (direction === 1) void skipToNextSafe()
@@ -66,13 +74,18 @@ export default function PlayerScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="收起播放页">
-          <Text style={styles.handle}>▾</Text>
-        </Pressable>
+        <IconButton
+          name="chevronDown"
+          size={iconSize.lg}
+          color={colors.iconMid}
+          onPress={() => router.back()}
+          accessibilityLabel="收起播放页"
+        />
         <Text numberOfLines={1} style={styles.source}>
           {source?.label ?? '正在播放'}
         </Text>
-        <View style={styles.handleSpacer} />
+        {/* 与左侧收起按钮同宽，标题才是真正居中的 */}
+        <View style={styles.headerSpacer} />
       </View>
 
       {showLyrics ? (
@@ -108,85 +121,96 @@ export default function PlayerScreen() {
       />
 
       <View style={styles.controls}>
-        <Pressable onPress={() => void skipToPreviousSmart()} hitSlop={12} accessibilityRole="button" accessibilityLabel="上一首">
-          <Text style={styles.sideControl}>⏮</Text>
-        </Pressable>
-        <Pressable
+        <IconButton
+          name="previous"
+          size={iconSize.xl}
+          filled
+          color={colors.iconMid}
+          onPress={() => void skipToPreviousSmart()}
+          accessibilityLabel="上一首"
+        />
+        {/* 主控制：图标只到 xl，靠圆形底色把播放/暂停做成视觉重心；传输控制统一实心 */}
+        <IconButton
+          name={playing ? 'pause' : 'play'}
+          size={iconSize.xl}
+          filled
+          color={colors.textPrimary}
           onPress={() => void togglePlay()}
-          hitSlop={16}
-          accessibilityRole="button"
           accessibilityLabel={playing ? '暂停' : '播放'}
           style={styles.playButton}
-        >
-          <Text style={styles.playIcon}>{playing ? '⏸' : '▶'}</Text>
-        </Pressable>
-        <Pressable onPress={() => void skipToNextSafe()} hitSlop={12} accessibilityRole="button" accessibilityLabel="下一首">
-          <Text style={styles.sideControl}>⏭</Text>
-        </Pressable>
+        />
+        <IconButton
+          name="next"
+          size={iconSize.xl}
+          filled
+          color={colors.iconMid}
+          onPress={() => void skipToNextSafe()}
+          accessibilityLabel="下一首"
+        />
       </View>
 
       <View style={styles.footer}>
-        <Pressable
+        <IconButton
+          name="heart"
+          size={iconSize.lg}
+          color={current.isFavorite ? colors.like : colors.iconMid}
+          filled={current.isFavorite}
           onPress={() => {
             void toggleFavorite(current.trackId, !current.isFavorite)
           }}
-          accessibilityRole="button"
           accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
-        >
-          <Text style={[styles.footerIcon, current.isFavorite && styles.footerIconActive]}>
-            {current.isFavorite ? '♥' : '♡'}
-          </Text>
-        </Pressable>
-        <Pressable
+        />
+        <IconButton
+          name="shuffle"
+          size={iconSize.lg}
+          color={playMode.shuffle ? colors.accent : colors.iconDim}
           onPress={() => void toggleShuffle()}
-          accessibilityRole="button"
           accessibilityLabel={playMode.shuffle ? '关闭随机播放' : '开启随机播放'}
-        >
-          <Text style={[styles.footerIcon, playMode.shuffle && styles.footerIconActive]}>🔀</Text>
-        </Pressable>
+        />
+        {/* 「歌词」是含义不通用的开关，刻意保留中文文字标签，不换图标 */}
         <Pressable
           onPress={() => setShowLyrics((value) => !value)}
           accessibilityRole="button"
           accessibilityLabel={showLyrics ? '显示封面' : '显示歌词'}
+          style={styles.lyricsButton}
         >
-          <Text style={[styles.footerLabel, showLyrics && styles.footerIconActive]}>歌词</Text>
+          <Text style={[styles.footerLabel, showLyrics && styles.footerLabelActive]}>歌词</Text>
         </Pressable>
-        <Pressable
+        <IconButton
+          name={repeatMode.icon}
+          size={iconSize.lg}
+          color={repeatMode.color}
           onPress={() => void cycleRepeat()}
-          accessibilityRole="button"
-          accessibilityLabel="切换循环模式"
-        >
-          <Text style={[styles.footerIcon, playMode.repeat !== 'off' && styles.footerIconActive]}>
-            {REPEAT_LABEL[playMode.repeat]}
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => router.push('/queue')} accessibilityRole="button" accessibilityLabel="查看播放队列">
-          <Text style={styles.footerIcon}>☰</Text>
-        </Pressable>
+          accessibilityLabel={`切换循环模式，当前${repeatMode.text}`}
+        />
+        <IconButton
+          name="queue"
+          size={iconSize.lg}
+          color={colors.iconMid}
+          onPress={() => router.push('/queue')}
+          accessibilityLabel="查看播放队列"
+        />
       </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl, gap: spacing.lg },
+  container: { flex: 1, backgroundColor: colors.bgPrimary, paddingHorizontal: spacing.xl, gap: spacing.lg },
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   empty: { ...typography.subhead, color: colors.textSecondary },
   link: { ...typography.headline, color: colors.accent },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  handle: { fontSize: 22, color: colors.textSecondary, width: 32 },
-  handleSpacer: { width: 32 },
+  headerSpacer: { width: 44 },
   source: { ...typography.footnote, color: colors.textSecondary, flex: 1, textAlign: 'center' },
   artWrapper: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   meta: { gap: spacing.xs },
-  title: { ...typography.title, color: colors.text },
+  title: { ...typography.title, color: colors.textPrimary },
   artist: { ...typography.callout, color: colors.textSecondary },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxl },
-  sideControl: { fontSize: 30, color: colors.text },
-  playButton: { width: 72, alignItems: 'center' },
-  playIcon: { fontSize: 44, color: colors.text },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg },
-  footerIcon: { fontSize: 20, color: colors.textTertiary },
-  footerLabel: { ...typography.subhead, color: colors.textTertiary },
-  footerIconActive: { color: colors.accent },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xl },
+  playButton: { width: 64, height: 64, borderRadius: radius.pill, backgroundColor: colors.bgButtonSecondary },
+  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  lyricsButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  footerLabel: { ...typography.subhead, color: colors.textSecondary },
+  footerLabelActive: { color: colors.accent },
 })

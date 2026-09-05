@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
+import { IconButton, iconSize } from '@/components/icon'
 import { skipToNextSafe, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
@@ -30,17 +31,23 @@ export function MiniPlayer() {
           {current.artistText}
         </Text>
       </View>
-      <Pressable
-        hitSlop={12}
+      {/* 次级控制用 lg，命中区由 IconButton 撑到 44×44；传输控制统一实心 */}
+      <IconButton
+        name={playing ? 'pause' : 'play'}
+        size={iconSize.lg}
+        filled
+        color={colors.iconBright}
         onPress={() => void togglePlay()}
-        accessibilityRole="button"
         accessibilityLabel={playing ? '暂停' : '播放'}
-      >
-        <Text style={styles.control}>{playing ? '⏸' : '▶'}</Text>
-      </Pressable>
-      <Pressable hitSlop={12} onPress={() => void skipToNextSafe()} accessibilityRole="button" accessibilityLabel="下一首">
-        <Text style={styles.control}>⏭</Text>
-      </Pressable>
+      />
+      <IconButton
+        name="next"
+        size={iconSize.lg}
+        filled
+        color={colors.iconMid}
+        onPress={() => void skipToNextSafe()}
+        accessibilityLabel="下一首"
+      />
     </Pressable>
   )
 }
@@ -49,15 +56,15 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
+    gap: spacing.sm,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.xs,
     paddingVertical: spacing.sm,
     marginHorizontal: spacing.md,
     borderRadius: radius.lg,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.bgButtonSecondary,
   },
   text: { flex: 1, gap: 2 },
-  title: { ...typography.subhead, color: colors.text },
+  title: { ...typography.subhead, color: colors.textPrimary },
   artist: { ...typography.caption, color: colors.textSecondary },
-  control: { fontSize: 20, color: colors.text, paddingHorizontal: spacing.xs },
 })
