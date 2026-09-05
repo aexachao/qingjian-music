@@ -12,7 +12,7 @@ App 的视觉不自己配色，全部对照 web 端的 `--ds-*` 设计变量移�
 | 主题作用域 | `body,:root,:root[data-theme=dark]`（暗）/ `:root[data-theme=light]`（亮）/ 播放器根节点 `.music-player-root(.dark)` |
 | 字体 | `--ds-font-family-base: Montserrat, -apple-system, …`，NAS 自带 4 个字重 TTF |
 | 图标 | **lucide-react**（bundle 里的 `lucide` className 工厂 + `check` 图标路径 `M20 6 9 17l-5-5` 可确认） |
-| 强调色 | 7 个可选：purple `#c934e1`（默认）/ red `#f62c55` / pink `#f05672` / orange `#fc5e25` / yellow `#f8bf28` / green `#6bab45` / blue `#1b73fb` |
+| 强调色 | 7 个可选：purple `#c934e1`（CSS 出厂默认）/ **red `#f62c55`（本项目采用：飞牛音乐后台的主题色）** / pink `#f05672` / orange `#fc5e25` / yellow `#f8bf28` / green `#6bab45` / blue `#1b73fb` |
 | 派生关系 | `--ds-state-playing-color`、`--ds-state-like-color`、`--ds-player-progress-fill`、`--ds-bg-fab` 都 = `--ds-accent-current` |
 
 ## 提取方法（可重复）
@@ -31,9 +31,13 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 - `apps/mobile/src/theme/tokens.ts`：`palette.dark` / `palette.light` 逐个对应 `--ds-*`，
   变量名沿用 web 端语义（`bgCard`↔`--ds-bg-card`、`borderDefault`↔`--ds-border-default` …）。
 - 颜色保留 web 端的 8 位十六进制（`#ffffff14` = 白 8%），RN 原生支持，方便和 CSS 逐字比对。
-- `accents` + `DEFAULT_ACCENT`：与 `[data-theme-accent=*]` 对齐，首版固定默认紫色，主题切换留在 M5。
-- `fonts`：Montserrat 四个字重（`@expo-google-fonts/montserrat`，OFL 授权）。中文字形 Montserrat 没有，
-  系统会自动回落到 PingFang / Noto Sans CJK —— 与 web 端表现一致。
+- `accents` + `DEFAULT_ACCENT`：与 `[data-theme-accent=*]` 对齐，**固定 red `#f62c55`**（飞牛音乐后台主题色），
+  强调色切换留到主题设置一起做。注意 `--ds-special-danger` 与 `--ds-accent-red` 同值，web 端亦然，
+  破坏性操作靠文案（「退出登录」「清空」）而不是靠颜色区分。
+- `fonts`：Montserrat 四个字重，文件在 `apps/mobile/assets/fonts/`（OFL 授权，许可证同目录 `OFL.txt`），
+  由 `expo-font` 配置插件在构建期嵌入，族名用 TTF 的 PostScript 名（`Montserrat-Regular` 等）。
+  **改了字体配置必须重新 `npx expo prebuild --platform ios`**，直接 `expo run:ios` 不会重跑配置插件。
+  中文字形 Montserrat 没有，系统会自动回落到 PingFang / Noto Sans CJK —— 与 web 端表现一致。
 - 图标：`apps/mobile/src/components/icon.tsx` 用 `lucide-react-native`（与 web 端同一套 lucide 图标）。
   领域层 `BrowseNode.icon` 仍存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射到 lucide。
 

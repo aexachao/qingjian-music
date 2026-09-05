@@ -24,8 +24,12 @@ export const accents = {
 
 export type AccentName = keyof typeof accents
 
-/** web 端默认强调色：`:root,body { --ds-accent-current: var(--ds-accent-purple) }` */
-export const DEFAULT_ACCENT: AccentName = 'purple'
+/**
+ * 强调色固定为飞牛音乐后台的主题红 `--ds-accent-red`。
+ * （web 端 `:root,body` 里的出厂默认值是 purple，用户实例切到了 red，App 直接跟随主题色。）
+ * 注意：这个红和 `--ds-special-danger` 是同一个值，web 端本身也是这样，破坏性操作靠文案区分。
+ */
+export const DEFAULT_ACCENT: AccentName = 'red'
 
 const darkPalette = {
   // --- 背景 ---
@@ -155,15 +159,18 @@ export const colors = {
 } as const
 
 /**
- * 字体：web 端 `--ds-font-family-base` 首选 Montserrat（NAS 自带 4 个字重）。
+ * 字体：web 端 `--ds-font-family-base` 首选 Montserrat（NAS 自带同样 4 个字重）。
  * 中文字形 Montserrat 没有，iOS/Android 会自动回落到系统中文字体——
- * 和 web 端的表现一致：拉丁字母与数字用 Montserrat，中文用系统字体。
+ * 和 web 端表现一致：拉丁字母与数字用 Montserrat，中文用系统字体。
+ *
+ * 字体由 `expo-font` 配置插件在构建期嵌入（见 app.json），族名就是 TTF 里的 PostScript 名，
+ * 所以不需要运行时 loadAsync，也不用为字体卡启动图。
  */
 export const fonts = {
-  regular: 'Montserrat_400Regular',
-  medium: 'Montserrat_500Medium',
-  semibold: 'Montserrat_600SemiBold',
-  bold: 'Montserrat_700Bold',
+  regular: 'Montserrat-Regular',
+  medium: 'Montserrat-Medium',
+  semibold: 'Montserrat-SemiBold',
+  bold: 'Montserrat-Bold',
 } as const
 
 export const spacing = {

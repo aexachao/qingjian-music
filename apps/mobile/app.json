@@ -38,6 +38,17 @@
     "plugins": [
       "expo-router",
       [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Montserrat-Regular.ttf",
+            "./assets/fonts/Montserrat-Medium.ttf",
+            "./assets/fonts/Montserrat-SemiBold.ttf",
+            "./assets/fonts/Montserrat-Bold.ttf"
+          ]
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0f0f0f",

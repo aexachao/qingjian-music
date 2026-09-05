@@ -14,7 +14,6 @@
     "test": "vitest run test/unit"
   },
   "dependencies": {
-    "@expo-google-fonts/montserrat": "^0.4.2",
     "@expo/ui": "~57.0.16",
     "@qj/core-domain": "workspace:*",
     "@qj/provider-api": "workspace:*",
