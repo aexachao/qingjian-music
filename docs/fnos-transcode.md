@@ -4,6 +4,35 @@
 > **素材**：`/Users/chrisli/Documents/dev/qingjian-music/.cache/webui/*.js`（Vite/Rolldown 产物，变量名已混淆）。
 > **偏移**：文中 `@数字` 为该缓存文件的**字节偏移**，便于用 `python3 -c` 或编辑器跳转复核。片段均为原文逐字节摘录（≤200 字符）。
 
+## 0'. 实测校正（对着真实服务器验证，优先于下文的静态推断）
+
+下文是纯静态逆向的结论；这一节是后来对着 `192.168.2.100:5666` 实际跑出来的，**冲突时以这里为准**。
+
+| 项目 | 实测结果 |
+|---|---|
+| `POST /track/transcode` 响应 | `{status:'success', errno:'', errmsg:'', hlsTime:2, url:'/music/api/v1/track/hls/<guid>/preset.m3u8'}`——**响应直接给播放列表地址**，不必自己拼 |
+| `output.bitrate` | **服务端忽略**。128 与 320 拿到的分片字节数完全一致（分片 0 = 83852 B，分片 5 = 255183 B，96 片），输出恒为无损 FLAC（约 1000 kbps） |
+| `output.codec` | 只认 `flac`。传 `aac` 返回 `status:'failed', errno:8192` |
+| 播放列表 | `#EXT-X-VERSION:7` + `PLAYLIST-TYPE:VOD` + `#EXT-X-MAP:URI="init.mp4"` + 2 秒分片 + `#EXT-X-ENDLIST`（完整 VOD，不是 live） |
+| 分片格式 | fMP4：`init.mp4` 是 `video/mp4`（内含 `fLaC`/`dfLa` box），分片是 `video/iso.segment` |
+| 鉴权 | m3u8 与分片都必须带 `Authorization`，不带一律 401。iOS 侧靠 RNTP 把 headers 塞进 `AVURLAssetHTTPHeaderFieldsKey`，实测能透传到分片请求 |
+| 任务回收 | 断掉心跳约一分钟后分片返回 **410**，此时心跳返回 `status:'failed', errmsg:'playLink not found'`；重新 POST 同一个 guid 即可复活 |
+| 心跳 | `{guid, timestamp}`，timestamp 是播放位置秒数、必须严格递增；成功返回 `status:'success'` |
+| quit | `{guid}` → `status:'success'` |
+
+推论：**飞牛的转码只有一档**（无损 FLAC），所以「音质 / 省流量」设置在这个后端上没有意义——
+`PlayQuality` 仍留在契约里给 Emby/Jellyfin 这类真支持码率的后端用，飞牛这边只做「原生解不了才转码」的兜底。
+
+### 客户端侧的坑（RNTP / AVPlayer）
+
+`setupPlayer({minBuffer})` 在 iOS 上会被 RNTP 换算成 SwiftAudioEx 的 `bufferDuration`，
+而 `bufferDuration > 0` 会连带把 `automaticallyWaitsToMinimizeStalling` 关掉。
+关掉之后 **HLS 会永久停在 0 秒**：AVPlayer 报 `readyToPlay`、`isPlaybackLikelyToKeepUp = true`、
+缓冲区也满了（日志里能看到 `StreamBufferFull`、`substream 0 has received 16.09`），但时基不启动
+（`timebase signalled err=-12753`）。直推的本地/网络文件不受影响，所以这个坑只在转码路径上炸。
+用一个 25 行的 AVFoundation 探针可以稳定复现：同一个 m3u8，只翻这个开关，关 = 卡死、开 = 正常。
+结论：缓冲参数只发给 Android。
+
 ## 0. 文件别名与定位方法
 
 | 别名 | 文件 | 内容 |
