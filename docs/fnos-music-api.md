@@ -69,6 +69,35 @@ web audio cache: Cache Storage dir "music-cache", 1.2GB / 20 entries, cache key 
 ## permissions
 member role: /settings/user and /settings/server -> 100003 forbidden, admin only. Library/task/user mgmt = admin only.
 
+## playlist 写操作（2026-09-06 静态分析 + 只读验证）
+
+读接口（已实测）：
+- GET /playlist/list（前端不传分页）-> {list, total}
+- GET /playlist/detail?guid=
+- GET /playlist/batch-detail?guids=<逗号分隔，前端 100/批> -> [{guid, trackCount}]
+- GET /track/playlist-detail/list?playlistGUID=&page=&size=&sort=trackAddedAt,desc
+- GET /playlist/purge-track-count?guid=
+
+写接口（从 web 端 JS 的路径表提取，**未实测**，避免污染真实数据；POST 走 JSON body）：
+- POST /playlist/create {name, coverId}          name 长度 1-32，歌单上限 99999
+- POST /playlist/edit {guid, name, coverId}
+- POST /playlist/delete {guid}
+- POST /playlist/add-track {guid, trackGUIDs[]}
+- POST /playlist/remove-track {guid, trackGUIDs[]}
+- POST /playlist/purge-track {guid}
+- POST /static/cover/playlist  multipart file（<=5MB, jpg/jpeg/png/webp）-> {coverId}
+
+错误码：160001 PlaylistNameExists / 160002 PlaylistHitMaxCount / 100002 InvalidArgs / 100005 NotFound。
+权限：web 端 canEdit/canDelete/canPurgeTracks 硬编码 true，member 角色也能读写歌单（AdminRequired=100003 只用于库/用户管理）。
+
+**没有**任何 reorder / move-track / sort / import / export / m3u 端点：歌单内顺序只由
+/track/playlist-detail/list 的 sort（trackAddedAt 等）决定，web 端也没有拖拽排序。
+所以 App 端「导入歌单」只能是：create 建歌单 -> 用 /search/track 或 /track/list 匹配出 trackGUID
+-> 分批 add-track（顺序靠 trackAddedAt 递增近似保留，无法真正持久化手工顺序）。
+
+写路径无法用 GET 探测存在性：nginx 的 SPA fallback 对任何未命中路由都返回 index.html（200 HTML），
+OPTIONS 也一律 200，所以只有真发 POST 才能确认——刻意没做。
+
 ## client mapping (this repo)
 Endpoint table: packages/provider-fnos/src/endpoints.ts (only place allowed to hold endpoint strings)
 Response schemas: packages/provider-fnos/src/schemas.ts (zod, tolerant nullish)
