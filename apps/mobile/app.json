@@ -49,6 +49,12 @@
         }
       ],
       [
+        "./plugins/with-ios-signing",
+        {
+          "teamId": "4NJM425J3B"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0f0f0f",
