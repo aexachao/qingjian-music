@@ -4,6 +4,7 @@ import ReorderableList, { useReorderableDrag, type ReorderableListReorderEvent }
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'
+import { LivePlayingBars } from '@/components/playing-bars'
 import { formatDuration } from '@/components/track-row'
 import { clearQueue, moveInQueue, removeFromQueue, skipToIndex } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
@@ -32,17 +33,33 @@ export function QueueScreen() {
     <View style={[styles.container, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
         <IconButton
-          name="chevronDown"
+          name="back"
           size={iconSize.lg}
           color={colors.iconMid}
           onPress={() => router.back()}
-          accessibilityLabel="收起队列"
+          accessibilityLabel="返回"
         />
         <View style={styles.headerCenter}>
           <Text style={styles.title}>播放队列</Text>
-          <Text numberOfLines={1} style={styles.subtitle}>
-            {source?.label ?? '正在播放'} · {queue.length} 首
-          </Text>
+          {/* 来源就挂在副标题上：有来源可跳时右侧带箭头，点了进对应的二级页面 */}
+          {sourceHref ? (
+            <Link href={sourceHref} asChild>
+              <Pressable
+                style={styles.sourceLine}
+                accessibilityRole="button"
+                accessibilityLabel={`查看来源：${source?.label ?? ''}`}
+              >
+                <Text numberOfLines={1} style={styles.subtitle}>
+                  {source?.label ?? '正在播放'} · {queue.length} 首
+                </Text>
+                <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
+              </Pressable>
+            </Link>
+          ) : (
+            <Text numberOfLines={1} style={styles.subtitle}>
+              {source?.label ?? '正在播放'} · {queue.length} 首
+            </Text>
+          )}
         </View>
         <Pressable
           onPress={() =>
@@ -66,15 +83,6 @@ export function QueueScreen() {
           <Text style={styles.clear}>清空</Text>
         </Pressable>
       </View>
-
-      {sourceHref ? (
-        <Link href={sourceHref} asChild>
-          <Pressable style={styles.sourceButton} accessibilityRole="button" accessibilityLabel="查看播放来源">
-            <Text style={styles.sourceLabel}>查看来源</Text>
-            <Icon name="chevronRight" size={iconSize.sm} color={colors.accent} />
-          </Pressable>
-        </Link>
-      ) : null}
 
       <ReorderableList
         data={queue}
@@ -104,8 +112,8 @@ function QueueRow({ item, rowIndex, playing }: { item: QueueItem; rowIndex: numb
     >
       <View style={styles.rowMain}>
         <View style={styles.rowTitleLine}>
-          {/* 正在播放的标记 */}
-          {playing ? <Icon name="playing" size={iconSize.sm} color={colors.playing} /> : null}
+          {/* 正在播放的标记：跳动的律动条，暂停时停住 */}
+          {playing ? <LivePlayingBars size={iconSize.sm} /> : null}
           <Text style={[styles.rowTitle, playing && styles.rowTitleActive]} numberOfLines={1}>
             {item.title}
           </Text>
@@ -149,18 +157,8 @@ const styles = StyleSheet.create({
   subtitle: { ...typography.caption, color: colors.textTertiary },
   /** 宽度与左侧图标按钮的 44 命中区对齐，标题才是真正居中的 */
   clear: { ...typography.footnote, color: colors.accent, width: 44, textAlign: 'right' },
-  sourceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bgCard,
-  },
-  sourceLabel: { ...typography.footnote, color: colors.accent },
+  /** 副标题 + 箭头一行，整行可点跳来源 */
+  sourceLine: { flexDirection: 'row', alignItems: 'center', gap: 2, maxWidth: '100%' },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
   empty: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   row: {

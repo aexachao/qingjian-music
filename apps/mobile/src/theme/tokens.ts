@@ -76,6 +76,15 @@ const darkPalette = {
   playerTextSecondary: '#ffffff59',
   playerGlassBg: '#00000099',
   playerGlassBorder: '#ffffff1f',
+  /**
+   * 悬浮条（迷你播放器）的两个底色。web 端是 backdrop-filter 毛玻璃，
+   * RN 没有对应能力，所以：iOS 用 BlurView 打底再叠 Blur 这一层，
+   * Android 直接用 Solid 那一层。两个值都是把 web 的半透明色压到
+   * 页面底色 bgPrimary 上算出来的，目的是**不透背景**：
+   * 之前直接用 bgButtonSecondary（白 10%），列表内容会从条底下透出来。
+   */
+  bgFloatingBlur: '#18181bd9',
+  bgFloatingSolid: '#1f1f23',
   // --- 语义色 ---
   danger: '#f62c55',
   success: '#6bab45',
@@ -133,6 +142,8 @@ const lightPalette: Palette = {
   playerTextSecondary: '#00000059',
   playerGlassBg: '#ffffffcc',
   playerGlassBorder: '#0000001f',
+  bgFloatingBlur: '#ffffffd9',
+  bgFloatingSolid: '#f4f4f6',
   danger: '#f62c55',
   success: '#6bab45',
   warning: '#f8bf28',

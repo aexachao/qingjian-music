@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import TrackPlayer, { Event, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
+import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
 import {
   ensureTranscodeForIndex,
@@ -9,8 +10,8 @@ import {
   rememberProvider,
   schedulePrefetch,
 } from './controller'
-import { ensurePlayer } from './setup'
-import { usePlayerStore } from './store'
+import { ensurePlayer, setLikeState } from './setup'
+import { selectCurrent, usePlayerStore } from './store'
 import { setSessionLostHandler } from './transcode-session'
 
 /** RNTP 偶尔会为同一次切歌连发两次事件，同一首这个时间窗内只上报一次 */
@@ -23,7 +24,16 @@ const REPORT_DEDUPE_MS = 5_000
 export function PlayerBridge() {
   const { provider, connection } = useServerSession()
   const queryClient = useQueryClient()
+  const toggleFavorite = useToggleFavorite()
+  const isFavorite = usePlayerStore(selectCurrent)?.isFavorite ?? false
   const lastReport = useRef<{ qid: string; at: number } | null>(null)
+
+  // 当前曲目的收藏状态同步给系统播放控制，锁屏 / 车机上的心形按钮才有正确的开关态
+  useEffect(() => {
+    void setLikeState(isFavorite).catch((error: unknown) => {
+      console.warn('同步收藏状态到系统播放控制失败', error)
+    })
+  }, [isFavorite])
 
   useEffect(() => {
     rememberProvider(provider)
@@ -54,7 +64,17 @@ export function PlayerBridge() {
     [connection, provider, queryClient],
   )
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackError], (event) => {
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackError, Event.RemoteLike], (event) => {
+    // 锁屏 / 车机上点了心形：切当前曲目的收藏，状态回流后 setLikeState 会把按钮点亮
+    if (event.type === Event.RemoteLike) {
+      const { queue, index } = usePlayerStore.getState()
+      const item = queue[index]
+      if (!item) return
+      void toggleFavorite(item.trackId, !item.isFavorite).catch((error: unknown) => {
+        console.warn('收藏失败', error)
+      })
+      return
+    }
     if (event.type === Event.PlaybackActiveTrackChanged) {
       const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
       const { queue } = usePlayerStore.getState()

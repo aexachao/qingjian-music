@@ -11,7 +11,6 @@
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
       "supportsTablet": false,
-      "icon": "./assets/expo.icon",
       "infoPlist": {
         "CFBundleDisplayName": "轻简音乐",
         "UIBackgroundModes": ["audio"],
@@ -24,9 +23,8 @@
     "android": {
       "package": "com.chrisli.music",
       "adaptiveIcon": {
-        "backgroundColor": "#0f0f0f",
+        "backgroundColor": "#f62c55",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -41,6 +39,7 @@
         "expo-font",
         {
           "fonts": [
+            "./assets/fonts/MaterialIcons.ttf",
             "./assets/fonts/Montserrat-Regular.ttf",
             "./assets/fonts/Montserrat-Medium.ttf",
             "./assets/fonts/Montserrat-SemiBold.ttf",
@@ -59,7 +58,7 @@
         {
           "backgroundColor": "#0f0f0f",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 120
         }
       ]
     ],

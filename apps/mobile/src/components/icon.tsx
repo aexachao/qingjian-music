@@ -1,85 +1,85 @@
+import type { ComponentProps } from 'react'
+import MaterialIcons from '@expo/vector-icons/MaterialIcons'
 import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
-// 逐个图标深导入：从 'lucide-react-native' 桶入口导入会把 3600+ 个图标模块全打进 bundle
-import AudioLines from 'lucide-react-native/icons/audio-lines'
-import Check from 'lucide-react-native/icons/check'
-import ChevronDown from 'lucide-react-native/icons/chevron-down'
-import ChevronRight from 'lucide-react-native/icons/chevron-right'
-import Clock from 'lucide-react-native/icons/clock'
-import Disc3 from 'lucide-react-native/icons/disc-3'
-import GripVertical from 'lucide-react-native/icons/grip-vertical'
-import Guitar from 'lucide-react-native/icons/guitar'
-import Heart from 'lucide-react-native/icons/heart'
-import LibraryBig from 'lucide-react-native/icons/library-big'
-import ListMusic from 'lucide-react-native/icons/list-music'
-import LogOut from 'lucide-react-native/icons/log-out'
-import MicVocal from 'lucide-react-native/icons/mic-vocal'
-import Music from 'lucide-react-native/icons/music'
-import Pause from 'lucide-react-native/icons/pause'
-import Play from 'lucide-react-native/icons/play'
-import Plus from 'lucide-react-native/icons/plus'
-import Radio from 'lucide-react-native/icons/radio'
-import Repeat from 'lucide-react-native/icons/repeat'
-import Repeat1 from 'lucide-react-native/icons/repeat-1'
-import Search from 'lucide-react-native/icons/search'
-import Server from 'lucide-react-native/icons/server'
-import Settings from 'lucide-react-native/icons/settings'
-import Shuffle from 'lucide-react-native/icons/shuffle'
-import SkipBack from 'lucide-react-native/icons/skip-back'
-import SkipForward from 'lucide-react-native/icons/skip-forward'
-import Sparkles from 'lucide-react-native/icons/sparkles'
-import Trash from 'lucide-react-native/icons/trash'
-import X from 'lucide-react-native/icons/x'
 import { colors } from '@/theme/tokens'
 
 /**
  * 全 App 唯一的图标出口。
  *
- * 用 lucide —— 和飞牛音乐 web 端同一套图标库（web 端用的是 lucide-react），
- * 这样两端图标语言完全一致，iOS / Android 也共用同一份矢量图形。
- * **禁止用 emoji 当图标**：emoji 各平台字形不同、无法跟随强调色、也没有描边粗细可言。
+ * 用 Material Icons（@expo/vector-icons 自带的那一套**面性/实心**图标）：
+ * - 整套都是面性，播放控制、页签、列表行摆在一起风格是统一的，
+ *   不会出现一半线性一半面性的割裂感（这是之前用 lucide 线性图标的问题）；
+ * - 一个字体文件覆盖 2200+ 字形，iOS / Android 字形完全一致，
+ *   字体在构建期嵌入（见 app.json 的 expo-font），不会首帧空白；
+ * - 只有「收藏」这类需要区分开/关的状态，才用同族的空心变体（favorite-border）表示未选中。
+ *
+ * 两条硬规矩：**不许用 emoji 当图标**，**不许再引入第二套图标库**。
  */
 
 /** 尺寸只开这四档，避免每个页面自己发明大小 */
 export const iconSize = { sm: 16, md: 20, lg: 24, xl: 28 } as const
 
+type GlyphName = ComponentProps<typeof MaterialIcons>['name']
+
+/** 语义名 → Material 字形名。页面只认左边的语义名，换图标只改这一张表 */
 const ICONS = {
-  play: Play,
-  pause: Pause,
-  next: SkipForward,
-  previous: SkipBack,
-  shuffle: Shuffle,
-  repeat: Repeat,
-  repeatOne: Repeat1,
-  heart: Heart,
-  queue: ListMusic,
-  drag: GripVertical,
-  playing: AudioLines,
-  search: Search,
-  settings: Settings,
-  library: LibraryBig,
-  chevronDown: ChevronDown,
-  chevronRight: ChevronRight,
-  close: X,
-  check: Check,
-  albums: Disc3,
-  artists: MicVocal,
-  tracks: Music,
-  genres: Guitar,
-  playlists: ListMusic,
-  recentlyAdded: Sparkles,
-  recentlyPlayed: Clock,
-  radio: Radio,
-  server: Server,
-  signOut: LogOut,
-  add: Plus,
-  trash: Trash,
-} as const
+  // 播放控制
+  play: 'play-arrow',
+  pause: 'pause',
+  next: 'skip-next',
+  previous: 'skip-previous',
+  shuffle: 'shuffle',
+  repeat: 'repeat',
+  repeatOne: 'repeat-one',
+  heart: 'favorite',
+  queue: 'queue-music',
+  lyrics: 'lyrics',
+  drag: 'drag-handle',
+  playing: 'graphic-eq',
+  // 导航
+  home: 'home',
+  search: 'search',
+  library: 'library-music',
+  settings: 'settings',
+  back: 'arrow-back',
+  chevronDown: 'expand-more',
+  chevronRight: 'chevron-right',
+  close: 'close',
+  check: 'check',
+  // 资料库分类
+  albums: 'album',
+  artists: 'mic',
+  tracks: 'music-note',
+  genres: 'category',
+  playlists: 'playlist-play',
+  recentlyAdded: 'auto-awesome',
+  recentlyPlayed: 'history',
+  radio: 'radio',
+  downloaded: 'download-for-offline',
+  // 设置
+  server: 'dns',
+  signOut: 'logout',
+  password: 'lock',
+  appearance: 'palette',
+  quality: 'high-quality',
+  storage: 'storage',
+  user: 'person',
+  // 通用动作
+  add: 'add',
+  trash: 'delete',
+  importPlaylist: 'playlist-add',
+} satisfies Record<string, GlyphName>
 
 export type IconName = keyof typeof ICONS
 
+/** 需要「未选中」形态的图标，用同族空心变体；没列进来的图标永远是面性 */
+const OUTLINE_VARIANTS = {
+  heart: 'favorite-border',
+} satisfies Partial<Record<IconName, GlyphName>>
+
 /**
  * 领域层 BrowseNode.icon 存的是 SF Symbols 名（为 CarPlay 预留），
- * 这里映射到同一套 lucide 图标，两处不会各写一份图标表。
+ * 这里映射到同一套图标，两处不会各写一份图标表。
  */
 const SF_SYMBOL_ALIASES: Record<string, IconName> = {
   'clock.badge.checkmark': 'recentlyAdded',
@@ -91,6 +91,7 @@ const SF_SYMBOL_ALIASES: Record<string, IconName> = {
   'music.note': 'tracks',
   guitars: 'genres',
   'music.note.list': 'playlists',
+  'arrow.down.circle': 'downloaded',
 }
 
 export function iconForSymbol(symbol: string): IconName {
@@ -101,14 +102,17 @@ export interface IconProps {
   name: IconName
   size?: number
   color?: string
-  /** 实心（收藏已选中、正在播放等状态用） */
+  /**
+   * 是否面性。默认就是面性；只有存在空心变体的图标（目前只有收藏）
+   * 传 false 才会变成空心，用来表达「未选中」。
+   */
   filled?: boolean
-  strokeWidth?: number
 }
 
-export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled = false, strokeWidth = 2 }: IconProps) {
-  const Glyph = ICONS[name]
-  return <Glyph size={size} color={color} strokeWidth={strokeWidth} {...(filled ? { fill: color } : {})} />
+export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled = true }: IconProps) {
+  const outline = (OUTLINE_VARIANTS as Partial<Record<IconName, GlyphName>>)[name]
+  const glyph: GlyphName = !filled && outline ? outline : ICONS[name]
+  return <MaterialIcons name={glyph} size={size} color={color} />
 }
 
 export interface IconButtonProps extends IconProps {
@@ -120,13 +124,7 @@ export interface IconButtonProps extends IconProps {
 }
 
 /** 纯图标按钮：命中区固定撑到 44×44（iOS HIG 最小可点面积），视觉大小不受影响 */
-export function IconButton({
-  onPress,
-  accessibilityLabel,
-  disabled = false,
-  style,
-  ...icon
-}: IconButtonProps) {
+export function IconButton({ onPress, accessibilityLabel, disabled = false, style, ...icon }: IconButtonProps) {
   return (
     <Pressable
       onPress={onPress}

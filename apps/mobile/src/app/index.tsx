@@ -15,7 +15,7 @@ export default function BootScreen() {
     )
   }
 
-  return <Redirect href={status === 'signedIn' ? '/library' : '/login'} />
+  return <Redirect href={status === 'signedIn' ? '/home' : '/login'} />
 }
 
 const styles = StyleSheet.create({

@@ -17,7 +17,7 @@ import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 /** 三种循环模式对应的图标、颜色与读屏文案：关闭是灰的，开启用强调色 */
 const REPEAT_MODES: Record<RepeatMode, { icon: IconName; color: string; text: string }> = {
-  off: { icon: 'repeat', color: colors.iconDim, text: '关闭' },
+  off: { icon: 'repeat', color: colors.iconMid, text: '关闭' },
   queue: { icon: 'repeat', color: colors.accent, text: '列表循环' },
   one: { icon: 'repeatOne', color: colors.accent, text: '单曲循环' },
 }
@@ -75,11 +75,11 @@ export default function PlayerScreen() {
     <View style={[styles.container, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
       <View style={styles.header}>
         <IconButton
-          name="chevronDown"
+          name="back"
           size={iconSize.lg}
           color={colors.iconMid}
           onPress={() => router.back()}
-          accessibilityLabel="收起播放页"
+          accessibilityLabel="返回"
         />
         <Text numberOfLines={1} style={styles.source}>
           {source?.label ?? '正在播放'}
@@ -163,19 +163,17 @@ export default function PlayerScreen() {
         <IconButton
           name="shuffle"
           size={iconSize.lg}
-          color={playMode.shuffle ? colors.accent : colors.iconDim}
+          color={playMode.shuffle ? colors.accent : colors.iconMid}
           onPress={() => void toggleShuffle()}
           accessibilityLabel={playMode.shuffle ? '关闭随机播放' : '开启随机播放'}
         />
-        {/* 「歌词」是含义不通用的开关，刻意保留中文文字标签，不换图标 */}
-        <Pressable
+        <IconButton
+          name="lyrics"
+          size={iconSize.lg}
+          color={showLyrics ? colors.accent : colors.iconMid}
           onPress={() => setShowLyrics((value) => !value)}
-          accessibilityRole="button"
           accessibilityLabel={showLyrics ? '显示封面' : '显示歌词'}
-          style={styles.lyricsButton}
-        >
-          <Text style={[styles.footerLabel, showLyrics && styles.footerLabelActive]}>歌词</Text>
-        </Pressable>
+        />
         <IconButton
           name={repeatMode.icon}
           size={iconSize.lg}

@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
-import { Icon, iconSize } from '@/components/icon'
+import { iconSize } from '@/components/icon'
+import { LivePlayingBars } from '@/components/playing-bars'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface TrackRowProps {
@@ -28,10 +29,10 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
       accessibilityLabel={`播放 ${track.title}，${artistText}`}
     >
       {leading === 'index' ? (
-        // 正在播放的那首用声波图标顶掉序号
+        // 正在播放的那首用跳动的律动条顶掉序号
         playing ? (
           <View style={styles.trackNoSlot}>
-            <Icon name="playing" size={iconSize.md} color={colors.playing} />
+            <LivePlayingBars size={iconSize.md} />
           </View>
         ) : (
           <Text style={styles.trackNo}>{track.trackNo ?? index + 1}</Text>

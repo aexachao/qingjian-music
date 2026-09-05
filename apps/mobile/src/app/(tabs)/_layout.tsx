@@ -26,15 +26,17 @@ export default function TabsLayout() {
           tabBarActiveTintColor: TAB_ACTIVE_COLOR,
           tabBarInactiveTintColor: TAB_INACTIVE_COLOR,
           tabBarStyle: { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle },
+          // 必须显式给场景底色：Tabs 默认用 React Navigation 的浅色主题，
+          // 没有自带背景的屏（比如设置页只有一个 ScrollView）会直接露出白底
+          sceneStyle: { backgroundColor: colors.bgPrimary },
         }}
       >
         <Tabs.Screen
-          name="library"
+          name="home"
           options={{
-            title: '资料库',
-            // 尺寸固定 lg（24），不用 Tabs 给的 size
+            title: '首页',
             tabBarIcon: ({ focused }) => (
-              <Icon name="library" color={focused ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR} size={iconSize.lg} />
+              <Icon name="home" color={focused ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR} size={iconSize.lg} />
             ),
           }}
         />
@@ -44,6 +46,16 @@ export default function TabsLayout() {
             title: '搜索',
             tabBarIcon: ({ focused }) => (
               <Icon name="search" color={focused ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR} size={iconSize.lg} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="library"
+          options={{
+            title: '资料库',
+            // 尺寸固定 lg（24），不用 Tabs 给的 size
+            tabBarIcon: ({ focused }) => (
+              <Icon name="library" color={focused ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR} size={iconSize.lg} />
             ),
           }}
         />

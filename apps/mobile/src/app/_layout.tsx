@@ -28,14 +28,10 @@ export default function RootLayout() {
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="login" options={{ title: '连接服务器' }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="player"
-                options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
-              />
-              <Stack.Screen
-                name="queue"
-                options={{ headerShown: false, presentation: 'modal', animation: 'slide_from_bottom' }}
-              />
+              {/* 播放页与队列页都是正经的二级页面（push），不是弹窗：
+                  这样返回手势、层级关系和资料库里的详情页完全一致 */}
+              <Stack.Screen name="player" options={{ headerShown: false }} />
+              <Stack.Screen name="queue" options={{ headerShown: false }} />
               <Stack.Screen name="dev-smoke" options={{ title: '自检' }} />
             </Stack>
           </ServerSessionProvider>

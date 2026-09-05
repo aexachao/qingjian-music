@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
-import { Icon, iconSize } from '@/components/icon'
+import { Icon, iconSize, type IconName } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
 import { clearArtworkCache } from '@/player/artwork'
@@ -10,6 +10,10 @@ import { audioCacheStats, clearAudioCache } from '@/player/audio-cache'
 import { formatBytes } from '@/player/audio-cache-policy'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
+/**
+ * 设置页：顶部用户卡 + 分组卡片行，和飞牛音乐 web 端的设置页一个结构。
+ * 每行都是「图标 + 标题 +（右侧值 / 箭头）」，信息行不给箭头，可点的行才给。
+ */
 export function SettingsScreen() {
   const router = useRouter()
   const { provider, connection, servers, signOut, switchServer } = useServerSession()
@@ -37,93 +41,90 @@ export function SettingsScreen() {
     }
   }
 
+  const userName = me.data?.name ?? connection?.username ?? '未登录'
+  const backendName = connection?.providerId === 'fnos' ? '飞牛音乐' : (connection?.providerId ?? '未知后端')
+
   return (
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
-      <Text style={styles.sectionTitle}>当前服务器</Text>
-      <View style={styles.card}>
-        <Row label="名称" value={connection?.displayName ?? '未连接'} />
-        <Row label="地址" value={connection?.baseUrl ?? '-'} />
-        <Row label="账号" value={me.data?.name ?? connection?.username ?? '-'} />
-        <Row label="后端" value={connection?.providerId === 'fnos' ? '飞牛音乐' : (connection?.providerId ?? '-')} />
+    <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
+      {/* 用户卡：头像取名字首字，飞牛的管理员会标出来 */}
+      <View style={styles.userCard}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{userName.slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={styles.userText}>
+          <Text numberOfLines={1} style={styles.userName}>
+            {userName}
+          </Text>
+          <Text numberOfLines={1} style={styles.userMeta}>
+            {me.data?.isAdmin ? '管理员' : '普通用户'} · {backendName}
+          </Text>
+        </View>
       </View>
 
-      <Text style={styles.sectionTitle}>已保存的服务器</Text>
+      <SectionTitle text="服务器" />
+      <View style={styles.card}>
+        <SettingsRow icon="server" label="当前服务器" value={connection?.displayName ?? '未连接'} />
+        <SettingsRow icon="storage" label="地址" value={connection?.baseUrl ?? '-'} divider />
+      </View>
+
+      <SectionTitle text="已保存的服务器" />
       <View style={styles.card}>
         {servers.map((server, index) => (
-          <Pressable
+          <SettingsRow
             key={server.id}
-            style={[styles.row, index > 0 && styles.rowBorder]}
+            icon="server"
+            label={server.displayName}
+            value={`${server.username} · ${server.baseUrl}`}
+            divider={index > 0}
+            selected={server.id === connection?.id}
             onPress={() => void onSwitch(server.id)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: server.id === connection?.id }}
             accessibilityLabel={`切换到 ${server.displayName}`}
-          >
-            <View style={styles.rowText}>
-              <Text style={styles.label}>{server.displayName}</Text>
-              <Text style={styles.value}>
-                {server.username} · {server.baseUrl}
-              </Text>
-            </View>
-            {server.id === connection?.id ? (
-              <Icon name="check" size={iconSize.md} color={colors.accent} />
-            ) : (
-              <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
-            )}
-          </Pressable>
+          />
         ))}
-        <Pressable
-          style={[styles.row, servers.length > 0 && styles.rowBorder]}
+        <SettingsRow
+          icon="add"
+          label="添加服务器"
+          tone="accent"
+          divider={servers.length > 0}
           onPress={() => router.push('/login')}
-          accessibilityRole="button"
-          accessibilityLabel="添加服务器"
-        >
-          <View style={styles.actionRow}>
-            <Icon name="add" size={iconSize.sm} color={colors.accent} />
-            <Text style={styles.action}>添加服务器</Text>
-          </View>
-        </Pressable>
+        />
       </View>
 
-      <Text style={styles.sectionTitle}>存储</Text>
+      <SectionTitle text="存储" />
       <View style={styles.card}>
-        <Row
+        <SettingsRow
+          icon="quality"
           label="播放缓存"
           value={`${formatBytes(audioCache.bytes)} / ${formatBytes(audioCache.budgetBytes)} · ${audioCache.files} 首`}
         />
-        <Pressable
-          style={[styles.row, styles.rowBorder]}
+        <SettingsRow
+          icon="trash"
+          label="清理播放缓存"
+          tone="accent"
+          divider
           onPress={() => {
             clearAudioCache()
             setAudioCache(audioCacheStats())
             Alert.alert('已清理', '本地音频缓存已删除，之后播放会重新从服务器读取')
           }}
-          accessibilityRole="button"
-          accessibilityLabel="清理播放缓存"
-        >
-          <View style={styles.actionRow}>
-            <Icon name="trash" size={iconSize.sm} color={colors.accent} />
-            <Text style={styles.action}>清理播放缓存</Text>
-          </View>
-        </Pressable>
-        <Pressable
-          style={[styles.row, styles.rowBorder]}
+        />
+        <SettingsRow
+          icon="trash"
+          label="清理封面缓存"
+          tone="accent"
+          divider
           onPress={() => {
             clearArtworkCache()
             Alert.alert('已清理', '封面缓存已删除，下次播放会重新下载')
           }}
-          accessibilityRole="button"
-          accessibilityLabel="清理封面缓存"
-        >
-          <View style={styles.actionRow}>
-            <Icon name="trash" size={iconSize.sm} color={colors.accent} />
-            <Text style={styles.action}>清理封面缓存</Text>
-          </View>
-        </Pressable>
+        />
       </View>
 
-      <View style={styles.card}>
-        <Pressable
-          style={styles.row}
+      <View style={[styles.card, styles.lastCard]}>
+        <SettingsRow
+          icon="signOut"
+          label="退出登录"
+          tone="danger"
           onPress={() =>
             Alert.alert('退出登录', '会保留服务器地址，下次可以直接重新登录。', [
               { text: '取消', style: 'cancel' },
@@ -139,14 +140,7 @@ export function SettingsScreen() {
               },
             ])
           }
-          accessibilityRole="button"
-          accessibilityLabel="退出登录"
-        >
-          <View style={styles.actionRow}>
-            <Icon name="signOut" size={iconSize.sm} color={colors.danger} />
-            <Text style={styles.destructive}>退出登录</Text>
-          </View>
-        </Pressable>
+        />
       </View>
 
       <Text style={styles.footer}>轻简音乐 · 为飞牛音乐打造的移动客户端</Text>
@@ -154,36 +148,114 @@ export function SettingsScreen() {
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function SectionTitle({ text }: { text: string }) {
+  return <Text style={styles.sectionTitle}>{text}</Text>
+}
+
+interface SettingsRowProps {
+  icon: IconName
+  label: string
+  /** 右侧的值，信息行用 */
+  value?: string
+  /** 文字色调：默认白，accent 是可执行动作，danger 是破坏性动作 */
+  tone?: 'default' | 'accent' | 'danger'
+  /** 除第一行外都画上分隔线 */
+  divider?: boolean
+  /** 当前选中项（服务器列表用），显示对勾 */
+  selected?: boolean
+  onPress?: () => void
+  accessibilityLabel?: string
+}
+
+function SettingsRow({
+  icon,
+  label,
+  value,
+  tone = 'default',
+  divider = false,
+  selected = false,
+  onPress,
+  accessibilityLabel,
+}: SettingsRowProps) {
+  const labelStyle = tone === 'accent' ? styles.labelAccent : tone === 'danger' ? styles.labelDanger : styles.label
+  const iconColor = tone === 'accent' ? colors.accent : tone === 'danger' ? colors.danger : colors.iconMid
+
+  const body = (
+    <>
+      <Icon name={icon} size={iconSize.md} color={iconColor} />
+      <View style={styles.rowText}>
+        <Text numberOfLines={1} style={labelStyle}>
+          {label}
+        </Text>
+        {value ? (
+          <Text numberOfLines={1} style={styles.value}>
+            {value}
+          </Text>
+        ) : null}
+      </View>
+      {selected ? <Icon name="check" size={iconSize.md} color={colors.accent} /> : null}
+      {onPress && !selected ? <Icon name="chevronRight" size={iconSize.md} color={colors.textQuaternary} /> : null}
+    </>
+  )
+
+  if (!onPress) {
+    return <View style={[styles.row, divider && styles.rowBorder]}>{body}</View>
+  }
+
   return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      <Text numberOfLines={1} style={styles.value}>
-        {value}
-      </Text>
-    </View>
+    <Pressable
+      style={[styles.row, divider && styles.rowBorder]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected }}
+    >
+      {body}
+    </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
+  // 页面自己带底色：Tabs 的场景背景之外再兜一层，任何时候都不会露白
+  screen: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, gap: spacing.sm },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgCard,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    backgroundColor: colors.bgAvatar,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { ...typography.title, color: colors.textPrimary },
+  userText: { flex: 1, gap: 2 },
+  userName: { ...typography.headline, color: colors.textPrimary },
+  userMeta: { ...typography.caption, color: colors.textTertiary },
   sectionTitle: { ...typography.caption, color: colors.textTertiary, marginTop: spacing.md, marginLeft: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.md, overflow: 'hidden' },
+  lastCard: { marginTop: spacing.lg },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    // 行高固定 ≥52，图标行和纯信息行看起来是一套
+    minHeight: 52,
+    paddingVertical: spacing.sm,
   },
   rowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   rowText: { flex: 1, gap: 2 },
   label: { ...typography.callout, color: colors.textPrimary },
-  value: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
-  /** 「图标 + 文字」的操作行：破坏性操作也必须留着中文标签 */
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  action: { ...typography.callout, color: colors.accent },
-  destructive: { ...typography.callout, color: colors.danger },
+  labelAccent: { ...typography.callout, color: colors.accent },
+  labelDanger: { ...typography.callout, color: colors.danger },
+  value: { ...typography.caption, color: colors.textSecondary },
   footer: { ...typography.caption, color: colors.textTertiary, textAlign: 'center', marginTop: spacing.xl },
 })

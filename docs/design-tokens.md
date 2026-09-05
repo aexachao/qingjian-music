@@ -38,8 +38,12 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
   由 `expo-font` 配置插件在构建期嵌入，族名用 TTF 的 PostScript 名（`Montserrat-Regular` 等）。
   **改了字体配置必须重新 `npx expo prebuild --platform ios`**，直接 `expo run:ios` 不会重跑配置插件。
   中文字形 Montserrat 没有，系统会自动回落到 PingFang / Noto Sans CJK —— 与 web 端表现一致。
-- 图标：`apps/mobile/src/components/icon.tsx` 用 `lucide-react-native`（与 web 端同一套 lucide 图标）。
-  领域层 `BrowseNode.icon` 仍存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射到 lucide。
+- 图标：`apps/mobile/src/components/icon.tsx` 用 **Material Icons 面性版**（`@expo/vector-icons/MaterialIcons`，
+  字体文件也随 `expo-font` 构建期嵌入）。web 端用的是线性的 lucide，App 这边**故意不跟**：
+  移动端播放控制、页签、列表行摆在一起，线性图标会显得一半线一半面、轻重不一；
+  Material 的面性版整套都是实心，同一屏里风格才统一。唯一的例外是「收藏」——
+  用同族空心变体 `favorite-border` 表示未选中，靠虚实区分开关状态。
+  领域层 `BrowseNode.icon` 仍存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射过去。
 
 ## 未移植的部分（有意）
 

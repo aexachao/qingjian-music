@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@expo/ui": "~57.0.16",
+    "@expo/vector-icons": "15.1.1",
     "@qj/core-domain": "workspace:*",
     "@qj/provider-api": "workspace:*",
     "@qj/provider-fnos": "workspace:*",
@@ -39,7 +40,6 @@
     "expo-symbols": "~57.0.2",
     "expo-system-ui": "~57.0.3",
     "expo-web-browser": "~57.0.2",
-    "lucide-react-native": "^1.41.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
