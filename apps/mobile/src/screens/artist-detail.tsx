@@ -55,12 +55,21 @@ export function ArtistDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
-  if (albums.query.isPending) return <LoadingState />
-  if (albums.query.isError) return <ErrorState error={albums.query.error} onRetry={() => void albums.query.refetch()} />
+  // 标题要在早退之前就挂上，否则加载时导航栏是空的
+  const title = <Stack.Screen options={{ title: artistName ?? '艺术家' }} />
+
+  if (albums.query.isPending) return <>{title}<LoadingState /></>
+  if (albums.query.isError)
+    return (
+      <>
+        {title}
+        <ErrorState error={albums.query.error} onRetry={() => void albums.query.refetch()} />
+      </>
+    )
 
   return (
     <>
-      <Stack.Screen options={{ title: artistName ?? '艺术家' }} />
+      {title}
     <FlatList
       data={albums.items}
       key={columns}

@@ -44,13 +44,28 @@ export function AlbumDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
-  if (albumQuery.isPending || query.isPending) return <LoadingState />
-  if (albumQuery.isError) return <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
-  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+  // 标题要在早退之前就挂上，否则加载时导航栏是空的，加载完标题才蹦出来
+  const title = <Stack.Screen options={{ title: album?.name ?? '专辑' }} />
+
+  if (albumQuery.isPending || query.isPending) return <>{title}<LoadingState /></>
+  if (albumQuery.isError)
+    return (
+      <>
+        {title}
+        <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
+      </>
+    )
+  if (query.isError)
+    return (
+      <>
+        {title}
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+      </>
+    )
 
   return (
     <>
-      <Stack.Screen options={{ title: album?.name ?? '专辑' }} />
+      {title}
     <FlatList
       data={items}
       keyExtractor={(item) => item.id}

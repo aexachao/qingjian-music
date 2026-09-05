@@ -4,7 +4,7 @@ import { AllTracksScreen } from '@/screens/tracks-all'
 export default function Route() {
   return (
     <>
-      <Stack.Screen options={{ title: '歌曲' }} />
+      <Stack.Screen options={{ title: '全部歌曲' }} />
       <AllTracksScreen />
     </>
   )

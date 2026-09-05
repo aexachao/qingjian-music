@@ -13,6 +13,8 @@ interface PlayerState {
   /** 歌词时间轴偏移（毫秒，正值歌词提前） */
   lyricOffsetMs: number
   setQueue(queue: QueueItem[], index: number, source?: PlaySource): void
+  /** 往队尾追加（漫游电台边听边续用） */
+  appendItems(items: QueueItem[]): void
   setIndex(index: number): void
   setRepeat(repeat: RepeatMode): void
   setShuffle(shuffle: boolean): void
@@ -31,6 +33,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   playMode: DEFAULT_PLAY_MODE,
   lyricOffsetMs: 0,
   setQueue: (queue, index, source) => set({ queue, index, source }),
+  appendItems: (items) => set((state) => ({ queue: [...state.queue, ...items] })),
   setIndex: (index) => set({ index }),
   setRepeat: (repeat) => set((state) => ({ playMode: { ...state.playMode, repeat } })),
   setShuffle: (shuffle) => set((state) => ({ playMode: { ...state.playMode, shuffle } })),

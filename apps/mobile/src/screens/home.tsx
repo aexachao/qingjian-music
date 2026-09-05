@@ -1,15 +1,16 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import type { Album, Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize, type IconName } from '@/components/icon'
+import { useToast } from '@/components/toast'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { useServerSession } from '@/lib/server-session'
-import { playTrackList } from '@/player/controller'
+import { playTrackList, startRadio } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
@@ -18,21 +19,23 @@ const RECENT_TRACKS = 5
 const RECENT_ALBUMS = 12
 const ALBUM_TILE = 132
 
+/** 入口卡片：要么跳页面（href），要么直接触发播放（action） */
 interface EntryCard {
   key: string
   label: string
   icon: IconName
   /** 写成字面量联合，才能过 expo-router 的类型化路由检查 */
-  href: '/home/history' | '/home/favorites' | '/home/playlists' | '/home/tracks'
+  href?: '/home/history' | '/home/favorites' | '/home/playlists' | '/home/tracks'
+  action?: 'radio'
   /** 需要后端支持哪项能力才显示 */
-  requires?: 'favorites' | 'playHistory' | 'playlists'
+  requires?: 'favorites' | 'playHistory' | 'playlists' | 'radio'
 }
 
 const CARDS: readonly EntryCard[] = [
-  { key: 'history', label: '最近播放', icon: 'recentlyPlayed', href: '/home/history', requires: 'playHistory' },
+  { key: 'radio', label: '漫游', icon: 'radio', action: 'radio', requires: 'radio' },
   { key: 'favorites', label: '我喜欢的', icon: 'heart', href: '/home/favorites', requires: 'favorites' },
+  { key: 'history', label: '最近播放', icon: 'recentlyPlayed', href: '/home/history', requires: 'playHistory' },
   { key: 'playlists', label: '歌单', icon: 'playlists', href: '/home/playlists', requires: 'playlists' },
-  { key: 'tracks', label: '全部歌曲', icon: 'tracks', href: '/home/tracks' },
 ]
 
 /** 首页：四个入口卡片 + 最近添加歌曲 + 最近添加专辑，对齐飞牛音乐 web 端首页 */
@@ -41,7 +44,9 @@ export function HomeScreen() {
   const bottom = useBottomSpace()
   const href = useDetailHref()
   const router = useRouter()
+  const toast = useToast()
   const playingQid = usePlayerStore(selectCurrent)?.qid
+  const [startingRadio, setStartingRadio] = useState(false)
 
   const cards = useMemo(() => {
     const capabilities = provider?.capabilities
@@ -50,6 +55,7 @@ export function HomeScreen() {
       if (!capabilities) return false
       if (card.requires === 'favorites') return capabilities.favorites
       if (card.requires === 'playHistory') return capabilities.playHistory
+      if (card.requires === 'radio') return capabilities.radio
       return capabilities.playlists !== 'none'
     })
   }, [provider])
@@ -69,19 +75,61 @@ export function HomeScreen() {
   const tracks: Track[] = recentTracks.data?.items ?? []
   const albums: Album[] = recentAlbums.data?.items ?? []
 
-  return (
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
-      <Text style={styles.server}>{connection?.displayName ?? '未连接服务器'}</Text>
+  /** 漫游：服务端按口味推歌，边听边续，不跳页面，用迷你条 + 提示告诉用户已经开始 */
+  const onRadio = useCallback(async () => {
+    if (!provider || !connection || startingRadio) return
+    setStartingRadio(true)
+    try {
+      await startRadio(provider, connection.id)
+      toast('漫游已开始，随时切歌')
+    } catch {
+      toast('漫游启动失败，请稍后再试')
+    } finally {
+      setStartingRadio(false)
+    }
+  }, [connection, provider, startingRadio, toast])
 
+  return (
+    <ScrollView
+      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
+      contentInsetAdjustmentBehavior="automatic"
+    >
       <View style={styles.cards}>
-        {cards.map((card) => (
-          <Link key={card.key} href={card.href} asChild>
-            <Pressable style={styles.card} accessibilityRole="button" accessibilityLabel={card.label}>
-              <Icon name={card.icon} size={iconSize.lg} color={colors.accent} />
-              <Text style={styles.cardLabel}>{card.label}</Text>
+        {cards.map((card) => {
+          const primary = card.action === 'radio'
+          const inner = (
+            <>
+              <Icon
+                name={card.icon}
+                size={iconSize.lg}
+                color={primary ? colors.textOnAccent : colors.accent}
+              />
+              <Text style={[styles.cardLabel, primary && styles.cardLabelPrimary]}>{card.label}</Text>
+            </>
+          )
+          // 漫游是这一屏唯一的主操作，用强调色实心；其余是普通入口
+          if (card.href) {
+            return (
+              <Link key={card.key} href={card.href} asChild>
+                <Pressable style={styles.card} accessibilityRole="button" accessibilityLabel={card.label}>
+                  {inner}
+                </Pressable>
+              </Link>
+            )
+          }
+          return (
+            <Pressable
+              key={card.key}
+              style={[styles.card, styles.cardPrimary, startingRadio && styles.cardBusy]}
+              onPress={() => void onRadio()}
+              accessibilityRole="button"
+              accessibilityLabel="开始漫游，随机播放整个音乐库"
+              accessibilityState={{ busy: startingRadio }}
+            >
+              {inner}
             </Pressable>
-          </Link>
-        ))}
+          )
+        })}
       </View>
 
       <SectionHeader title="最近添加歌曲" onPress={() => router.push('/home/recent-tracks')} />
@@ -142,7 +190,6 @@ function SectionHeader({ title, onPress }: { title: string; onPress: () => void 
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.sm },
-  server: { ...typography.caption, color: colors.textTertiary },
   // 两列卡片：靠 flexWrap + 48% 宽度自适应屏宽，不写死像素
   cards: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.sm },
   card: {
@@ -156,7 +203,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.bgCard,
   },
+  cardPrimary: { backgroundColor: colors.accent },
+  cardBusy: { opacity: 0.6 },
   cardLabel: { ...typography.callout, color: colors.textPrimary },
+  cardLabelPrimary: { color: colors.textOnAccent },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

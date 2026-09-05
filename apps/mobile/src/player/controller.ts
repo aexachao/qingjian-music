@@ -121,6 +121,9 @@ export async function playTrackList({ provider, serverId, tracks, startIndex, so
     items.map((item, index) => toRntpTrack(item, provider, { allowTranscode: index === safeStart })),
   )
 
+  // 换成别的来源就结束漫游会话，否则后面会往专辑队列里塞电台歌
+  if (source.kind !== 'radio') radioCursor = undefined
+
   await TrackPlayer.reset()
   await TrackPlayer.add(rntpTracks)
   const safeIndex = safeStart
@@ -129,6 +132,69 @@ export async function playTrackList({ provider, serverId, tracks, startIndex, so
   await TrackPlayer.play()
   void refreshArtwork(safeIndex)
   schedulePrefetch(safeIndex)
+}
+
+/** 往队尾追加曲目（漫游续歌、以后的「稍后播放」都用它）。追加的都不是当前曲目，所以不开转码 */
+export async function appendTracks({
+  provider,
+  serverId,
+  tracks,
+}: Omit<PlayListInput, 'startIndex' | 'source'>): Promise<void> {
+  if (tracks.length === 0) return
+  await ensurePlayer()
+  const items = tracks.map((track) => toQueueItem(track, provider, serverId))
+  const rntpTracks = await Promise.all(items.map((item) => toRntpTrack(item, provider)))
+  await TrackPlayer.add(rntpTracks)
+  usePlayerStore.getState().appendItems(items)
+}
+
+// ---- 漫游电台 ----
+
+/** 漫游游标（飞牛的 roamId），指向队列里最后一首电台曲目 */
+let radioCursor: string | undefined
+/** 正在补歌，防止同一时刻发多份请求 */
+let radioFilling = false
+/** 队尾至少留几首，听着才像无限流 */
+const RADIO_AHEAD = 3
+
+/** 开始漫游：服务端按口味推歌，起播一首后立刻把队尾补起来 */
+export async function startRadio(provider: MusicProvider, serverId: string): Promise<void> {
+  if (!provider.radioStart) return
+  const slice = await provider.radioStart()
+  await playTrackList({
+    provider,
+    serverId,
+    tracks: [slice.current],
+    startIndex: 0,
+    source: { kind: 'radio', label: '漫游' },
+  })
+  radioCursor = slice.cursor
+  await fillRadio(provider, serverId)
+}
+
+/**
+ * 漫游续歌：队尾不足 RADIO_AHEAD 首就一首一首往后取。
+ * 飞牛的游标是「当前这首的 roamId」，所以一次只能推进一首，不能批量取。
+ */
+export async function fillRadio(provider: MusicProvider, serverId: string): Promise<void> {
+  if (!provider.radioNext || !radioCursor || radioFilling) return
+  radioFilling = true
+  try {
+    for (let i = 0; i < RADIO_AHEAD; i += 1) {
+      const { queue, index, source } = usePlayerStore.getState()
+      if (source?.kind !== 'radio') break
+      if (queue.length - index - 1 >= RADIO_AHEAD) break
+      const slice = await provider.radioNext(radioCursor)
+      // 游标没往前走就停手，避免死循环刷同一首
+      if (!slice.cursor || slice.cursor === radioCursor) break
+      radioCursor = slice.cursor
+      await appendTracks({ provider, serverId, tracks: [slice.current] })
+    }
+  } catch {
+    // 续歌失败不影响已经在放的队列，下次切歌再试
+  } finally {
+    radioFilling = false
+  }
 }
 
 /** 把当前曲目的封面下载到本地并回填锁屏元数据 */

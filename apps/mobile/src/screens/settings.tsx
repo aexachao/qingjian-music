@@ -45,7 +45,11 @@ export function SettingsScreen() {
   const backendName = connection?.providerId === 'fnos' ? '飞牛音乐' : (connection?.providerId ?? '未知后端')
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
+      contentInsetAdjustmentBehavior="automatic"
+    >
       {/* 用户卡：头像取名字首字，飞牛的管理员会标出来 */}
       <View style={styles.userCard}>
         <View style={styles.avatar}>
@@ -218,7 +222,8 @@ function SettingsRow({
 const styles = StyleSheet.create({
   // 页面自己带底色：Tabs 的场景背景之外再兜一层，任何时候都不会露白
   screen: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.lg, gap: spacing.sm },
+  // 三个页签根页的横向内边距和顶部间距保持一致
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg, gap: spacing.sm },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',

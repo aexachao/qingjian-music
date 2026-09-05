@@ -10,6 +10,7 @@ import { CoverImage } from '@/components/cover-image'
 import { IconButton, iconSize, type IconName } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { ProgressBar } from '@/components/progress-bar'
+import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
 import { cycleRepeat, skipToNextSafe, skipToPreviousSmart, togglePlay, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
@@ -34,6 +35,7 @@ export default function PlayerScreen() {
   const progress = useProgress(500)
   const [showLyrics, setShowLyrics] = useState(false)
   const toggleFavorite = useToggleFavorite()
+  const toast = useToast()
 
   const artSize = Math.min(width - spacing.xl * 2, 420)
   const translateX = useSharedValue(0)
@@ -59,6 +61,18 @@ export default function PlayerScreen() {
     })
 
   const artStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
+
+  /** 收藏是「无声」的服务端操作，必须给一句提示，否则用户不知道点没点上 */
+  const onToggleFavorite = useCallback(async () => {
+    if (!current) return
+    const next = !current.isFavorite
+    try {
+      await toggleFavorite(current.trackId, next)
+      toast(next ? '已添加到我喜欢的音乐' : '已从我喜欢的音乐移除')
+    } catch {
+      toast('操作失败，请稍后再试')
+    }
+  }, [current, toast, toggleFavorite])
 
   if (!current) {
     return (
@@ -155,9 +169,7 @@ export default function PlayerScreen() {
           size={iconSize.lg}
           color={current.isFavorite ? colors.like : colors.iconMid}
           filled={current.isFavorite}
-          onPress={() => {
-            void toggleFavorite(current.trackId, !current.isFavorite)
-          }}
+          onPress={() => void onToggleFavorite()}
           accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
         />
         <IconButton
@@ -208,7 +220,4 @@ const styles = StyleSheet.create({
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xl },
   playButton: { width: 64, height: 64, borderRadius: radius.pill, backgroundColor: colors.bgButtonSecondary },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  lyricsButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  footerLabel: { ...typography.subhead, color: colors.textSecondary },
-  footerLabelActive: { color: colors.accent },
 })

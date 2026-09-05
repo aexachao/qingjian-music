@@ -5,7 +5,7 @@ export default function StackLayout() {
   return (
     <Stack screenOptions={stackScreenOptions}>
       {/* 页签根页用 iOS 大标题，二级页面用普通标题 */}
-      <Stack.Screen name="index" options={{ ...tabRootOptions, title: '资料库' }} />
+      <Stack.Screen name="index" options={{ ...tabRootOptions, title: '设置' }} />
     </Stack>
   )
 }

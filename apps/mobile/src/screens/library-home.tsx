@@ -1,96 +1,115 @@
 import { useMemo } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-
 import { Link } from 'expo-router'
-import { DEFAULT_BROWSE_NODES, type BrowseNode, type BrowseNodeKind } from '@qj/core-domain'
-import { Icon, iconForSymbol, iconSize } from '@/components/icon'
+import { Icon, iconSize, type IconName } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
-/** i18n 前的中文文案表：以后换成 locales/zh-CN.json 的同名 key */
-const LABELS: Record<string, string> = {
-  'browse.recentlyAdded': '最近添加',
-  'browse.recentlyPlayed': '最近播放',
-  'browse.favorites': '我喜欢的音乐',
-  'browse.radio': '漫游电台',
-  'browse.albums': '专辑',
-  'browse.artists': '艺术家',
-  'browse.tracks': '歌曲',
-  'browse.genres': '流派',
-  'browse.playlists': '歌单',
+/** 需要后端支持哪项能力才显示这一行 */
+type Requirement = 'favorites' | 'playHistory' | 'genres' | 'playlists'
+
+interface LibraryEntry {
+  label: string
+  icon: IconName
+  /** 字面量联合才能过 expo-router 的类型化路由检查 */
+  href:
+    | '/library/tracks'
+    | '/library/albums'
+    | '/library/artists'
+    | '/library/genres'
+    | '/library/favorites'
+    | '/library/history'
+    | '/library/playlists'
+  requires?: Requirement
 }
 
-/** 每个入口对应的路由；漫游电台还没做，先不显示 */
-const ROUTES = {
-  recentlyAdded: '/library/albums',
-  recentlyPlayed: '/library/history',
-  favorites: '/library/favorites',
-  albums: '/library/albums',
-  artists: '/library/artists',
-  tracks: '/library/tracks',
-  genres: '/library/genres',
-  playlists: '/library/playlists',
-} as const satisfies Partial<Record<BrowseNodeKind, string>>
-
-type SupportedKind = keyof typeof ROUTES
-
-function isSupported(node: BrowseNode): node is BrowseNode & { kind: SupportedKind } {
-  return node.kind in ROUTES
-}
+/**
+ * 按「这是什么」分组，而不是把入口平铺成一长条：
+ * 第一组是音乐本身的几种属性（歌曲 / 专辑 / 艺术家 / 流派），
+ * 第二组是跟“我”有关的东西。领域层的 DEFAULT_BROWSE_NODES 留给 CarPlay 用，
+ * 手机上的分组和文案在这里定，改文案不用动领域层。
+ */
+const GROUPS: readonly { title: string; entries: readonly LibraryEntry[] }[] = [
+  {
+    title: '音乐库',
+    entries: [
+      { label: '全部歌曲', icon: 'tracks', href: '/library/tracks' },
+      { label: '专辑', icon: 'albums', href: '/library/albums' },
+      { label: '艺术家', icon: 'artists', href: '/library/artists' },
+      { label: '流派', icon: 'genres', href: '/library/genres', requires: 'genres' },
+    ],
+  },
+  {
+    title: '我的音乐',
+    entries: [
+      { label: '我喜欢的音乐', icon: 'heart', href: '/library/favorites', requires: 'favorites' },
+      { label: '最近播放', icon: 'recentlyPlayed', href: '/library/history', requires: 'playHistory' },
+      { label: '歌单', icon: 'playlists', href: '/library/playlists', requires: 'playlists' },
+    ],
+  },
+]
 
 export function LibraryHomeScreen() {
-  const { provider, connection } = useServerSession()
+  const { provider } = useServerSession()
   const bottom = useBottomSpace()
 
-  // 按后端能力过滤入口：换成 Emby 后不支持的项会自动消失
-  const nodes = useMemo(() => {
+  // 按后端能力过滤：换成 Emby 后不支持的项会自动消失，整组都没了就不画这张卡
+  const groups = useMemo(() => {
     const capabilities = provider?.capabilities
-    return DEFAULT_BROWSE_NODES.filter(isSupported).filter((node) => {
-      if (!node.requires) return true
+    const allowed = (entry: LibraryEntry) => {
+      if (!entry.requires) return true
       if (!capabilities) return false
-      if (node.requires === 'favorites') return capabilities.favorites
-      if (node.requires === 'playHistory') return capabilities.playHistory
-      if (node.requires === 'genres') return capabilities.genres
-      if (node.requires === 'playlists') return capabilities.playlists !== 'none'
-      if (node.requires === 'radio') return capabilities.radio
-      return true
-    })
+      if (entry.requires === 'favorites') return capabilities.favorites
+      if (entry.requires === 'playHistory') return capabilities.playHistory
+      if (entry.requires === 'genres') return capabilities.genres
+      return capabilities.playlists !== 'none'
+    }
+    return GROUPS.map((group) => ({ ...group, entries: group.entries.filter(allowed) })).filter(
+      (group) => group.entries.length > 0,
+    )
   }, [provider])
 
   return (
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
-      <Text style={styles.server}>{connection?.displayName ?? '未连接服务器'}</Text>
-      <View style={styles.card}>
-        {nodes.map((node, index) => (
-          <Link key={node.kind} href={ROUTES[node.kind]} asChild>
-            <Pressable
-              style={StyleSheet.flatten([styles.row, index > 0 && styles.rowBorder])}
-              accessibilityRole="button"
-              accessibilityLabel={LABELS[node.titleKey] ?? node.titleKey}
-            >
-              {/* 图标名存在领域层里是 SF Symbols 名，这里映射成同语义的 lucide 图标 */}
-              <Icon name={iconForSymbol(node.icon)} size={iconSize.lg} color={colors.iconMid} />
-              <Text style={styles.label}>{LABELS[node.titleKey] ?? node.titleKey}</Text>
-              <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
-            </Pressable>
-          </Link>
-        ))}
-      </View>
+    <ScrollView
+      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
+      contentInsetAdjustmentBehavior="automatic"
+    >
+      {groups.map((group) => (
+        <View key={group.title} style={styles.group}>
+          <Text style={styles.groupTitle}>{group.title}</Text>
+          <View style={styles.card}>
+            {group.entries.map((entry, index) => (
+              <Link key={entry.href} href={entry.href} asChild>
+                <Pressable
+                  style={StyleSheet.flatten([styles.row, index > 0 && styles.rowBorder])}
+                  accessibilityRole="button"
+                  accessibilityLabel={entry.label}
+                >
+                  <Icon name={entry.icon} size={iconSize.md} color={colors.accent} />
+                  <Text style={styles.label}>{entry.label}</Text>
+                  <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
+                </Pressable>
+              </Link>
+            ))}
+          </View>
+        </View>
+      ))}
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.lg, gap: spacing.md },
-  server: { ...typography.caption, color: colors.textTertiary },
+  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.lg },
+  group: { gap: spacing.sm },
+  groupTitle: { ...typography.footnote, color: colors.textTertiary, marginLeft: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.md, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md + 2,
+    minHeight: 52,
   },
   rowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   // flex 让标题占满中间，右侧箭头自然贴到行尾

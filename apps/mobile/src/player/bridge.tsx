@@ -5,6 +5,7 @@ import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
 import {
   ensureTranscodeForIndex,
+  fillRadio,
   markForcedTranscode,
   refreshArtwork,
   rememberProvider,
@@ -90,6 +91,10 @@ export function PlayerBridge() {
       void ensureTranscodeForIndex(index).catch((error: unknown) => {
         console.warn('转码会话切换失败', error)
       })
+      // 漫游电台：快到队尾就接着往后取，听着是无限的
+      if (provider && connection && usePlayerStore.getState().source?.kind === 'radio') {
+        void fillRadio(provider, connection.id)
+      }
       return
     }
     if (event.type === Event.PlaybackError) {

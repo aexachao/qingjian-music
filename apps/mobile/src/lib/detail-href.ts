@@ -23,8 +23,10 @@ export function useDetailHref() {
       if (inHome) return { pathname: '/home/artist/[id]', params: { id } } as const
       return { pathname: '/library/artist/[id]', params: { id } } as const
     },
-    // 流派只在资料库里有入口，不用分组
-    genre: (id: string, name = '') => ({ pathname: '/library/genre/[id]', params: { id, name } } as const),
+    genre: (id: string, name = '') => {
+      if (inSearch) return { pathname: '/search/genre/[id]', params: { id, name } } as const
+      return { pathname: '/library/genre/[id]', params: { id, name } } as const
+    },
     playlist: (id: string, name = '') => {
       if (inHome) return { pathname: '/home/playlist/[id]', params: { id, name } } as const
       return { pathname: '/library/playlist/[id]', params: { id, name } } as const

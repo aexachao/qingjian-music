@@ -1,18 +1,11 @@
 import { Stack } from 'expo-router'
-import { colors } from '@/theme/tokens'
+import { stackScreenOptions, tabRootOptions } from '@/lib/stack-options'
 
 export default function StackLayout() {
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.bgPrimary },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: { color: colors.textPrimary },
-        headerBackTitle: '返回',
-        contentStyle: { backgroundColor: colors.bgPrimary },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: '搜索' }} />
+    <Stack screenOptions={stackScreenOptions}>
+      {/* 页签根页用 iOS 大标题，二级页面用普通标题 */}
+      <Stack.Screen name="index" options={{ ...tabRootOptions, title: '搜索' }} />
     </Stack>
   )
 }
