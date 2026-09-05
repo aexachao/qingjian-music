@@ -6,6 +6,8 @@ import { Icon, iconSize } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
 import { clearArtworkCache } from '@/player/artwork'
+import { audioCacheStats, clearAudioCache } from '@/player/audio-cache'
+import { formatBytes } from '@/player/audio-cache-policy'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 export function SettingsScreen() {
@@ -13,6 +15,8 @@ export function SettingsScreen() {
   const { provider, connection, servers, signOut, switchServer } = useServerSession()
   const bottom = useBottomSpace()
   const [busy, setBusy] = useState(false)
+  // 缓存占用是磁盘读数，进页面算一次、清理后再算一次就够了
+  const [audioCache, setAudioCache] = useState(() => audioCacheStats())
 
   const me = useQuery({
     queryKey: ['me', connection?.id],
@@ -82,8 +86,27 @@ export function SettingsScreen() {
 
       <Text style={styles.sectionTitle}>存储</Text>
       <View style={styles.card}>
+        <Row
+          label="播放缓存"
+          value={`${formatBytes(audioCache.bytes)} / ${formatBytes(audioCache.budgetBytes)} · ${audioCache.files} 首`}
+        />
         <Pressable
-          style={styles.row}
+          style={[styles.row, styles.rowBorder]}
+          onPress={() => {
+            clearAudioCache()
+            setAudioCache(audioCacheStats())
+            Alert.alert('已清理', '本地音频缓存已删除，之后播放会重新从服务器读取')
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="清理播放缓存"
+        >
+          <View style={styles.actionRow}>
+            <Icon name="trash" size={iconSize.sm} color={colors.accent} />
+            <Text style={styles.action}>清理播放缓存</Text>
+          </View>
+        </Pressable>
+        <Pressable
+          style={[styles.row, styles.rowBorder]}
           onPress={() => {
             clearArtworkCache()
             Alert.alert('已清理', '封面缓存已删除，下次播放会重新下载')

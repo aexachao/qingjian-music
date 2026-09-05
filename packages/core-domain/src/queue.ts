@@ -22,6 +22,10 @@ export interface QueueItem {
   isFavorite?: boolean
   /** 漫游电台的上下文游标，普通队列为空 */
   radioCursor?: string
+  /** 音频格式（flac / mp3 …），播放缓存靠它决定文件后缀与 contentType */
+  format?: string
+  /** 源文件字节数，播放缓存用它算配额 */
+  sizeBytes?: number
 }
 
 /** 队列的来源，用于展示「正在播放来自…」并支持跳回去 */

@@ -47,6 +47,7 @@ export function mapAudioSpec(spec: FnAudioSpec | null | undefined): AudioSpec | 
     bitDepth: opt(spec.bitDepth),
     channels: opt(spec.channel) ?? opt(spec.channels),
     durationMs: opt(spec.duration),
+    sizeBytes: opt(spec.size),
     path: opt(spec.path),
   }
 }

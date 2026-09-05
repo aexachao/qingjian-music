@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import TrackPlayer, { Event, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
 import { useServerSession } from '@/lib/server-session'
-import { refreshArtwork, rememberProvider } from './controller'
+import { refreshArtwork, rememberProvider, schedulePrefetch } from './controller'
 import { ensurePlayer } from './setup'
 import { usePlayerStore } from './store'
 
@@ -27,9 +27,11 @@ export function PlayerBridge() {
    * 上报成功后让「最近播放」失效，回到资料库就能看到刚听的这首。
    */
   const reportPlay = useCallback(
-    (index: number) => {
+    (index: number, qid?: string) => {
       const item = usePlayerStore.getState().queue[index]
       if (!item || !connection || !provider?.reportPlayback) return
+      // 事件带的 id 和下标对不上说明队列刚被改过，这一次跳过，等下一次事件
+      if (qid && item.qid !== qid) return
       const now = Date.now()
       const last = lastReport.current
       if (last && last.qid === item.qid && now - last.at < REPORT_DEDUPE_MS) return
@@ -47,11 +49,16 @@ export function PlayerBridge() {
 
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackError], (event) => {
     if (event.type === Event.PlaybackActiveTrackChanged) {
-      const index = event.index ?? -1
+      const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
+      const { queue } = usePlayerStore.getState()
+      // 优先用曲目 id 反查下标：RNTP 换队列时下标会短暂漂移，光看 index 会跟错曲目
+      const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
+      const index = byId >= 0 ? byId : (event.index ?? -1)
       if (index < 0) return
       usePlayerStore.getState().setIndex(index)
       void refreshArtwork(index)
-      reportPlay(index)
+      reportPlay(index, qid)
+      schedulePrefetch(index)
       return
     }
     if (event.type === Event.PlaybackError) {

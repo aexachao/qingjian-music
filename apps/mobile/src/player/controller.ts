@@ -2,10 +2,14 @@ import TrackPlayer, { RepeatMode as RntpRepeatMode, type AddTrack } from 'react-
 import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
+import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
+import { contentTypeFor } from './audio-cache-policy'
 import { ensurePlayer } from './setup'
 import { usePlayerStore } from './store'
 
 const ARTWORK_SIZE = 600
+/** 预取范围：当前这首 + 后面两首 */
+const PREFETCH_AHEAD = 2
 
 /** 领域曲目 → 队列元素（带鉴权头的封面地址一并算好，锁屏/车机直接用） */
 export function toQueueItem(track: Track, provider: MusicProvider, serverId: string): QueueItem {
@@ -20,22 +24,44 @@ export function toQueueItem(track: Track, provider: MusicProvider, serverId: str
     ...(track.album?.id ? { albumId: track.album.id } : {}),
     ...(track.artists[0]?.id ? { artistId: track.artists[0].id } : {}),
     ...(track.isFavorite === undefined ? {} : { isFavorite: track.isFavorite }),
+    ...(track.audio?.format ? { format: track.audio.format } : {}),
+    ...(track.audio?.sizeBytes ? { sizeBytes: track.audio.sizeBytes } : {}),
     durationMs: track.durationMs,
     ...(artwork ? { artwork: provider.image(artwork, ARTWORK_SIZE) } : {}),
   }
 }
 
-/** 队列元素 → RNTP 曲目；封面走本地缓存文件，音频靠 headers 鉴权 */
-async function toRntpTrack(item: QueueItem, provider: MusicProvider): Promise<AddTrack> {
-  const stream = await provider.stream(item.trackId, { quality: 'original', allowTranscode: false })
+function toCacheTarget(item: QueueItem): AudioCacheTarget {
   return {
+    serverId: item.serverId,
+    trackId: item.trackId,
+    ...(item.format ? { format: item.format } : {}),
+    ...(item.sizeBytes ? { sizeBytes: item.sizeBytes } : {}),
+  }
+}
+
+/**
+ * 队列元素 → RNTP 曲目。命中播放缓存就直接放本地文件（不需要鉴权头），
+ * 否则回落到网络地址 + 鉴权头，同时由 schedulePrefetch 在后台补缓存。
+ */
+async function toRntpTrack(item: QueueItem, provider: MusicProvider): Promise<AddTrack> {
+  const base = {
     id: item.qid,
-    url: stream.url,
-    headers: stream.headers,
     title: item.title,
     artist: item.artistText,
     ...(item.albumText ? { album: item.albumText } : {}),
     duration: item.durationMs / 1000,
+  }
+  const cached = cachedAudioUri(toCacheTarget(item))
+  if (cached) {
+    const contentType = contentTypeFor(item.format)
+    return { ...base, url: cached, ...(contentType ? { contentType } : {}) }
+  }
+  const stream = await provider.stream(item.trackId, { quality: 'original', allowTranscode: false })
+  return {
+    ...base,
+    url: stream.url,
+    headers: stream.headers,
     ...(stream.mimeHint ? { contentType: stream.mimeHint } : {}),
   }
 }
@@ -63,6 +89,7 @@ export async function playTrackList({ provider, serverId, tracks, startIndex, so
   usePlayerStore.getState().setQueue(items, safeIndex, source)
   await TrackPlayer.play()
   void refreshArtwork(safeIndex)
+  schedulePrefetch(safeIndex)
 }
 
 /** 把当前曲目的封面下载到本地并回填锁屏元数据 */
@@ -195,7 +222,7 @@ export async function toggleShuffle(): Promise<boolean> {
   // RNTP 没有「重排队列」API：移除尾部再按新顺序追加
   const removeIndices = Array.from({ length: tail.length }, (_, i) => index + 1 + i)
   await TrackPlayer.remove(removeIndices)
-  const provider = shuffleProvider
+  const provider = activeProvider
   if (provider) {
     const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
     await TrackPlayer.add(rntpTracks)
@@ -204,9 +231,40 @@ export async function toggleShuffle(): Promise<boolean> {
   return next
 }
 
-/** toggleShuffle 需要 provider 重新生成播放地址，这里保存最近一次使用的实例 */
-let shuffleProvider: MusicProvider | null = null
+/** 随机播放与预取都要用 provider 重新生成播放地址，这里保存最近一次使用的实例 */
+let activeProvider: MusicProvider | null = null
+/** 每次切歌都会重排预取顺序，旧的循环靠这个令牌自行退出 */
+let prefetchToken = 0
 
 export function rememberProvider(provider: MusicProvider | null): void {
-  shuffleProvider = provider
+  activeProvider = provider
+}
+
+/**
+ * 把当前这首和后两首放进播放缓存。当前那首本次仍然走网络直连
+ * （不等下载完，起播不能变慢），缓存是为了下次听得更快、离线也能听。
+ */
+export function schedulePrefetch(index: number): void {
+  const provider = activeProvider
+  if (!provider || index < 0) return
+  const { queue } = usePlayerStore.getState()
+  const targets = queue.slice(index, index + 1 + PREFETCH_AHEAD)
+  if (targets.length === 0) return
+  protectTracks(targets.map(toCacheTarget))
+
+  prefetchToken += 1
+  const token = prefetchToken
+  void (async () => {
+    for (const item of targets) {
+      if (token !== prefetchToken) return
+      const target = toCacheTarget(item)
+      if (cachedAudioUri(target)) continue
+      try {
+        const stream = await provider.stream(item.trackId, { quality: 'original', allowTranscode: false })
+        await cacheAudio(target, { url: stream.url, headers: stream.headers })
+      } catch {
+        // 预取失败不影响播放，下次再试
+      }
+    }
+  })()
 }

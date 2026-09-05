@@ -28,6 +28,8 @@ export interface AudioSpec {
   bitDepth?: number
   channels?: number
   durationMs?: number
+  /** 源文件字节数，播放缓存用它算配额 */
+  sizeBytes?: number
   /** 服务端文件路径，仅用于诊断展示 */
   path?: string
 }
