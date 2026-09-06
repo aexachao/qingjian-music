@@ -55,7 +55,10 @@ export function PlayerQueue({ bottomSpace }: { bottomSpace: number }) {
           active={playMode.repeat !== 'off'}
           onPress={() => void cycleRepeat()}
         />
-        <ModeButton icon="infinity" label="无限播放" active={autoplay} onPress={onToggleAutoplay} />
+        {/* 无限播放靠服务端的漫游接口续歌，服务端不支持就不出这个按钮 */}
+        {provider?.capabilities.radio ? (
+          <ModeButton icon="infinity" label="无限播放" active={autoplay} onPress={onToggleAutoplay} />
+        ) : null}
       </View>
 
       <ReorderableList
