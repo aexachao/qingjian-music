@@ -458,10 +458,16 @@ export async function restoreQueuedPlayback(
   if (items.length === 0) return false
   await ensurePlayer()
 
+  // 恢复是异步的：等 ensurePlayer 的工夫里用户（或某条自动化）可能已经
+  // 开始放新队列了，那就别用旧会话把正在放的顶掉
+  if (usePlayerStore.getState().queue.length > 0) return false
+
   suppressingReports = true
   try {
     const index = Math.min(Math.max(snapshot.index, 0), items.length - 1)
     const rntpTracks = await Promise.all(items.map((item) => toRntpTrack(item, provider)))
+    // 转码 / 鉴权等网络步骤也可能耗时，回到主线程前再查一次
+    if (usePlayerStore.getState().queue.length > 0) return false
     await TrackPlayer.reset()
     await TrackPlayer.add(rntpTracks)
     // 循环模式直接给原生播放器，别等用户去队列页点
