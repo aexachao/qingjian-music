@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import ReorderableList, { useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
+import ReorderableList, { type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { LivePlayingBars } from '@/components/playing-bars'
@@ -16,6 +16,9 @@ import {
 } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
+
+/** 长按多久开始拖动排序 */
+const LONG_PRESS_MS = 280
 
 /**
  * 播放页右侧那一页：顶部三个播放模式按钮 + 待播列表。
@@ -66,6 +69,9 @@ export function PlayerQueue({ bottomSpace }: { bottomSpace: number }) {
         keyExtractor={(item) => item.qid}
         contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
         onReorder={({ from, to }: ReorderableListReorderEvent) => void moveInQueue(from, to)}
+        // 关键：拖动手势要长按之后才生效。默认的 Pan 任何方向一动就抢，
+        // 会把外层横向翻页的手势吃掉，导致「滑到播放列表后划不回去」。
+        panActivateAfterLongPress={LONG_PRESS_MS}
         renderItem={({ item, index: rowIndex }) => (
           <QueueRow item={item} rowIndex={rowIndex} playing={rowIndex === index} />
         )}
@@ -101,13 +107,9 @@ function ModeButton({
 }
 
 function QueueRow({ item, rowIndex, playing }: { item: QueueItem; rowIndex: number; playing: boolean }) {
-  const drag = useReorderableDrag()
-
   return (
     <Pressable
       onPress={() => void skipToIndex(rowIndex)}
-      onLongPress={drag}
-      delayLongPress={200}
       style={styles.row}
       accessibilityRole="button"
       accessibilityLabel={`播放 ${item.title}，长按可拖动排序`}

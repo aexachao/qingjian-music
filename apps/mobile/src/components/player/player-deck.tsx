@@ -1,8 +1,10 @@
 import { useCallback } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
 import { IconButton, iconSize } from '@/components/icon'
+import { MarqueeText } from '@/components/marquee-text'
+import { VolumeBar } from '@/components/player/volume-bar'
 import { ProgressBar } from '@/components/progress-bar'
 import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
@@ -40,13 +42,12 @@ export function PlayerDeck({ current, onMore }: PlayerDeckProps) {
     <View style={styles.container}>
       <View style={styles.titleRow}>
         <View style={styles.titleText}>
-          <Text numberOfLines={1} style={styles.title}>
-            {current.title}
-          </Text>
-          <Text numberOfLines={1} style={styles.artist}>
-            {current.artistText}
-            {current.albumText ? ` — ${current.albumText}` : ''}
-          </Text>
+          {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
+          <MarqueeText text={current.title} style={styles.title} />
+          <MarqueeText
+            text={`${current.artistText}${current.albumText ? ` — ${current.albumText}` : ''}`}
+            style={styles.artist}
+          />
         </View>
         {/* 从右往左：「···」「喜欢」 */}
         <IconButton
@@ -99,6 +100,9 @@ export function PlayerDeck({ current, onMore }: PlayerDeckProps) {
           style={styles.controlHit}
         />
       </View>
+
+      {/* 音量条：顺便把传输控制和底部工具栏在视觉上分开 */}
+      <VolumeBar />
     </View>
   )
 }

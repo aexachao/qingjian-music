@@ -38,6 +38,8 @@ const ICONS = {
   infinity: 'all-inclusive',
   /** 隔空投送 / 输出设备 */
   airplay: 'airplay',
+  volumeDown: 'volume-down',
+  volumeUp: 'volume-up',
   heart: 'favorite',
   queue: 'queue-music',
   lyrics: 'lyrics',
