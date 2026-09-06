@@ -1,8 +1,20 @@
+/** 逐字/逐词时间戳：来自增强型 LRC 里的 [mm:ss.xx]word[mm:ss.xx]word 写法 */
+export interface LyricWord {
+  text: string
+  /** 绝对时间（毫秒，与行时间同一坐标系） */
+  atMs: number
+}
+
 export interface LyricLine {
   /** 行起始时间（毫秒），纯文本歌词为 0 */
   atMs: number
   text: string
   translation?: string
+  /**
+   * 这一行里每个词的开始时间（可选）。
+   * 有它 → 逐字卡拉OK（按真实词时间点亮）；没有 → 整行高亮。
+   */
+  words?: LyricWord[]
 }
 
 export interface LyricSheet {

@@ -8,7 +8,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -52,7 +52,12 @@ export default function PlayerScreen() {
   const { width } = useWindowDimensions()
   const current = usePlayerStore(selectCurrent)
   const { playing } = useIsPlaying()
-  const [page, setPage] = useState(INITIAL_PAGE)
+  const { page: pageParam } = useLocalSearchParams<{ page?: string }>()
+  // 迷你播放条的「播放列表」按钮带 ?page=queue 进来，直接落在队列那一页
+  const [initialPage] = useState(() =>
+    pageParam === 'queue' ? QUEUE_PAGE : pageParam === 'lyrics' ? LYRICS_PAGE : PLAYER_PAGE,
+  )
+  const [page, setPage] = useState(initialPage)
   const pager = useRef<ScrollView>(null)
 
   // 播放时封面满尺寸，暂停时缩小
@@ -136,6 +141,17 @@ export default function PlayerScreen() {
       if (event.translationY > 100) runOnJS(dismiss)()
     })
 
+  /**
+   * 全屏歌词里往下拉（手指从屏幕上方往下）→ 退出全屏把周边带回来。
+   * 注意只认向下的手势：往上拉留给歌词自己滚动，不该退出全屏。
+   */
+  const revealDown = Gesture.Pan()
+    .activeOffsetY([40, -9999])
+    .failOffsetX([-28, 28])
+    .onEnd((event) => {
+      if (event.translationY > 60) runOnJS(onUserTouch)()
+    })
+
   if (!current) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -185,12 +201,13 @@ export default function PlayerScreen() {
         <View style={styles.headerSpacer} />
       </Animated.View>
 
+      <GestureDetector gesture={revealDown}>
       <ScrollView
         ref={pager}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        contentOffset={{ x: INITIAL_PAGE * width, y: 0 }}
+        contentOffset={{ x: initialPage * width, y: 0 }}
         onMomentumScrollEnd={onScrollEnd}
         style={styles.pager}
       >
@@ -226,6 +243,7 @@ export default function PlayerScreen() {
           <PlayerQueue bottomSpace={spacing.md} />
         </View>
       </ScrollView>
+      </GestureDetector>
 
       <Animated.View
         style={[styles.toolbar, { paddingBottom: insets.bottom + spacing.xs }, toolbarAnim]}

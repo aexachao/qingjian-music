@@ -155,10 +155,12 @@ export async function appendTracks({
 let radioCursor: string | undefined
 /** 正在补歌，防止同一时刻发多份请求 */
 let radioFilling = false
-/** 队尾至少留几首，听着才像无限流 */
-const RADIO_AHEAD = 3
+/** 平时播放时队尾至少留几首，听着才像无限流 */
+export const RADIO_UPCOMING_KEEP = 6
+/** 首次进漫游就先把队尾补到这个量（+正在播的这首 ≈ 20 首） */
+export const RADIO_ENTRY_UPCOMING = 19
 
-/** 开始漫游：服务端按口味推歌，起播一首后立刻把队尾补起来 */
+/** 开始漫游：服务端按口味推歌，起播一首后立刻在后台把队尾补到 ~20 首 */
 export async function startRadio(provider: MusicProvider, serverId: string): Promise<void> {
   if (!provider.radioStart) return
   const slice = await provider.radioStart()
@@ -170,20 +172,29 @@ export async function startRadio(provider: MusicProvider, serverId: string): Pro
     source: { kind: 'radio', label: '漫游' },
   })
   radioCursor = slice.cursor
-  await fillRadio(provider, serverId)
+  // 不阻塞：第一首先唱着，队尾在后台一首一首往后取
+  void fillRadio(provider, serverId, RADIO_ENTRY_UPCOMING).catch((error: unknown) => {
+    console.warn('漫游首轮补歌失败', error)
+  })
 }
 
 /**
- * 漫游续歌：队尾不足 RADIO_AHEAD 首就一首一首往后取。
- * 飞牛的游标是「当前这首的 roamId」，所以一次只能推进一首，不能批量取。
+ * 漫游续歌：队尾不足目标值就一首一首往后取。
+ * 飞牛的游标是「当前这首的 roamId」，一次只能推进一首，不能批量取，
+ * 所以「一直往下翻」靠这里反复推进游标实现。
  */
-export async function fillRadio(provider: MusicProvider, serverId: string): Promise<void> {
+export async function fillRadio(
+  provider: MusicProvider,
+  serverId: string,
+  upcomingTarget: number = RADIO_UPCOMING_KEEP,
+): Promise<void> {
   if (!provider.radioNext || !radioCursor || radioFilling) return
   radioFilling = true
   try {
-    for (let i = 0; i < RADIO_AHEAD; i += 1) {
+    for (;;) {
       const { queue, index } = usePlayerStore.getState()
-      if (queue.length - index - 1 >= RADIO_AHEAD) break
+      const upcoming = queue.length - index - 1
+      if (upcoming >= upcomingTarget || upcoming > 60) break
       const slice = await provider.radioNext(radioCursor)
       // 游标没往前走就停手，避免死循环刷同一首
       if (!slice.cursor || slice.cursor === radioCursor) break
@@ -191,7 +202,7 @@ export async function fillRadio(provider: MusicProvider, serverId: string): Prom
       await appendTracks({ provider, serverId, tracks: [slice.current] })
     }
   } catch {
-    // 续歌失败不影响已经在放的队列，下次切歌再试
+    // 续歌失败不影响已经在放的队列，下次再试
   } finally {
     radioFilling = false
   }
@@ -223,6 +234,16 @@ export async function togglePlay(): Promise<void> {
   else await TrackPlayer.play()
 }
 
+/** 切歌后把 RNTP 的真实下标同步回 store（事件没跟上时 UI 也不会停在旧歌名） */
+async function syncIndexFromPlayer(): Promise<void> {
+  try {
+    const active = await TrackPlayer.getActiveTrackIndex()
+    if (typeof active === 'number') usePlayerStore.getState().setIndex(active)
+  } catch {
+    // 播放器没就绪时忽略，等事件自己来
+  }
+}
+
 /** 3 秒内按上一首视作「回到上一首」，否则回到本曲开头（对齐 Apple Music） */
 export async function skipToPreviousSmart(): Promise<void> {
   await ensurePlayer()
@@ -234,16 +255,19 @@ export async function skipToPreviousSmart(): Promise<void> {
   try {
     await TrackPlayer.skipToPrevious()
   } catch {
+    // 已经是第一首：回到开头
     await TrackPlayer.seekTo(0)
   }
+  await syncIndexFromPlayer()
 }
 
 export async function skipToNextSafe(): Promise<void> {
   try {
     await TrackPlayer.skipToNext()
   } catch {
-    // 已经是最后一首
+    // 已经是最后一首（循环由原生 RepeatMode 管）
   }
+  await syncIndexFromPlayer()
 }
 
 /** 队列页点某一行：直接跳到该曲目并播放 */

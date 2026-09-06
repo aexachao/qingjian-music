@@ -8,6 +8,7 @@ import type {
   GenreRef,
   LyricLine,
   LyricSheet,
+  LyricWord,
   Playlist,
   SessionUser,
   SortSpec,
@@ -113,12 +114,12 @@ export function mapPlaylist(playlist: FnPlaylist): Playlist {
   }
 }
 
-/** 排序字段别名：飞牛不同列表用的字段名不一致（web 端也是这么映射的） */
 const SORT_ALIASES: Record<string, Record<string, string>> = {
   album: { createdAt: 'newTrackAddedAt' },
   favoriteTrack: { createdAt: 'favoriteAt' },
 }
 
+/** 排序字段别名：飞牛不同列表用的字段名不一致（web 端也是这么映射的） */
 export function formatSort(sort: SortSpec | undefined, scope?: keyof typeof SORT_ALIASES | string): string | undefined {
   if (!sort) return undefined
   const alias = scope ? SORT_ALIASES[scope]?.[sort.field] : undefined
@@ -126,8 +127,22 @@ export function formatSort(sort: SortSpec | undefined, scope?: keyof typeof SORT
 }
 
 const LRC_LINE = /^\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]\s?(.*)$/
+/** 增强型 LRC 的逐词时间：行正文里的 [mm:ss.xx]word */
+const WORD_TAG = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g
 
-/** 解析 LRC；没有时间轴就退化成纯文本歌词 */
+function timeFromGroups(minutesRaw: string, secondsRaw: string, fractionRaw: string): number {
+  const minutes = Number(minutesRaw ?? 0)
+  const seconds = Number(secondsRaw ?? 0)
+  const fraction = Number((fractionRaw ?? '0').padEnd(3, '0'))
+  return minutes * 60_000 + seconds * 1000 + fraction
+}
+
+/**
+ * 解析 LRC；没有时间轴就退化成纯文本歌词。
+ * 正文里出现多个时间标签（增强型 LRC 的 [mm:ss.xx]word 写法）时，
+ * 把这一行拆成带逐词时间轴的 words——App 端靠它做「跟人声」的卡拉OK；
+ * 只有整行一个时间的就是普通 LRC，走整行高亮。
+ */
 export function parseLyrics(raw: string, source?: string): LyricSheet {
   const lines: LyricLine[] = []
   let synced = false
@@ -135,28 +150,41 @@ export function parseLyrics(raw: string, source?: string): LyricSheet {
     const line = rawLine.trim()
     if (!line) continue
     const matched = LRC_LINE.exec(line)
-    if (matched) {
-      synced = true
-      const minutes = Number(matched[1] ?? 0)
-      const seconds = Number(matched[2] ?? 0)
-      const fractionRaw = matched[3] ?? '0'
-      const fraction = Number(fractionRaw.padEnd(3, '0'))
-      const text = (matched[4] ?? '').trim()
-      if (!text) continue
-      lines.push({ atMs: minutes * 60_000 + seconds * 1000 + fraction, text })
-    } else if (!line.startsWith('[')) {
-      lines.push({ atMs: 0, text: line })
+    if (!matched) {
+      if (!line.startsWith('[')) lines.push({ atMs: 0, text: line })
+      continue
+    }
+    synced = true
+    const headAtMs = timeFromGroups(matched[1] ?? '', matched[2] ?? '', matched[3] ?? '')
+    const body = (matched[4] ?? '').trim()
+    if (!body) continue
+
+    // 行正文里是否还嵌了词级时间
+    const words: LyricWord[] = []
+    WORD_TAG.lastIndex = 0
+    let cursor = 0
+    let match: RegExpExecArray | null
+    const parts: LyricWord[] = []
+    while ((match = WORD_TAG.exec(body)) !== null) {
+      const atMs = timeFromGroups(match[1] ?? '', match[2] ?? '', match[3] ?? '')
+      const text = body.slice(cursor, match.index)
+      cursor = match.index + match[0].length
+      if (text) parts.push({ text, atMs })
+    }
+    if (parts.length >= 2) {
+      const rest = body.slice(cursor)
+      if (rest) parts[parts.length - 1] = { ...parts[parts.length - 1]!, text: parts[parts.length - 1]!.text + rest }
+      words.push(...parts)
+      const fullText = parts.map((part) => part.text).join('')
+      lines.push({ atMs: headAtMs, text: fullText, words })
+    } else {
+      lines.push({ atMs: headAtMs, text: body })
     }
   }
   lines.sort((a, b) => a.atMs - b.atMs)
   return { synced, lines, offsetMs: 0, source }
 }
 
-/**
- * 把 /lyric/list 的结果映射成歌词表：
- * 优先取 `preferred`（首选条目的 guid）指向的那条，取不到就用第一条有正文的。
- * 服务端的 `offset` 单位是毫秒、正值表示歌词提前（与 web 端 `currentTime + offset` 的用法一致）。
- */
 export function mapLyricSheet(entries: FnLyricEntry[], preferredGuid?: string | null): LyricSheet | null {
   const usable = entries.filter((entry) => typeof entry.content === 'string' && entry.content.trim().length > 0)
   if (usable.length === 0) return null

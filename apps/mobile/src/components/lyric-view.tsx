@@ -7,14 +7,12 @@ import { useLyricSheet } from '@/lib/lyric-offset'
 import { usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
-/** 没有下一行时，假设当前行唱这么久（用来算逐字进度） */
+/** 没有下一行时，假设当前行唱这么久（逐词进度的兜底） */
 const FALLBACK_LINE_MS = 4000
-/** 一行歌词唱得比它还短，基本可以断定是「作词 / 作曲 / 制作」这类信息行，整行点亮 */
-const META_LINE_MS = 900
 /** 长按多久弹出全部歌词面板 */
 const LONG_PRESS_MS = 320
 
-/** 未唱到的字用这个灰：跟纯白的「唱到的字」拉开，但又不能太暗看不见 */
+/** 卡拉OK行里还没唱到的字用这个灰（唱到的字是纯白） */
 const PENDING_CHAR = '#ffffff99'
 /** 其余（没轮到的）行整体压暗，突出当前行 */
 const IDLE_LINE = '#ffffff6b'
@@ -39,6 +37,36 @@ function activeIndexOf(lines: LyricLine[], atMs: number): number {
   return index
 }
 
+/**
+ * 这一行是不是卡拉OK行：文件里给了一行内的逐词时间（增强型 LRC）才算，
+ * 用「下一个词的开始时间」而不是平均拍脑袋，才能跟得上人声。
+ */
+function isKaraokeLine(line: LyricLine): boolean {
+  return Array.isArray(line.words) && line.words.length >= 2
+}
+
+/**
+ * 当前唱到第几个字。逐词推进：
+ * 每个词里的字均分「这个词到下一个词」的时间，唱到哪个字的开始时间就亮到哪。
+ */
+function countLitChars(line: LyricLine, atMs: number, nextLineAtMs: number): number {
+  const words = line.words ?? []
+  if (words.length === 0) return 0
+  let lit = 0
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i]!
+    const wordChars = Array.from(word.text)
+    const spanStart = word.atMs
+    const spanEnd = words[i + 1]?.atMs ?? nextLineAtMs
+    const span = Math.max(spanEnd - spanStart, 1)
+    for (let c = 0; c < wordChars.length; c += 1) {
+      const charAt = spanStart + (span * c) / wordChars.length
+      if (charAt <= atMs) lit += 1
+    }
+  }
+  return lit
+}
+
 export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewProps) {
   const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
   const scrollRef = useRef<ScrollView>(null)
@@ -55,22 +83,15 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewP
   const atMs = positionMs + offsetMs
   const activeIndex = useMemo(() => (synced ? activeIndexOf(lines, atMs) : -1), [lines, atMs, synced])
 
-  // 本行到下一行的时长；synced 行用它算逐字进度和判断「信息行」
-  const spans = useMemo(() => {
-    return lines.map((line, index) => {
-      const start = line.atMs ?? 0
-      const end = lines[index + 1]?.atMs ?? start + FALLBACK_LINE_MS
-      return { start, span: Math.max(end - start, 1) }
-    })
-  }, [lines])
+  // 当前行是卡拉OK行时，唱到第几个字（整行高亮的行用不上）
+  const activeKaraoke = activeIndex >= 0 && synced && isKaraokeLine(lines[activeIndex]!)
+  const litCount = useMemo(() => {
+    if (!activeKaraoke || activeIndex < 0) return undefined
+    const nextAt = lines[activeIndex + 1]?.atMs ?? (lines[activeIndex]?.atMs ?? 0) + FALLBACK_LINE_MS
+    return countLitChars(lines[activeIndex]!, atMs, nextAt)
+  }, [activeKaraoke, activeIndex, atMs, lines])
 
-  const activeRatio = useMemo(() => {
-    if (activeIndex < 0) return 0
-    const { start, span } = spans[activeIndex] ?? { start: 0, span: FALLBACK_LINE_MS }
-    return Math.min(Math.max((atMs - start) / span, 0), 1)
-  }, [activeIndex, atMs, spans])
-
-  // 高亮行滚到视口中间（放大后也仍然居中）
+  // 高亮行滚到视口中间（卡拉OK放大后也仍然居中）
   useEffect(() => {
     if (!synced || activeIndex < 0 || viewportHeight <= 0) return
     const target = offsets.current[activeIndex]
@@ -103,25 +124,20 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewP
         showsVerticalScrollIndicator={false}
         onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
       >
-        {lines.map((line, index) => {
-          const isActive = index === activeIndex
-          const isInfo = synced && spans[index] !== undefined && spans[index]!.span <= META_LINE_MS
-          return (
-            <LyricRow
-              key={`${line.atMs}-${index}`}
-              line={line}
-              active={isActive}
-              info={isInfo}
-              ratio={isActive && !isInfo ? activeRatio : 0}
-              synced={synced}
-              onTap={() => onSeek((line.atMs + offsetMs) / 1000)}
-              onLongPress={() => setSheetOpenFor(index)}
-              onLayout={(y) => {
-                offsets.current[index] = y
-              }}
-            />
-          )
-        })}
+        {lines.map((line, index) => (
+          <LyricRow
+            key={`${line.atMs}-${index}`}
+            line={line}
+            active={index === activeIndex}
+            litCount={index === activeIndex ? litCount : undefined}
+            synced={synced}
+            onTap={() => onSeek((line.atMs + offsetMs) / 1000)}
+            onLongPress={() => setSheetOpenFor(index)}
+            onLayout={(y) => {
+              offsets.current[index] = y
+            }}
+          />
+        ))}
       </ScrollView>
 
       {sheetOpenFor !== null ? (
@@ -138,36 +154,32 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewP
 
 interface LyricRowProps {
   line: LyricLine
-  /** 正在唱的这一句（放大 + 逐字） */
+  /** 正在唱的这一句 */
   active: boolean
-  /** 歌名 / 创作信息这类行：整句点亮，不做逐字 */
-  info: boolean
-  /** 当前行唱到的比例，0~1；非当前行传 0 */
-  ratio: number
+  /**
+   * 当前唱到第几个字：
+   * 卡拉OK行（文件带逐词时间）给数字 → 逐字点亮；
+   * 其余给 undefined → 整行高亮（信息行 / 没有逐词数据的普通 LRC）。
+   */
+  litCount?: number
   synced: boolean
   onTap: () => void
   onLongPress: () => void
   onLayout: (y: number) => void
 }
 
-/**
- * 一行歌词。非当前行的 props 不变，memo 之后每次进度回调只重渲染当前行。
- * 正在唱的行放大一号，唱到的字逐字变纯白；点击跳唱，长按弹全部歌词。
- */
 const LyricRow = memo(function LyricRow({
   line,
   active,
-  info,
-  ratio,
+  litCount,
   synced,
   onTap,
   onLongPress,
   onLayout,
 }: LyricRowProps) {
-  const chars = active && line.text ? Array.from(line.text) : []
-  const sung = Math.round(ratio * chars.length)
-  // 信息行整句点亮（不用逐字），否则唱歌行逐字
-  const wholeLit = active && (info || !synced)
+  const karaoke = active && litCount !== undefined
+  const chars = karaoke && line.text ? Array.from(line.text) : []
+  const sung = Math.min(Math.max(litCount ?? 0, 0), chars.length)
 
   return (
     <Pressable
@@ -179,8 +191,8 @@ const LyricRow = memo(function LyricRow({
       accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${synced ? '，点按从这句开始播放，长按查看全部歌词' : ''}`}
     >
       {line.text ? (
-        <Text style={[styles.line, active && styles.lineActive, wholeLit && styles.lineLit]}>
-          {active && !info && synced
+        <Text style={[styles.line, active && !karaoke && styles.lineActive, karaoke && styles.lineKaraoke]}>
+          {karaoke
             ? chars.map((char, index) => (
                 <Text key={index} style={index < sung ? styles.charSung : styles.charPending}>
                   {char}
@@ -225,8 +237,6 @@ function LyricsSheetModal({
     }, 60)
     return () => clearTimeout(timer)
   }, [safe, viewH])
-
-
 
   const allText = useMemo(
     () =>
@@ -301,23 +311,17 @@ const styles = StyleSheet.create({
   empty: { ...typography.subhead, color: colors.textTertiary },
   // 基础：没轮到的行
   line: { ...typography.title, color: IDLE_LINE, lineHeight: 30 },
-  // 正在唱：放大一号
-  lineActive: { fontSize: 27, lineHeight: 40, fontWeight: '700', color: colors.textPrimary },
-  // 信息行 / 无时间轴：整句点亮
-  lineLit: { color: colors.textPrimary },
-  // 逐字：唱过的纯白，没唱到的灰
+  // 整行高亮的当前行（普通 LRC / 信息行）：整句白色，跟之前的表现一致
+  lineActive: { color: colors.textPrimary },
+  // 卡拉OK当前行：放大一号，唱到的字逐字纯白
+  lineKaraoke: { fontSize: 27, lineHeight: 40, fontWeight: '700', color: colors.textPrimary },
   charSung: { color: colors.textPrimary },
   charPending: { color: PENDING_CHAR },
   translation: { ...typography.subhead, color: IDLE_LINE, marginTop: spacing.xs },
   translationActive: { color: colors.textTertiary },
   // —— 全部歌词面板 ——
   sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.xl },
-  sheetCard: {
-    backgroundColor: '#1c1c21f2',
-    borderRadius: radius.xl,
-    maxHeight: '78%',
-    overflow: 'hidden',
-  },
+  sheetCard: { backgroundColor: '#1c1c21f2', borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -334,7 +338,6 @@ const styles = StyleSheet.create({
   sheetLineSelected: {
     color: colors.textPrimary,
     fontWeight: '700',
-    // 选中的那句整行垫一层底色，一眼能看到
     backgroundColor: colors.bgButtonSecondary,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,

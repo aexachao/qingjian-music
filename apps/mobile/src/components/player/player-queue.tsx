@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import ReorderableList, { type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import type { QueueItem } from '@qj/core-domain'
@@ -9,7 +9,9 @@ import { useServerSession } from '@/lib/server-session'
 import {
   cycleRepeat,
   extendWithRadio,
+  fillRadio,
   moveInQueue,
+  RADIO_UPCOMING_KEEP,
   removeFromQueue,
   setShuffledOrder,
   skipToIndex,
@@ -19,6 +21,8 @@ import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 /** 长按多久开始拖动排序 */
 const LONG_PRESS_MS = 280
+/** 滚到列表尾部时，再往后补这么多首（漫游是无限流） */
+const RADIO_FETCH_MORE = 12
 
 /**
  * 播放页右侧那一页：顶部三个播放模式按钮 + 待播列表。
@@ -37,10 +41,35 @@ export function PlayerQueue({ bottomSpace }: { bottomSpace: number }) {
     usePlayerStore.getState().setAutoplay(next)
     if (!next || !provider || !connection) return
     const state = usePlayerStore.getState()
-    if (state.queue.length - state.index - 1 > 2) return
+    if (state.queue.length - state.index - 1 > RADIO_UPCOMING_KEEP) return
     void extendWithRadio(provider, connection.id).catch(() => {
       // 续歌失败不影响当前播放，切歌时还会再试
     })
+  }, [autoplay, connection, provider])
+
+  /** 拉取中标志：滚到底触发一次，别在补歌期间反复发请求 */
+  const fillingRef = useRef(false)
+
+  /** 列表滚到底：漫游再往后取一段；普通队列开了无限播放就切到漫游续 */
+  const onEndReached = useCallback(() => {
+    if (!provider || !connection) return
+    const { source, index: current, queue: list } = usePlayerStore.getState()
+    const upcoming = list.length - current - 1
+    if (source?.kind === 'radio') {
+      if (fillingRef.current) return
+      fillingRef.current = true
+      void fillRadio(provider, connection.id, upcoming + RADIO_FETCH_MORE)
+        .catch(() => {
+          // 补歌失败无所谓，列表已经能往下看
+        })
+        .finally(() => {
+          fillingRef.current = false
+        })
+    } else if (autoplay && upcoming <= RADIO_UPCOMING_KEEP) {
+      void extendWithRadio(provider, connection.id).catch(() => {
+        // 同上
+      })
+    }
   }, [autoplay, connection, provider])
 
   return (
@@ -69,6 +98,9 @@ export function PlayerQueue({ bottomSpace }: { bottomSpace: number }) {
         keyExtractor={(item) => item.qid}
         contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
         onReorder={({ from, to }: ReorderableListReorderEvent) => void moveInQueue(from, to)}
+        // 漫游/无限播放：滚到底就再补一段，列表永远有得往下翻
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.5}
         // 关键：拖动手势要长按之后才生效。默认的 Pan 任何方向一动就抢，
         // 会把外层横向翻页的手势吃掉，导致「滑到播放列表后划不回去」。
         panActivateAfterLongPress={LONG_PRESS_MS}

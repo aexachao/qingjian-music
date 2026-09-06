@@ -1,12 +1,16 @@
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { BlurView } from 'expo-blur'
-import { useRouter } from 'expo-router'
+import { useRouter, type Href } from 'expo-router'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { IconButton, iconSize } from '@/components/icon'
-import { skipToNextSafe, togglePlay } from '@/player/controller'
+import { skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
+
+/** 往左滑多远算下一首（pt） */
+const SWIPE_SLOP = 48
 
 /** iOS 有真毛玻璃（UIVisualEffectView），Android 上 BlurView 不可靠，直接用实心底 */
 const USE_BLUR = Platform.OS === 'ios'
@@ -25,41 +29,57 @@ export function MiniPlayer() {
 
   if (!current) return null
 
+  /** 往左滑下一首、往右滑上一首（跟 Apple Music 迷你条一致） */
+  const swipe = Gesture.Pan()
+    .activeOffsetX([-SWIPE_SLOP, SWIPE_SLOP])
+    .failOffsetY([-18, 18])
+    .onEnd((event) => {
+      if (event.translationX < -SWIPE_SLOP) void skipToNextSafe()
+      else if (event.translationX > SWIPE_SLOP) void skipToPreviousSmart()
+    })
+
+  /** 右侧按钮：播放/暂停 + 播放列表（点开播放页的队列那一页） */
+  const openQueue = () => {
+    router.push({ pathname: '/player', params: { page: 'queue' } } as Href)
+  }
+
   return (
-    <View style={styles.shell}>
-      {USE_BLUR ? <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} /> : null}
-      <Pressable
-        style={styles.container}
-        onPress={() => router.push('/player')}
-        accessibilityRole="button"
-        accessibilityLabel={`正在播放 ${current.title}，点击展开播放页`}
-      >
-        <CoverImage resource={current.artwork} size={44} borderRadius={radius.sm} />
-        <View style={styles.text}>
-          <Text numberOfLines={1} style={styles.title}>
-            {current.title}
-          </Text>
-          <Text numberOfLines={1} style={styles.artist}>
-            {current.artistText}
-          </Text>
-        </View>
-        {/* 次级控制用 lg，命中区由 IconButton 撑到 44×44 */}
-        <IconButton
-          name={playing ? 'pause' : 'play'}
-          size={iconSize.lg}
-          color={colors.iconBright}
-          onPress={() => void togglePlay()}
-          accessibilityLabel={playing ? '暂停' : '播放'}
-        />
-        <IconButton
-          name="next"
-          size={iconSize.lg}
-          color={colors.iconMid}
-          onPress={() => void skipToNextSafe()}
-          accessibilityLabel="下一首"
-        />
-      </Pressable>
-    </View>
+    <GestureDetector gesture={swipe}>
+      <View style={styles.shell}>
+        {USE_BLUR ? <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+        <Pressable
+          style={styles.container}
+          onPress={() => router.push('/player')}
+          accessibilityRole="button"
+          accessibilityLabel={`正在播放 ${current.title}，点击展开播放页`}
+        >
+          <CoverImage resource={current.artwork} size={44} borderRadius={radius.sm} />
+          <View style={styles.text}>
+            <Text numberOfLines={1} style={styles.title}>
+              {current.title}
+            </Text>
+            <Text numberOfLines={1} style={styles.artist}>
+              {current.artistText}
+            </Text>
+          </View>
+          {/* 次级控制用 lg，命中区由 IconButton 撑到 44×44 */}
+          <IconButton
+            name={playing ? 'pause' : 'play'}
+            size={iconSize.lg}
+            color={colors.iconBright}
+            onPress={() => void togglePlay()}
+            accessibilityLabel={playing ? '暂停' : '播放'}
+          />
+          <IconButton
+            name="queue"
+            size={iconSize.lg}
+            color={colors.iconMid}
+            onPress={openQueue}
+            accessibilityLabel="播放列表"
+          />
+        </Pressable>
+      </View>
+    </GestureDetector>
   )
 }
 
