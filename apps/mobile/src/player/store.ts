@@ -35,6 +35,19 @@ interface PlayerState {
   removeItem(target: number): void
   patchItem(qid: string, patch: Partial<QueueItem>): void
   clear(): void
+  /** 冷启动恢复上次会话：一次性把整套状态放回去 */
+  restore(payload: RestorePayload): void
+}
+
+/** 持久化恢复时用的整套状态（restore 的入参） */
+export interface RestorePayload {
+  queue: QueueItem[]
+  baseQueue: QueueItem[]
+  index: number
+  source?: PlaySource
+  playMode: PlayMode
+  autoplay: boolean
+  lyricOffsetMs: number
 }
 
 export const usePlayerStore = create<PlayerState>((set) => ({
@@ -89,6 +102,16 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     set((state) => ({
       queue: state.queue.map((item) => (item.qid === qid ? { ...item, ...patch } : item)),
       baseQueue: state.baseQueue.map((item) => (item.qid === qid ? { ...item, ...patch } : item)),
+    })),
+  restore: (payload) =>
+    set(() => ({
+      queue: payload.queue,
+      baseQueue: payload.baseQueue,
+      index: payload.index,
+      source: payload.source,
+      playMode: payload.playMode,
+      autoplay: payload.autoplay,
+      lyricOffsetMs: payload.lyricOffsetMs,
     })),
   clear: () => set({ queue: [], baseQueue: [], index: -1, source: undefined }),
 }))

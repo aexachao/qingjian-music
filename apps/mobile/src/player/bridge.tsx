@@ -7,11 +7,14 @@ import {
   ensureTranscodeForIndex,
   extendWithRadio,
   fillRadio,
+  isRestoringSession,
   markForcedTranscode,
   refreshArtwork,
   rememberProvider,
+  restoreQueuedPlayback,
   schedulePrefetch,
 } from './controller'
+import { readPlaybackSnapshot, startPlaybackPersistence } from './persist'
 import { ensurePlayer, setLikeState } from './setup'
 import { selectCurrent, usePlayerStore } from './store'
 import { setSessionLostHandler } from './transcode-session'
@@ -47,6 +50,8 @@ export function PlayerBridge() {
    */
   const reportPlay = useCallback(
     (index: number, qid?: string) => {
+      // 冷启动恢复会触发一次换歌事件，但那不是真的起播，别上报
+      if (isRestoringSession()) return
       const item = usePlayerStore.getState().queue[index]
       if (!item || !connection || !provider?.reportPlayback) return
       // 事件带的 id 和下标对不上说明队列刚被改过，这一次跳过，等下一次事件
@@ -143,6 +148,31 @@ export function PlayerBridge() {
       cancelled = true
     }
   }, [])
+
+  // 冷启动恢复：队列是空的、快照属于当前这台服务器 → 重建播放队列。
+  // 只加载不播放，迷你播放器显示出来，进度停在离开时的位置。
+  useEffect(() => {
+    if (!provider || !connection) return
+    if (usePlayerStore.getState().queue.length > 0) return
+    let cancelled = false
+    void (async () => {
+      await ensurePlayer()
+      if (cancelled) return
+      const snapshot = readPlaybackSnapshot()
+      if (!snapshot || snapshot.serverId !== connection.id) return
+      if (usePlayerStore.getState().queue.length > 0) return
+      await restoreQueuedPlayback(provider, snapshot).catch((error: unknown) => {
+        // 恢复失败就当新会话（转码 / 网络问题都别卡住启动）
+        console.warn('恢复上次播放会话失败', error)
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [connection?.id, provider])
+
+  // 播放会话持久化：切歌 / 模式变更防抖写，播放中定时补进度，退后台补一次
+  useEffect(() => startPlaybackPersistence(), [])
 
   return null
 }

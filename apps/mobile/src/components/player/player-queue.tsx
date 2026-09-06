@@ -101,7 +101,11 @@ function ModeButton({
       accessibilityState={{ selected: active }}
       accessibilityLabel={active ? `${label}（已开启）` : label}
     >
-      <Icon name={icon} size={iconSize.lg} color={active ? colors.accent : colors.iconMid} />
+      <Icon
+        name={icon}
+        size={iconSize.xl}
+        color={active ? colors.bgPrimary : colors.textSecondary}
+      />
     </Pressable>
   )
 }
@@ -148,15 +152,19 @@ function QueueRow({ item, rowIndex, playing }: { item: QueueItem; rowIndex: numb
 
 const styles = StyleSheet.create({
   container: { flex: 1, gap: spacing.sm },
-  modes: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xl },
+  // 三个按钮等宽撑满一行；图标各占三分之一宽度，视觉上就均匀了
+  modes: { flexDirection: 'row', gap: spacing.sm },
   mode: {
-    minWidth: 52,
+    flex: 1,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
+    // 未开启：浅色底（背景是模糊封面，用半透明白最稳妥）
+    backgroundColor: colors.bgButtonSecondary,
   },
-  modeActive: { backgroundColor: colors.bgButtonSecondary },
+  // 开启：背景反白，图标用页面的底色，像被「挖」出来一样
+  modeActive: { backgroundColor: colors.textPrimary },
   list: { paddingTop: spacing.xs },
   empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   row: {
@@ -167,7 +175,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderSubtle,
-    backgroundColor: colors.bgPrimary,
+    // 列表直接浮在模糊封面上，行不给底色
   },
   rowMain: { flex: 1, gap: 2 },
   rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

@@ -40,6 +40,8 @@ const ICONS = {
   airplay: 'airplay',
   volumeDown: 'volume-down',
   volumeUp: 'volume-up',
+  copy: 'content-copy',
+  share: 'share',
   heart: 'favorite',
   queue: 'queue-music',
   lyrics: 'lyrics',

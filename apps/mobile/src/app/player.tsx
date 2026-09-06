@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  ActionSheetIOS,
-  Alert,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,9 +21,6 @@ import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { PageIndicator } from '@/components/player/page-indicator'
 import { PlayerDeck } from '@/components/player/player-deck'
 import { PlayerQueue } from '@/components/player/player-queue'
-import { useToast } from '@/components/toast'
-import { formatOffset, OFFSET_STEP_MS, useLyricOffset } from '@/lib/lyric-offset'
-import { clearQueue } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
@@ -58,10 +52,8 @@ export default function PlayerScreen() {
   const { width } = useWindowDimensions()
   const current = usePlayerStore(selectCurrent)
   const { playing } = useIsPlaying()
-  const toast = useToast()
   const [page, setPage] = useState(INITIAL_PAGE)
   const pager = useRef<ScrollView>(null)
-  const { offsetMs, adjust, canAdjust } = useLyricOffset(current?.trackId ?? '')
 
   // 播放时封面满尺寸，暂停时缩小
   const scale = useSharedValue(playing ? 1 : PAUSED_SCALE)
@@ -144,70 +136,6 @@ export default function PlayerScreen() {
       if (event.translationY > 100) runOnJS(dismiss)()
     })
 
-  const adjustLyric = useCallback(
-    (deltaMs: number) => {
-      adjust(deltaMs)
-      toast(`歌词偏移 ${formatOffset(offsetMs + deltaMs)}`)
-    },
-    [adjust, offsetMs, toast],
-  )
-
-  /** 「···」快捷菜单：iOS 用系统操作表，Android（M7）先用 Alert 兜底 */
-  const onMore = useCallback(() => {
-    if (!current) return
-    const actions: { label: string; run: () => void; destructive?: boolean }[] = []
-    if (current.albumId) {
-      actions.push({
-        label: '查看专辑',
-        // 用 replace：跳走时把播放页收起来，回退键回到原来的页面（迷你条还在底部）
-        run: () => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } }),
-      })
-    }
-    if (current.artistId) {
-      actions.push({
-        label: '查看艺术家',
-        run: () => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } }),
-      })
-    }
-    if (canAdjust) {
-      actions.push({ label: '歌词提前 0.5 秒', run: () => adjustLyric(OFFSET_STEP_MS) })
-      actions.push({ label: '歌词延后 0.5 秒', run: () => adjustLyric(-OFFSET_STEP_MS) })
-      if (offsetMs !== 0) actions.push({ label: '歌词偏移归零', run: () => adjustLyric(-offsetMs) })
-    }
-    actions.push({
-      label: '清空队列',
-      destructive: true,
-      run: () => {
-        void clearQueue()
-        router.back()
-      },
-    })
-
-    const message = canAdjust ? `歌词偏移 ${formatOffset(offsetMs)}` : undefined
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map((action) => action.label), '取消'],
-          cancelButtonIndex: actions.length,
-          destructiveButtonIndex: actions.findIndex((action) => action.destructive),
-          userInterfaceStyle: 'dark',
-          title: current.title,
-          ...(message ? { message } : {}),
-        },
-        (selected) => actions[selected]?.run(),
-      )
-      return
-    }
-    Alert.alert(current.title, message, [
-      ...actions.map((action) => ({
-        text: action.label,
-        style: action.destructive ? ('destructive' as const) : ('default' as const),
-        onPress: action.run,
-      })),
-      { text: '取消', style: 'cancel' },
-    ])
-  }, [adjustLyric, canAdjust, current, offsetMs, router])
-
   if (!current) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -271,7 +199,7 @@ export default function PlayerScreen() {
             <LyricPage trackId={current.trackId} />
           </View>
           <Animated.View style={deckAnim} pointerEvents={chromeVisible ? 'auto' : 'none'}>
-            <PlayerDeck current={current} onMore={onMore} />
+            <PlayerDeck current={current} />
           </Animated.View>
         </View>
 
@@ -290,7 +218,7 @@ export default function PlayerScreen() {
               if (deckHeight.value === 0) deckHeight.value = event.nativeEvent.layout.height
             }}
           >
-            <PlayerDeck current={current} onMore={onMore} />
+            <PlayerDeck current={current} />
           </View>
         </View>
 
@@ -313,11 +241,10 @@ export default function PlayerScreen() {
           onPress={() => goToPage(page === LYRICS_PAGE ? PLAYER_PAGE : LYRICS_PAGE)}
           accessibilityLabel="歌词"
         />
-        {/* 隔空播放：图标还是 App 自己那套，点击交给盖在上面的系统 AVRoutePickerView。
-            原生视图 alpha 不能给 0，UIKit 不会给全透明视图派发点击。 */}
-        <View style={styles.airplay} accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-          <Icon name="airplay" size={iconSize.lg} color={colors.iconMid} />
-          <AirplayRouteButton style={styles.airplayPicker} />
+        {/* 隔空播放：直接用系统 AirPlay 自己的图标（原生 AVRoutePickerView 渲染），
+            连上输出设备后会自动变强调红。 */}
+        <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
+          <AirplayRouteButton style={styles.airplayNative} />
         </View>
         <IconButton
           name="queue"
@@ -334,11 +261,21 @@ export default function PlayerScreen() {
 /** 歌词页单独拆开：进度每 200ms 一变，别让整个播放页跟着重渲染 */
 function LyricPage({ trackId }: { trackId: string }) {
   const progress = useProgress(LYRIC_TICK_MS)
+  const current = usePlayerStore(selectCurrent)
+  const seekAndPlay = useCallback(
+    (seconds: number) => {
+      void TrackPlayer.seekTo(seconds)
+      // 点了某一句：就算暂停着也要恢复播放，歌词的点击语义就是「从这里开始唱」
+      void TrackPlayer.play()
+    },
+    [],
+  )
   return (
     <LyricView
       trackId={trackId}
       positionMs={progress.position * 1000}
-      onSeek={(seconds) => void TrackPlayer.seekTo(seconds)}
+      onSeek={seekAndPlay}
+      songTitle={current?.title}
     />
   )
 }
@@ -358,7 +295,8 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 44 },
   pager: { flex: 1 },
   // 每一页自己留左右边距，翻页容器必须是整屏宽
-  page: { flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.lg },
+  // paddingBottom 32：播放器组件和底部工具栏之间拉开到 32pt
+  page: { flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xxl, gap: spacing.lg },
   // 上半部分（封面 / 歌词）用同一个容器，两页下方组件的位置才完全一致
   stage: { flex: 1 },
   coverStage: { alignItems: 'center', justifyContent: 'center' },
@@ -369,6 +307,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
     overflow: 'hidden',
   },
-  airplay: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  airplayPicker: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, opacity: 0.02 },
+  // AVRoutePickerView 图标自带边距，44×44 的盒子跟左右两个 IconButton 等大对齐
+  airplayNative: { width: 44, height: 44 },
 })

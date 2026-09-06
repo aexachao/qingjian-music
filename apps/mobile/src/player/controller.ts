@@ -5,6 +5,7 @@ import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
 import { contentTypeFor } from './audio-cache-policy'
 import { needsTranscode } from './format-support'
+import { deletePlaybackSnapshot, readPlaybackSnapshot } from './persist'
 import { ensurePlayer } from './setup'
 import { usePlayerStore } from './store'
 import { hasTranscodeSession, startTranscodeSession, stopTranscodeSession } from './transcode-session'
@@ -287,6 +288,8 @@ export async function clearQueue(): Promise<void> {
   await stopTranscodeSession()
   await TrackPlayer.reset()
   usePlayerStore.getState().clear()
+  // 清空是用户主动的：下次进来应该是全新状态，别把旧会话又恢复出来
+  deletePlaybackSnapshot()
 }
 
 const REPEAT_ORDER: RepeatMode[] = ['off', 'queue', 'one']
@@ -427,4 +430,69 @@ export function schedulePrefetch(index: number): void {
       }
     }
   })()
+}
+
+// ---- 冷启动恢复上次会话 ----
+
+/**
+ * 恢复期间关掉「上报起播」：重建队列会触发换歌事件，但用户还没真的在听。
+ * RNTP 的事件是异步派发的，解除抑制要晚一点（finally 里 setTimeout）。
+ */
+let suppressingReports = false
+
+/** 正在恢复旧会话：这一次的换歌事件不要上报给服务端 */
+export function isRestoringSession(): boolean {
+  return suppressingReports
+}
+
+/**
+ * 把上次存下来的会话放回播放器：重建 RNTP 队列、跳到那首歌、退到那个进度，
+ * 但**不自动播放**——迷你播放器会显示，用户点了播放才继续响。
+ * 队列 / 模式 / 进度 / 随机状态一起由 store.restore 放回去。
+ */
+export async function restoreQueuedPlayback(
+  provider: MusicProvider,
+  snapshot: NonNullable<ReturnType<typeof readPlaybackSnapshot>>,
+): Promise<boolean> {
+  const items = snapshot.queue
+  if (items.length === 0) return false
+  await ensurePlayer()
+
+  suppressingReports = true
+  try {
+    const index = Math.min(Math.max(snapshot.index, 0), items.length - 1)
+    const rntpTracks = await Promise.all(items.map((item) => toRntpTrack(item, provider)))
+    await TrackPlayer.reset()
+    await TrackPlayer.add(rntpTracks)
+    // 循环模式直接给原生播放器，别等用户去队列页点
+    await TrackPlayer.setRepeatMode(
+      snapshot.playMode.repeat === 'one'
+        ? RntpRepeatMode.Track
+        : snapshot.playMode.repeat === 'queue'
+          ? RntpRepeatMode.Queue
+          : RntpRepeatMode.Off,
+    )
+    if (index > 0) await TrackPlayer.skip(index)
+    const position = snapshot.position ?? 0
+    if (position > 1) await TrackPlayer.seekTo(position)
+
+    usePlayerStore.getState().restore({
+      queue: items,
+      baseQueue: snapshot.baseQueue?.length === items.length ? snapshot.baseQueue : items,
+      index,
+      source: snapshot.source,
+      playMode: snapshot.playMode,
+      autoplay: snapshot.autoplay,
+      lyricOffsetMs: snapshot.lyricOffsetMs ?? 0,
+    })
+
+    // 换歌事件异步到来时 store 已就位，refetch 封面与预取照常跑
+    void refreshArtwork(index)
+    schedulePrefetch(index)
+    return true
+  } finally {
+    setTimeout(() => {
+      suppressingReports = false
+    }, 1500)
+  }
 }
