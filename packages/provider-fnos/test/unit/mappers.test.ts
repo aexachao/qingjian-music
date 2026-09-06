@@ -79,6 +79,22 @@ describe('parseLyrics', () => {
     expect(sheet.synced).toBe(false)
     expect(sheet.lines).toHaveLength(2)
   })
+
+  it('增强型 LRC（行内逐词时间）解析出 words', () => {
+    const sheet = parseLyrics('[00:10.00]我[00:11.50]爱[00:12.80]你')
+    expect(sheet.synced).toBe(true)
+    expect(sheet.lines).toHaveLength(1)
+    const line = sheet.lines[0]!
+    expect(line.text).toBe('我爱你')
+    expect(line.words).toHaveLength(3)
+    expect(line.words?.map((w) => w.text)).toEqual(['我', '爱', '你'])
+    expect(line.words?.map((w) => w.atMs)).toEqual([10000, 11500, 12800])
+  })
+
+  it('只有整行一个时间的普通 LRC 不带 words', () => {
+    const sheet = parseLyrics('[00:10.00]我爱你')
+    expect(sheet.lines[0]?.words).toBeUndefined()
+  })
 })
 
 describe('mapLyricSheet', () => {

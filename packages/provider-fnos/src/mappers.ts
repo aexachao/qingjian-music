@@ -159,24 +159,32 @@ export function parseLyrics(raw: string, source?: string): LyricSheet {
     const body = (matched[4] ?? '').trim()
     if (!body) continue
 
-    // 行正文里是否还嵌了词级时间
+    // 行正文里是否还嵌了词级时间（增强型 LRC 的 [mm:ss.xx]word 写法）
     const words: LyricWord[] = []
+    const tags: { atMs: number; start: number; end: number }[] = []
     WORD_TAG.lastIndex = 0
-    let cursor = 0
     let match: RegExpExecArray | null
-    const parts: LyricWord[] = []
     while ((match = WORD_TAG.exec(body)) !== null) {
-      const atMs = timeFromGroups(match[1] ?? '', match[2] ?? '', match[3] ?? '')
-      const text = body.slice(cursor, match.index)
-      cursor = match.index + match[0].length
-      if (text) parts.push({ text, atMs })
+      tags.push({
+        atMs: timeFromGroups(match[1] ?? '', match[2] ?? '', match[3] ?? ''),
+        start: match.index,
+        end: match.index + match[0].length,
+      })
     }
-    if (parts.length >= 2) {
-      const rest = body.slice(cursor)
-      if (rest) parts[parts.length - 1] = { ...parts[parts.length - 1]!, text: parts[parts.length - 1]!.text + rest }
-      words.push(...parts)
-      const fullText = parts.map((part) => part.text).join('')
-      lines.push({ atMs: headAtMs, text: fullText, words })
+    if (tags.length >= 1) {
+      // 每个时间标签管它后面到下一个标签之间的字；第一个标签之前的字归行首时间
+      const first = tags[0]!
+      if (first.start > 0) words.push({ text: body.slice(0, first.start), atMs: headAtMs })
+      for (let i = 0; i < tags.length; i += 1) {
+        const tag = tags[i]!
+        const nextStart = tags[i + 1]?.start ?? body.length
+        const chunk = body.slice(tag.end, nextStart)
+        if (chunk) words.push({ text: chunk, atMs: tag.atMs })
+      }
+      const parts = words.length > 1 || tags.length > 1 ? words : undefined
+      const fullText = body.replace(WORD_TAG, '')
+      if (parts) lines.push({ atMs: headAtMs, text: fullText, words: parts })
+      else lines.push({ atMs: headAtMs, text: body })
     } else {
       lines.push({ atMs: headAtMs, text: body })
     }
