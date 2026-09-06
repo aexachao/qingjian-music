@@ -44,6 +44,9 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
   Material 的面性版整套都是实心，同一屏里风格才统一。唯一的例外是「收藏」——
   用同族空心变体 `favorite-border` 表示未选中，靠虚实区分开关状态。
   领域层 `BrowseNode.icon` 仍存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射过去。
+- 图标尺寸六档：`sm 16 / md 20 / lg 24 / xl 28` 给列表、页签、工具栏；
+  `xxl 40 / hero 56` 只给正在播放页的传输控制（上一首 / 播放暂停 / 下一首），
+  对齐 Apple Music 那种大字形、不带圆形底的按钮。
 
 ## 未移植的部分（有意）
 

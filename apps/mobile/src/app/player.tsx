@@ -16,8 +16,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
+import { AirplayRouteButton } from '../../modules/airplay-button'
 import { CoverImage } from '@/components/cover-image'
-import { IconButton, iconSize } from '@/components/icon'
+import { Icon, IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PageIndicator } from '@/components/player/page-indicator'
 import { PlayerDeck } from '@/components/player/player-deck'
@@ -207,13 +208,12 @@ export default function PlayerScreen() {
           onPress={() => goToPage(page === LYRICS_PAGE ? PLAYER_PAGE : LYRICS_PAGE)}
           accessibilityLabel="歌词"
         />
-        <IconButton
-          name="airplay"
-          size={iconSize.lg}
-          color={colors.iconMid}
-          onPress={() => toast('请在控制中心选择 AirPlay 设备')}
-          accessibilityLabel="隔空播放"
-        />
+        {/* 隔空播放：图标还是 App 自己那套，点击交给盖在上面的系统 AVRoutePickerView。
+            原生视图 alpha 不能给 0，UIKit 不会给全透明视图派发点击。 */}
+        <View style={styles.airplay} accessible accessibilityRole="button" accessibilityLabel="隔空播放">
+          <Icon name="airplay" size={iconSize.lg} color={colors.iconMid} />
+          <AirplayRouteButton style={styles.airplayPicker} />
+        </View>
         <IconButton
           name="queue"
           size={iconSize.lg}
@@ -260,4 +260,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     paddingHorizontal: spacing.xxl,
   },
+  airplay: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  airplayPicker: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, opacity: 0.02 },
 })

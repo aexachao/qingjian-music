@@ -43,3 +43,20 @@ headerShadowVisible 都没问题）。
 需要「跳到某个页面 / 触发某个动作」时，临时加一个 `src/app/dev-ui.tsx` 夹具页
 （把 `app/index.tsx` 的 Redirect 指到它），改夹具里的常量靠 Fast Refresh 就能换页面，
 验完删掉夹具并还原 index。手势类（左滑返回）只能真机验。
+
+再补两个可用的量化手段（都在 `.cache/tools/`）：
+
+- `xscan.swift <png> <y起> <y止>`：扫一条横带里的亮像素 x 聚簇，用来确认
+  「指示器到底居中没有」「三个按钮的水平位置」这类事，比让视觉模型猜靠得住。
+- `boxcolor.swift <png> <x0> <y0> <x1> <y1>`：取矩形内非背景像素的平均色，
+  用来验证「选中态是不是强调色 #f62c55」。
+
+# 本地原生模块（modules/）
+
+`modules/airplay-button` 是一个本地 Expo 原生模块（包了系统的 `AVRoutePickerView`，
+iOS 的输出设备选择面板没有公开 API 能用代码直接弹）。结构就是官方那套：
+`expo-module.config.json` + `ios/*.podspec` + `ios/*.swift` + `index.ts`，
+autolinking 会自动扫 `modules/*`。
+
+加了或改了本地原生模块之后：**必须重跑 `npx expo prebuild --platform ios` 再重新构建原生工程**，
+只重启 Metro 是不够的（JS 那边 `requireNativeView` 找不到原生视图会直接崩）。
