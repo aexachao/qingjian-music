@@ -28,12 +28,11 @@ export default function RootLayout() {
                 <Stack.Screen name="index" options={{ headerShown: false }} />
                 <Stack.Screen name="login" options={{ title: '连接服务器' }} />
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                {/* 播放页与队列页都是正经的二级页面（push），不是弹窗。
-                    队列页用原生导航栏，和资料库里的详情页保持同一种样式；
-                    播放页是整屏的「正在播放」，只留一个返回按钮，所以自己画头部。 */}
-                {/* 封面本身要左右滑动切歌，所以关掉整屏拖拽返回，只留左边缘返回手势 */}
-                <Stack.Screen name="player" options={{ headerShown: false, fullScreenGestureEnabled: false }} />
-                <Stack.Screen name="queue" options={{ title: '播放队列' }} />
+                {/* 播放页是从底部升起的浮层（对齐 Apple Music 的「正在播放」）：
+                    导航栏左侧是向下箭头收起，页内三页左右滑动，所以自己画头部。
+                    播放队列在播放页里当第三页，没有单独的路由。 */}
+                {/* 整屏浮层：iOS 的 modal 会在顶部留出底层页面，封面会被压小，用 fullScreenModal */}
+                <Stack.Screen name="player" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
                 <Stack.Screen name="dev-smoke" options={{ title: '自检' }} />
               </Stack>
               {/* 迷你条挂在导航之外：二级页面没有 Tab 栏时它也要留在底部 */}

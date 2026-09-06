@@ -95,6 +95,53 @@ describe('收藏状态', () => {
   })
 })
 
+describe('原始顺序快照', () => {
+  it('换队列时同时记下原始顺序，并把随机关掉', () => {
+    usePlayerStore.getState().setShuffle(true)
+
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+
+    const state = usePlayerStore.getState()
+    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
+    expect(state.playMode.shuffle).toBe(false)
+  })
+
+  it('重排只动展示顺序，原始顺序留着给「关掉随机」用', () => {
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+
+    // 模拟随机播放：当前曲目留在原位，后面打乱
+    usePlayerStore.getState().reorder([queue[0]!, queue[2]!, queue[3]!, queue[1]!], 0)
+
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'c', 'd', 'b'])
+    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('续歌追加的曲目也会进原始顺序，删除时两边一起删', () => {
+    usePlayerStore.getState().setQueue(queue.slice(0, 2), 0, { kind: 'tracks', label: '全部歌曲' })
+
+    usePlayerStore.getState().appendItems([item('e')])
+    usePlayerStore.getState().removeItem(1)
+
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'e'])
+    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'e'])
+  })
+})
+
+describe('无限播放', () => {
+  it('默认关闭，可以单独打开', () => {
+    expect(usePlayerStore.getState().autoplay).toBe(false)
+
+    usePlayerStore.getState().setAutoplay(true)
+
+    expect(usePlayerStore.getState().autoplay).toBe(true)
+    // 与随机、循环互不影响
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
+    expect(usePlayerStore.getState().playMode.repeat).toBe('off')
+  })
+})
+
 describe('清空', () => {
   it('清空后来源与下标一起复位', () => {
     usePlayerStore.getState().setQueue(queue, 3, { kind: 'album', id: 'al-1', label: '专辑 · 测试' })

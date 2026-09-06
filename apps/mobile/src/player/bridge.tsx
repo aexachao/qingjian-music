@@ -5,6 +5,7 @@ import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
 import {
   ensureTranscodeForIndex,
+  extendWithRadio,
   fillRadio,
   markForcedTranscode,
   refreshArtwork,
@@ -92,8 +93,16 @@ export function PlayerBridge() {
         console.warn('转码会话切换失败', error)
       })
       // 漫游电台：快到队尾就接着往后取，听着是无限的
-      if (provider && connection && usePlayerStore.getState().source?.kind === 'radio') {
-        void fillRadio(provider, connection.id)
+      if (provider && connection) {
+        const { source, autoplay, queue } = usePlayerStore.getState()
+        if (source?.kind === 'radio') {
+          void fillRadio(provider, connection.id)
+        } else if (autoplay && index >= queue.length - 2) {
+          // 无限播放：普通队列快播完了，用漫游接着放
+          void extendWithRadio(provider, connection.id).catch((error: unknown) => {
+            console.warn('无限播放续歌失败', error)
+          })
+        }
       }
       return
     }

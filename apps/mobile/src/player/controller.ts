@@ -181,8 +181,7 @@ export async function fillRadio(provider: MusicProvider, serverId: string): Prom
   radioFilling = true
   try {
     for (let i = 0; i < RADIO_AHEAD; i += 1) {
-      const { queue, index, source } = usePlayerStore.getState()
-      if (source?.kind !== 'radio') break
+      const { queue, index } = usePlayerStore.getState()
       if (queue.length - index - 1 >= RADIO_AHEAD) break
       const slice = await provider.radioNext(radioCursor)
       // 游标没往前走就停手，避免死循环刷同一首
@@ -302,39 +301,71 @@ export async function cycleRepeat(): Promise<RepeatMode> {
   return next
 }
 
-/**
- * 随机播放：只重排「当前曲目之后」的部分，当前播放不打断。
- * 关闭随机时无法还原原始顺序（v1 取舍），提示语在设置里说明。
- */
-export async function toggleShuffle(): Promise<boolean> {
-  const store = usePlayerStore.getState()
-  const next = !store.playMode.shuffle
-  store.setShuffle(next)
-  if (!next) return next
+/** Fisher–Yates 洗牌，返回新数组 */
+function shuffled<T>(items: T[]): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const a = result[i]!
+    result[i] = result[j]!
+    result[j] = a
+  }
+  return result
+}
 
-  const { queue, index, source } = usePlayerStore.getState()
-  if (index < 0 || queue.length - index < 3) return next
+/**
+ * 随机播放开 / 关。
+ *
+ * 只重排「当前曲目之后」的部分：当前这首和已经播过的保持原位，
+ * 所以切换随机不会打断正在播的歌（也不用 seek，没有声音断点）。
+ * 关闭时按 store 里的原始顺序快照（baseQueue）还原待播部分。
+ */
+export async function setShuffledOrder(shuffle: boolean): Promise<void> {
+  await ensurePlayer()
+  const store = usePlayerStore.getState()
+  if (store.playMode.shuffle === shuffle) return
+  store.setShuffle(shuffle)
+
+  const { queue, index, baseQueue } = usePlayerStore.getState()
+  // 队尾只剩一首就没什么可排的了
+  if (index < 0 || queue.length - index < 3) return
 
   const head = queue.slice(0, index + 1)
-  const tail = queue.slice(index + 1)
-  for (let i = tail.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const a = tail[i]!
-    tail[i] = tail[j]!
-    tail[j] = a
-  }
-  const reordered = [...head, ...tail]
+  const played = new Set(head.map((item) => item.qid))
+  const tail = shuffle
+    ? shuffled(queue.slice(index + 1))
+    : baseQueue.filter((item) => !played.has(item.qid))
 
-  // RNTP 没有「重排队列」API：移除尾部再按新顺序追加
-  const removeIndices = Array.from({ length: tail.length }, (_, i) => index + 1 + i)
+  // RNTP 没有「重排队列」API：移除待播部分再按新顺序追加
+  const removeIndices = Array.from({ length: queue.length - index - 1 }, (_, i) => index + 1 + i)
   await TrackPlayer.remove(removeIndices)
   const provider = activeProvider
   if (provider) {
     const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
     await TrackPlayer.add(rntpTracks)
   }
-  usePlayerStore.getState().setQueue(reordered, index, source)
+  usePlayerStore.getState().reorder([...head, ...tail], index)
+}
+
+/** 兼容旧调用（专辑 / 艺术家页的「随机播放」按钮） */
+export async function toggleShuffle(): Promise<boolean> {
+  const next = !usePlayerStore.getState().playMode.shuffle
+  await setShuffledOrder(next)
   return next
+}
+
+/**
+ * 无限播放（对齐 Apple Music 的「自动播放」）：队列快播完时用漫游接着放。
+ * 第一次调用会开一个漫游会话，之后复用 fillRadio 的游标继续往后取。
+ */
+export async function extendWithRadio(provider: MusicProvider, serverId: string): Promise<void> {
+  if (!provider.radioStart || radioFilling) return
+  if (!radioCursor) {
+    const slice = await provider.radioStart()
+    radioCursor = slice.cursor
+    await appendTracks({ provider, serverId, tracks: [slice.current] })
+  }
+  await fillRadio(provider, serverId)
 }
 
 /** 随机播放与预取都要用 provider 重新生成播放地址，这里保存最近一次使用的实例 */

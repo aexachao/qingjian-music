@@ -16,8 +16,11 @@ import { colors } from '@/theme/tokens'
  * 两条硬规矩：**不许用 emoji 当图标**，**不许再引入第二套图标库**。
  */
 
-/** 尺寸只开这四档，避免每个页面自己发明大小 */
-export const iconSize = { sm: 16, md: 20, lg: 24, xl: 28 } as const
+/**
+ * 尺寸档位：列表 / 页签 / 工具栏用前四档，
+ * 后两档只给正在播放页的传输控制（对齐 Apple Music 那种大按钮，不带圆形底）。
+ */
+export const iconSize = { sm: 16, md: 20, lg: 24, xl: 28, xxl: 40, hero: 56 } as const
 
 type GlyphName = ComponentProps<typeof MaterialIcons>['name']
 
@@ -31,6 +34,10 @@ const ICONS = {
   shuffle: 'shuffle',
   repeat: 'repeat',
   repeatOne: 'repeat-one',
+  /** 无限播放（队列播完自动续歌） */
+  infinity: 'all-inclusive',
+  /** 隔空投送 / 输出设备 */
+  airplay: 'airplay',
   heart: 'favorite',
   queue: 'queue-music',
   lyrics: 'lyrics',
@@ -66,6 +73,7 @@ const ICONS = {
   user: 'person',
   // 通用动作
   add: 'add',
+  more: 'more-horiz',
   trash: 'delete',
   importPlaylist: 'playlist-add',
 } satisfies Record<string, GlyphName>
