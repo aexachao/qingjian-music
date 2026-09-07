@@ -35,6 +35,7 @@ interface PlayerState {
   removeItem(target: number): void
   patchItem(qid: string, patch: Partial<QueueItem>): void
   clear(): void
+  clearHistory(): void
   /** 冷启动恢复上次会话：一次性把整套状态放回去 */
   restore(payload: RestorePayload): void
 }
@@ -114,6 +115,20 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       lyricOffsetMs: payload.lyricOffsetMs,
     })),
   clear: () => set({ queue: [], baseQueue: [], index: -1, source: undefined }),
+  clearHistory: () =>
+    set((state) => {
+      if (state.index <= 0) return state
+      const queue = state.queue.slice(state.index)
+      const currentItem = state.queue[state.index]
+      const baseQueue = currentItem
+        ? state.baseQueue.filter((item) => queue.some((q) => q.qid === item.qid))
+        : state.baseQueue
+      return {
+        queue,
+        baseQueue,
+        index: 0,
+      }
+    }),
 }))
 
 /** 当前曲目（没有则 undefined） */

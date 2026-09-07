@@ -73,6 +73,13 @@ const darkPalette = {
   // --- 播放器 ---
   playerProgressTrack: '#ffffff33',
   playerProgressBuffer: '#ffffff14',
+  /**
+   * 时间轴/音量条「已播部分」的常态色：比纯白淡、比轨道深；
+   * 手指按住时变 playerProgressFillActive（纯白），对齐 Apple Music 的按压反馈。
+   * （web 端没有对应变量，这是照 Apple Music 行为补的两个值。）
+   */
+  playerProgressFill: '#ffffffb3',
+  playerProgressFillActive: '#ffffff',
   playerTextSecondary: '#ffffff59',
   playerGlassBg: '#00000099',
   playerGlassBorder: '#ffffff1f',
@@ -139,6 +146,8 @@ const lightPalette: Palette = {
   borderInput: '#00000033',
   playerProgressTrack: '#00000033',
   playerProgressBuffer: '#00000014',
+  playerProgressFill: '#111111b3',
+  playerProgressFillActive: '#111111',
   playerTextSecondary: '#00000059',
   playerGlassBg: '#ffffffcc',
   playerGlassBorder: '#0000001f',
@@ -203,12 +212,12 @@ export const radius = {
 } as const
 
 export const typography = {
-  largeTitle: { fontSize: 34, fontFamily: fonts.bold },
-  title: { fontSize: 22, fontFamily: fonts.bold },
+  largeTitle: { fontSize: 34, fontFamily: fonts.bold, letterSpacing: -0.5 },
+  title: { fontSize: 22, fontFamily: fonts.bold, letterSpacing: -0.3 },
   headline: { fontSize: 17, fontFamily: fonts.semibold },
   body: { fontSize: 17, fontFamily: fonts.regular },
   callout: { fontSize: 16, fontFamily: fonts.regular },
   subhead: { fontSize: 15, fontFamily: fonts.regular },
-  footnote: { fontSize: 13, fontFamily: fonts.medium },
-  caption: { fontSize: 12, fontFamily: fonts.regular },
+  footnote: { fontSize: 13, fontFamily: fonts.medium, letterSpacing: 0.2 },
+  caption: { fontSize: 12, fontFamily: fonts.regular, letterSpacing: 0.3 },
 } as const

@@ -4,6 +4,17 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 
 # 真机构建（iPhone，Release）
 
+一条命令搞定构建 + 安装 + 启动，输出只保留**自己代码**的警告
+（node_modules / Pods / jsbundle 的依赖警告全部滤掉，依赖的 `error:` 仍会显示）：
+
+```bash
+cd apps/mobile
+pnpm ios:device                     # 自动选第一台已连接的设备
+pnpm ios:device -- --no-install     # 只构建不安装
+```
+
+等价的手动命令（脚本就是这套流程）：
+
 ```bash
 cd apps/mobile
 npx expo prebuild --platform ios          # 改了 app.json / 配置插件 / 字体 / 图标必须重跑
@@ -23,6 +34,21 @@ xcrun devicectl device process launch --device <设备 UDID> com.chrisli.music
 - `-allowProvisioningUpdates` 要留着：本机的团队通配开发描述文件会被 Xcode 清理掉，
   加上这个参数 xcodebuild 才能用已有的团队开发证书重新拉一份 `com.chrisli.music` 的描述文件。
 - 启动前手机必须解锁，否则报 `FBSOpenApplicationErrorDomain error 7 (Locked)`。
+
+# @expo/ui（SwiftUI 组件）：两条会直接崩的规矩
+
+播放页「···」快捷菜单用的就是它（`Menu` / `Button` / `Section`，系统原生样式）。
+在模拟器 Release 包上实测踩过两个挂载即崩（SIGABRT）的坑：
+
+- **SwiftUI 组件不能直接放进 RN View 里，必须包一层 `<Host>`**（`@expo/ui/swift-ui`）。
+  否则 Fabric 把它挂进 UIKit 层级时，`SwiftUIVirtualViewObjC` 抛
+  "Wrap your component with `<Host>`" 然后直接 abort——报错信息本身写明了修法。
+- **`Menu` 的 `label` 只能传字符串（配合 `systemImage`），不能传 ReactNode**。
+  ReactNode 会走 Slot 机制往 SwiftUIVirtualView 里挂 RN 子视图，57.0.16 上必崩。
+  想要纯图标触发器就 `label=""` + `systemImage="ellipsis"`，颜色用 `tint` 修饰器、
+  命中区用 `frame({ minWidth: 44, minHeight: 44 })`。
+
+已知代价：`label=""` 时 VoiceOver 拿不到按钮的可读名（SwiftUI 菜单按钮的无障碍名来自 label 文本）。
 
 # 导航栏：大标题和 headerStyle 不能同时用（iOS 26）
 

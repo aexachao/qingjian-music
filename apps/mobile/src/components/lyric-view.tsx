@@ -11,6 +11,8 @@ import { colors, radius, spacing, typography } from '@/theme/tokens'
 const FALLBACK_LINE_MS = 4000
 /** 长按多久弹出全部歌词面板 */
 const LONG_PRESS_MS = 320
+/** 列表已停在顶部还继续往下拽超过多少 pt，算「要退出全屏」 */
+const PULL_REVEAL_PT = 36
 
 /** 卡拉OK行里还没唱到的字用这个灰（唱到的字是纯白） */
 const PENDING_CHAR = '#ffffff99'
@@ -25,6 +27,10 @@ interface LyricViewProps {
   onSeek: (seconds: number) => void
   /** 弹「全部歌词」面板时顶部显示的歌名（分享文本里也要用） */
   songTitle?: string
+  /** 列表停在顶部还继续往下拽（overscroll）时触发：播放页用它把周边唤回来 */
+  onPullTop?: () => void
+  /** 手指开始拖动列表：算一次「有操作」，播放页用它重置全屏歌词的静置计时 */
+  onScrollBeginDrag?: () => void
 }
 
 /** 找到当前该高亮的行：最后一个开始时间 <= 当前时间的行 */
@@ -67,7 +73,7 @@ function countLitChars(line: LyricLine, atMs: number, nextLineAtMs: number): num
   return lit
 }
 
-export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewProps) {
+export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, onScrollBeginDrag }: LyricViewProps) {
   const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
   const scrollRef = useRef<ScrollView>(null)
   const offsets = useRef<number[]>([])
@@ -123,6 +129,12 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle }: LyricViewP
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          // 顶到头继续往下拽（overscroll 回弹成负偏移）：退出全屏歌词
+          if (event.nativeEvent.contentOffset.y < -PULL_REVEAL_PT) onPullTop?.()
+        }}
+        onScrollBeginDrag={onScrollBeginDrag}
       >
         {lines.map((line, index) => (
           <LyricRow

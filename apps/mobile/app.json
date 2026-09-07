@@ -53,6 +53,7 @@
           "teamId": "4NJM425J3B"
         }
       ],
+      "./plugins/with-ios-ldflags-dedupe",
       [
         "expo-splash-screen",
         {

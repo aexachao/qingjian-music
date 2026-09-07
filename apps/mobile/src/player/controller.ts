@@ -306,6 +306,20 @@ export async function removeFromQueue(index: number): Promise<void> {
   usePlayerStore.getState().removeItem(index)
 }
 
+/** 清空历史记录：移除当前曲目之前的所有歌曲 */
+export async function clearHistory(): Promise<void> {
+  const { index: current } = usePlayerStore.getState()
+  if (current <= 0) return
+  await ensurePlayer()
+  try {
+    const indices = Array.from({ length: current }, (_, i) => i)
+    await TrackPlayer.remove(indices)
+  } catch {
+    // 忽略移除异常
+  }
+  usePlayerStore.getState().clearHistory()
+}
+
 /** 清空队列并停止播放；转码会话必须显式退出，否则服务端会留着转码进程 */
 export async function clearQueue(): Promise<void> {
   await ensurePlayer()

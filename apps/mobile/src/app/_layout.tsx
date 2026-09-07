@@ -4,7 +4,6 @@ import { StatusBar } from 'expo-status-bar'
 import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { MiniPlayerHost } from '@/components/mini-player-host'
 import { ToastProvider } from '@/components/toast'
 import { queryClient } from '@/lib/query-client'
 import { ServerSessionProvider } from '@/lib/server-session'
@@ -31,12 +30,17 @@ export default function RootLayout() {
                 {/* 播放页是从底部升起的浮层（对齐 Apple Music 的「正在播放」）：
                     导航栏左侧是向下箭头收起，页内三页左右滑动，所以自己画头部。
                     播放队列在播放页里当第三页，没有单独的路由。 */}
-                {/* 整屏浮层：iOS 的 modal 会在顶部留出底层页面，封面会被压小，用 fullScreenModal */}
-                <Stack.Screen name="player" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+                <Stack.Screen
+                  name="player"
+                  options={{
+                    headerShown: false,
+                    presentation: 'transparentModal',
+                    animation: 'none',
+                    contentStyle: { backgroundColor: 'transparent' },
+                  }}
+                />
                 <Stack.Screen name="dev-smoke" options={{ title: '自检' }} />
               </Stack>
-              {/* 迷你条挂在导航之外：二级页面没有 Tab 栏时它也要留在底部 */}
-              <MiniPlayerHost />
             </ToastProvider>
           </ServerSessionProvider>
         </QueryClientProvider>

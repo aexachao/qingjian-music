@@ -1,13 +1,27 @@
-import { useCallback, useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useCallback } from 'react'
+import { StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Button, Host, Menu, Section } from '@expo/ui/swift-ui'
+import { frame, tint } from '@expo/ui/swift-ui/modifiers'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
-import { SystemVolumeSlider } from '../../../modules/system-volume'
+import { SystemVolumeSlider, addVolumeListener, setSystemVolume } from '../../../modules/system-volume'
+import { useEffect } from 'react'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
+import * as Haptics from 'expo-haptics'
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated'
 import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
 import { formatOffset, OFFSET_STEP_MS, useLyricOffset } from '@/lib/lyric-offset'
@@ -16,6 +30,7 @@ import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface PlayerDeckProps {
   current: QueueItem
+  listAnim?: SharedValue<number>
 }
 
 /**
@@ -23,7 +38,7 @@ interface PlayerDeckProps {
  * 封面页和歌词页共用它，两页只有上半部分不同。
  * 「···」的快捷菜单在这个按钮上方浮现（对齐 iOS 上下文菜单的位置）。
  */
-export function PlayerDeck({ current }: PlayerDeckProps) {
+export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
   const { playing } = useIsPlaying()
   const progress = useProgress(500)
   const toggleFavorite = useToggleFavorite()
@@ -39,33 +54,58 @@ export function PlayerDeck({ current }: PlayerDeckProps) {
     }
   }, [current, toast, toggleFavorite])
 
+  const titleAnimatedStyle = useAnimatedStyle(() => {
+    if (!listAnim) return {}
+    // 切到列表前 18% 柔和淡出；切回封面最后 18% 才柔和淡入（彻底杜绝列表尚未退场时双标题重叠）
+    const opacity = interpolate(listAnim.value, [0, 0.18], [1, 0], Extrapolation.CLAMP)
+    const maxHeight = interpolate(listAnim.value, [0.05, 0.35], [58, 0], Extrapolation.CLAMP)
+    const marginBottom = interpolate(listAnim.value, [0.05, 0.35], [0, -spacing.lg], Extrapolation.CLAMP)
+    const translateY = interpolate(listAnim.value, [0, 0.18], [0, 8], Extrapolation.CLAMP)
+
+    return {
+      opacity,
+      maxHeight,
+      marginBottom,
+      overflow: 'hidden',
+      transform: [{ translateY }],
+    }
+  })
+
   return (
     <View style={styles.container}>
-      <View style={styles.titleRow}>
-        <View style={styles.titleText}>
-          {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
-          <MarqueeText text={current.title} style={styles.title} />
-          <MarqueeText
-            text={`${current.artistText}${current.albumText ? ` — ${current.albumText}` : ''}`}
-            style={styles.artist}
-          />
+      <Animated.View style={titleAnimatedStyle}>
+        <View style={styles.titleRow}>
+          <View style={styles.titleText}>
+            {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
+            <MarqueeText text={current.title} style={styles.title} />
+            <MarqueeText
+              text={`${current.artistText}${current.albumText ? ` — ${current.albumText}` : ''}`}
+              style={styles.artist}
+            />
+          </View>
+          <View style={styles.actions}>
+            <IconButton
+              name="heart"
+              size={iconSize.xl}
+              color={current.isFavorite ? colors.like : colors.iconMid}
+              filled={current.isFavorite}
+              onPress={() => void onToggleFavorite()}
+              accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
+            />
+            <View style={styles.menuWrapper}>
+              <DeckMoreButton current={current} />
+            </View>
+          </View>
         </View>
-        <IconButton
-          name="heart"
-          size={iconSize.lg}
-          color={current.isFavorite ? colors.like : colors.iconMid}
-          filled={current.isFavorite}
-          onPress={() => void onToggleFavorite()}
-          accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
-        />
-        <DeckMoreButton current={current} />
-      </View>
+      </Animated.View>
 
       <ProgressBar
         position={progress.position}
         duration={progress.duration > 0 ? progress.duration : current.durationMs / 1000}
         onSeek={(seconds) => void TrackPlayer.seekTo(seconds)}
       />
+
+
 
       {/* 传输控制：大字形、无圆形底，对齐 Apple Music */}
       <View style={styles.controls}>
@@ -75,7 +115,7 @@ export function PlayerDeck({ current }: PlayerDeckProps) {
           color={colors.textPrimary}
           onPress={() => void skipToPreviousSmart()}
           accessibilityLabel="上一首"
-          style={styles.controlHit}
+          style={styles.sideControlHit}
         />
         <IconButton
           name={playing ? 'pause' : 'play'}
@@ -83,7 +123,7 @@ export function PlayerDeck({ current }: PlayerDeckProps) {
           color={colors.textPrimary}
           onPress={() => void togglePlay()}
           accessibilityLabel={playing ? '暂停' : '播放'}
-          style={styles.controlHit}
+          style={styles.playControlHit}
         />
         <IconButton
           name="next"
@@ -91,137 +131,153 @@ export function PlayerDeck({ current }: PlayerDeckProps) {
           color={colors.textPrimary}
           onPress={() => void skipToNextSafe()}
           accessibilityLabel="下一首"
-          style={styles.controlHit}
+          style={styles.sideControlHit}
         />
       </View>
 
-      {/* 系统音量（MPVolumeView）：App 内没有公开 API 能改系统音量，只能用系统的滑杆 */}
-      <View style={styles.volumeRow}>
-        <Icon name="volumeDown" size={iconSize.sm} color={colors.iconDim} />
-        <SystemVolumeSlider style={styles.volumeSlider} />
-        <Icon name="volumeUp" size={iconSize.md} color={colors.iconDim} />
-      </View>
+      <VolumeBar />
     </View>
   )
 }
 
-/** 「···」按钮 + 在它上方浮现的快捷菜单 */
-function DeckMoreButton({ current }: { current: QueueItem }) {
-  const [open, setOpen] = useState(false)
-  // 打开瞬间记下触摸位置（window 坐标），菜单就摆在按钮上方
-  const [anchor, setAnchor] = useState<{ pageX: number; pageY: number } | null>(null)
+/**
+ * 自绘音量条：完美的 Apple Music 胶囊外观，左右图标在胶囊内部。
+ * 利用透明的 SystemVolumeSlider 拦截手势并抑制系统音量弹窗。
+ */
+function VolumeBar() {
+  const volume = useSharedValue(0.5)
+  const pressed = useSharedValue(0)
+  const initialVolume = useSharedValue(0.5)
+
+  useEffect(() => {
+    const sub = addVolumeListener((e) => {
+      // 只有在没被按住的时候，才接受系统音量变化
+      if (pressed.value === 0) {
+        volume.value = withSpring(e.volume, { damping: 34.6, stiffness: 300 })
+      }
+    })
+    return () => sub.remove()
+  }, [volume, pressed])
+
+  const pan = Gesture.Pan()
+    .failOffsetY([-14, 14])
+    .onBegin(() => {
+      runOnJS(Haptics.selectionAsync)()
+      pressed.value = withSpring(1, { damping: 34.6, stiffness: 300 })
+      initialVolume.value = volume.value
+    })
+    .onChange((event) => {
+      // 假设滑块物理宽度约为屏幕宽度减去两边 icon 和 padding (约 300)
+      const delta = event.translationX / 300
+      let next = initialVolume.value + delta
+      next = Math.max(0, Math.min(1, next))
+      volume.value = next
+      runOnJS(setSystemVolume)(next)
+    })
+    .onFinalize(() => {
+      pressed.value = withTiming(0, { duration: 250 })
+    })
+
+  const trackStyle = useAnimatedStyle(() => ({
+    height: 6 + (6 * 3 - 6) * pressed.value,
+  }))
+
+  const fillStyle = useAnimatedStyle(() => ({
+    width: `${Math.max(0, Math.min(1, volume.value)) * 100}%`,
+    height: '100%',
+  }))
+
+  return (
+    <View style={styles.volumeRow}>
+      <Icon name="volumeDown" size={iconSize.md} color={colors.iconDim} />
+      
+      <GestureDetector gesture={pan}>
+        <View style={styles.volumeSliderContainer} hitSlop={{ top: 12, bottom: 12 }}>
+          <Animated.View style={[styles.volumeTrack, trackStyle]}>
+            <Animated.View style={[styles.volumeFill, fillStyle]} />
+          </Animated.View>
+
+          {/* 纯粹用于抑制系统音量 HUD 的幽灵视图，没有实际 UI 和交互 */}
+          <SystemVolumeSlider pointerEvents="none" style={StyleSheet.absoluteFill} />
+        </View>
+      </GestureDetector>
+
+      <Icon name="volumeUp" size={iconSize.md} color={colors.iconDim} />
+    </View>
+  )
+}
+
+/**
+ * 「···」按钮：点开 SwiftUI 原生菜单（@expo/ui）——系统毛玻璃样式、从锚点弹出、
+ * 自带触感反馈，destructive 行自动红字。之前是 RN Modal 自绘的，样式追不上系统，
+ * 连点按触感都得自己造，换掉。原来头部的「歌名 / 歌词偏移」两行降级成 Section 标题
+ * （系统菜单的条目只支持文字 + SF Symbol，塞不进自定义排版）。
+ *
+ * 注意两条 @expo/ui 的硬规矩（都在模拟器 Release 上实测踩过）：
+ * 1. SwiftUI 组件不能直接放在 RN View 里，必须用 <Host> 包一层，否则挂载即崩；
+ * 2. 触发器只能用 label 字符串 + systemImage：label 传 ReactNode 会走 Slot 机制，
+ *    57.0.16 往 SwiftUIVirtualView 里挂 RN 子视图同样崩（unrecognized selector）。
+ */
+export function DeckMoreButton({ current }: { current: QueueItem }) {
   const toast = useToast()
   const router = useRouter()
-  const insets = useSafeAreaInsets()
-  const { width: windowWidth } = useWindowDimensions()
   const { offsetMs, adjust, canAdjust } = useLyricOffset(current.trackId)
-
-  const openMenu = (pageX: number, pageY: number) => {
-    setAnchor({ pageX, pageY })
-    setOpen(true)
-  }
-
-  const run = (action: () => void) => {
-    setOpen(false)
-    action()
-  }
 
   const adjustLyric = (deltaMs: number) => {
     adjust(deltaMs)
     toast(`歌词偏移 ${deltaMs > 0 ? '提前' : '延后'} 0.5 秒`)
   }
 
-  const items: { key: string; label: string; destructive?: boolean; onPress: () => void }[] = []
-  if (current.albumId) {
-    items.push({
-      key: 'album',
-      label: '查看专辑',
-      // 用 replace：跳走时把播放页收起来，回退键回到原来的页面（迷你条还在底部）
-      onPress: () => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } }),
-    })
+  const resetOffset = () => {
+    adjust(-offsetMs)
+    toast('歌词偏移已归零')
   }
-  if (current.artistId) {
-    items.push({
-      key: 'artist',
-      label: '查看艺术家',
-      onPress: () => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } }),
-    })
-  }
-  if (canAdjust) {
-    items.push({ key: 'earlier', label: '歌词提前 0.5 秒', onPress: () => adjustLyric(OFFSET_STEP_MS) })
-    items.push({ key: 'later', label: '歌词延后 0.5 秒', onPress: () => adjustLyric(-OFFSET_STEP_MS) })
-    if (offsetMs !== 0) {
-      items.push({
-        key: 'reset',
-        label: '歌词偏移归零',
-        onPress: () => {
-          adjust(-offsetMs)
-          toast('歌词偏移已归零')
-        },
-      })
-    }
-  }
-  items.push({
-    key: 'clear',
-    label: '清空队列',
-    destructive: true,
-    onPress: () => {
-      void clearQueue()
-      router.back()
-    },
-  })
-
-  // 行高固定，先估算菜单高度再往按钮上方摆；贴到顶部时往下让一点
-  const estHeight = items.length * 46 + 12 + (canAdjust ? 26 : 0)
-  const top = Math.max((anchor?.pageY ?? 0) - 22 - 8 - estHeight, insets.top + 6)
-  const right = windowWidth - (anchor?.pageX ?? 0) - 18
 
   return (
-    <>
-      <Pressable
-        onPress={(event) => openMenu(event.nativeEvent.pageX, event.nativeEvent.pageY)}
-        style={styles.moreHit}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="更多操作"
+    // label 留空：只渲染 ellipsis 图标不渲染文字。VoiceOver 会少一个可读名
+    // （SwiftUI 菜单按钮的无障碍名来自 label 文本），这是换系统菜单的已知代价。
+    <Host matchContents>
+      <Menu
+        label=""
+        systemImage="ellipsis"
+        modifiers={[tint(colors.iconMid)]}
       >
-        <Icon name="more" size={iconSize.lg} color={colors.iconMid} />
-      </Pressable>
-      <Modal
-        visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
-      >
-        {/* 点空白处关掉 */}
-        <Pressable style={styles.menuScrim} onPress={() => setOpen(false)}>
-          {anchor ? (
-            <View style={[styles.menuCard, { top, right }]}>
-              <View style={styles.menuHeader}>
-                <Text style={styles.menuTitle} numberOfLines={1}>
-                  {current.title}
-                </Text>
-                {canAdjust ? <Text style={styles.menuHint}>歌词偏移 {formatOffset(offsetMs)}</Text> : null}
-              </View>
-              {items.map((item, index) => (
-                <Pressable
-                  key={item.key}
-                  style={({ pressed }) => [
-                    styles.menuRow,
-                    index > 0 && styles.menuRowBorder,
-                    pressed && styles.menuRowPressed,
-                  ]}
-                  onPress={() => run(item.onPress)}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.menuLabel, item.destructive && styles.menuLabelDestructive]}>{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
+      {current.albumId || current.artistId ? (
+        <Section title={current.title}>
+          {current.albumId ? (
+            <Button
+              label="查看专辑"
+              systemImage="opticaldisc"
+              onPress={() => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } })}
+            />
           ) : null}
-        </Pressable>
-      </Modal>
-    </>
+          {current.artistId ? (
+            <Button
+              label="查看艺术家"
+              systemImage="person.crop.circle"
+              onPress={() => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } })}
+            />
+          ) : null}
+        </Section>
+      ) : null}
+      {canAdjust ? (
+        <Section title={`歌词偏移 ${formatOffset(offsetMs)}`}>
+          <Button label="歌词提前 0.5 秒" onPress={() => adjustLyric(OFFSET_STEP_MS)} />
+          <Button label="歌词延后 0.5 秒" onPress={() => adjustLyric(-OFFSET_STEP_MS)} />
+          {offsetMs !== 0 ? <Button label="歌词偏移归零" onPress={resetOffset} /> : null}
+        </Section>
+      ) : null}
+      <Button
+        label="清空队列"
+        systemImage="trash"
+        role="destructive"
+        onPress={() => {
+          void clearQueue()
+          router.back()
+        }}
+      />
+      </Menu>
+    </Host>
   )
 }
 
@@ -232,32 +288,26 @@ const styles = StyleSheet.create({
   titleText: { flex: 1, gap: 2, paddingRight: spacing.sm },
   title: { ...typography.title, color: colors.textPrimary },
   artist: { ...typography.callout, color: colors.textSecondary },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xxl },
-  moreHit: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  /** 大字形需要更大的命中区，56 的图标不能只给 44 */
-  controlHit: { minWidth: 64, minHeight: 64 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
+  // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐，去掉之前的偏移和缩放
+  menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
+  sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },
   volumeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  // 系统滑杆占满剩余宽度；高度只给触摸区，轨道是系统自己画的细线
-  volumeSlider: { flex: 1, height: 28 },
-  menuScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
-  menuCard: {
-    position: 'absolute',
-    width: 250,
-    borderRadius: radius.lg,
-    backgroundColor: '#2a2a30ee',
-    paddingVertical: spacing.xs,
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
+  volumeSliderContainer: {
+    flex: 1,
+    height: 32, // Apple Music 原生音量滑块高度，确保响应区域和视觉居中
+    justifyContent: 'center',
+    position: 'relative',
   },
-  menuHeader: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 2 },
-  menuTitle: { ...typography.callout, color: colors.textPrimary },
-  menuHint: { ...typography.footnote, color: colors.textTertiary },
-  menuRow: { minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.lg },
-  menuRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
-  menuRowPressed: { backgroundColor: colors.bgButtonSecondary },
-  menuLabel: { ...typography.callout, color: colors.textPrimary },
-  menuLabelDestructive: { color: colors.like },
+  volumeTrack: {
+    backgroundColor: colors.playerProgressTrack,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    height: 6, // 默认细度，与进度条对齐
+  },
+  volumeFill: {
+    backgroundColor: colors.playerProgressFill,
+  },
 })

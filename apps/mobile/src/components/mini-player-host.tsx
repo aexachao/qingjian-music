@@ -11,7 +11,7 @@ export function MiniPlayerHost() {
   const segments = useSegments()
   const bottom = useOverlayBottom()
   const root = segments[0]
-  if (root === 'player' || root === 'login' || root === undefined) return null
+  if (root === 'login' || root === undefined) return null
 
   return (
     <View style={[styles.host, { bottom }]} pointerEvents="box-none">

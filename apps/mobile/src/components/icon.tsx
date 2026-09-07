@@ -1,98 +1,82 @@
 import type { ComponentProps } from 'react'
-import MaterialIcons from '@expo/vector-icons/MaterialIcons'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
 import { colors } from '@/theme/tokens'
 
 /**
  * 全 App 唯一的图标出口。
- *
- * 用 Material Icons（@expo/vector-icons 自带的那一套**面性/实心**图标）：
- * - 整套都是面性，播放控制、页签、列表行摆在一起风格是统一的，
- *   不会出现一半线性一半面性的割裂感（这是之前用 lucide 线性图标的问题）；
- * - 一个字体文件覆盖 2200+ 字形，iOS / Android 字形完全一致，
- *   字体在构建期嵌入（见 app.json 的 expo-font），不会首帧空白；
- * - 只有「收藏」这类需要区分开/关的状态，才用同族的空心变体（favorite-border）表示未选中。
- *
- * 两条硬规矩：**不许用 emoji 当图标**，**不许再引入第二套图标库**。
+ * 我们使用 Ionicons 来完美复刻 Apple Music 的 iOS 原生系统图标风格，
+ * 同时保证它在跨平台（Android/Web）下的兼容性。
  */
 
-/**
- * 尺寸档位：列表 / 页签 / 工具栏用前四档，
- * 后两档只给正在播放页的传输控制（对齐 Apple Music 那种大按钮，不带圆形底）。
- */
 export const iconSize = { sm: 16, md: 20, lg: 24, xl: 28, xxl: 40, hero: 56 } as const
 
-type GlyphName = ComponentProps<typeof MaterialIcons>['name']
+type GlyphName = ComponentProps<typeof Ionicons>['name']
 
-/** 语义名 → Material 字形名。页面只认左边的语义名，换图标只改这一张表 */
 const ICONS = {
   // 播放控制
-  play: 'play-arrow',
+  play: 'play',
   pause: 'pause',
-  next: 'skip-next',
-  previous: 'skip-previous',
+  next: 'play-forward',
+  previous: 'play-back',
   shuffle: 'shuffle',
   repeat: 'repeat',
-  repeatOne: 'repeat-one',
-  /** 无限播放（队列播完自动续歌） */
-  infinity: 'all-inclusive',
-  /** 隔空投送 / 输出设备 */
-  airplay: 'airplay',
-  volumeDown: 'volume-down',
-  volumeUp: 'volume-up',
-  copy: 'content-copy',
+  repeatOne: 'repeat-outline',
+  infinity: 'infinite',
+  airplay: 'tv', // Ionicons 不带 airplay，用 tv 或 radio 替代
+  volumeDown: 'volume-low',
+  volumeUp: 'volume-high',
+  copy: 'copy',
   share: 'share',
-  heart: 'favorite',
-  queue: 'queue-music',
-  lyrics: 'lyrics',
-  drag: 'drag-handle',
-  playing: 'graphic-eq',
+  heart: 'heart',
+  queue: 'list',
+  lyrics: 'chatbox',
+  drag: 'menu',
+  playing: 'cellular',
   // 导航
   home: 'home',
   search: 'search',
-  library: 'library-music',
+  library: 'library',
   settings: 'settings',
-  back: 'arrow-back',
-  chevronDown: 'expand-more',
-  chevronRight: 'chevron-right',
+  back: 'chevron-back',
+  chevronDown: 'chevron-down',
+  chevronRight: 'chevron-forward',
   close: 'close',
-  check: 'check',
+  check: 'checkmark',
   // 资料库分类
-  albums: 'album',
+  albums: 'albums',
   artists: 'mic',
-  tracks: 'music-note',
-  genres: 'category',
-  playlists: 'playlist-play',
-  recentlyAdded: 'auto-awesome',
-  recentlyPlayed: 'history',
+  tracks: 'musical-notes',
+  genres: 'list', // Ionicons 不带 guitar，用 list 替代
+  playlists: 'musical-note',
+  recentlyAdded: 'time',
+  recentlyPlayed: 'refresh-circle',
   radio: 'radio',
-  downloaded: 'download-for-offline',
+  downloaded: 'arrow-down-circle',
   // 设置
-  server: 'dns',
-  signOut: 'logout',
-  password: 'lock',
-  appearance: 'palette',
-  quality: 'high-quality',
-  storage: 'storage',
+  server: 'server',
+  signOut: 'log-out',
+  password: 'lock-closed',
+  appearance: 'color-palette',
+  quality: 'options',
+  storage: 'folder',
   user: 'person',
   // 通用动作
   add: 'add',
-  more: 'more-horiz',
-  trash: 'delete',
-  importPlaylist: 'playlist-add',
+  more: 'ellipsis-horizontal',
+  remove: 'remove',
+  trash: 'trash',
+  importPlaylist: 'add-circle',
 } satisfies Record<string, GlyphName>
 
 export type IconName = keyof typeof ICONS
 
-/** 需要「未选中」形态的图标，用同族空心变体；没列进来的图标永远是面性 */
 const OUTLINE_VARIANTS = {
-  heart: 'favorite-border',
+  heart: 'heart-outline',
+  play: 'play-outline',
+  pause: 'pause-outline',
 } satisfies Partial<Record<IconName, GlyphName>>
 
-/**
- * 领域层 BrowseNode.icon 存的是 SF Symbols 名（为 CarPlay 预留），
- * 这里映射到同一套图标，两处不会各写一份图标表。
- */
 const SF_SYMBOL_ALIASES: Record<string, IconName> = {
   'clock.badge.checkmark': 'recentlyAdded',
   'clock.arrow.circlepath': 'recentlyPlayed',
@@ -114,17 +98,13 @@ export interface IconProps {
   name: IconName
   size?: number
   color?: string
-  /**
-   * 是否面性。默认就是面性；只有存在空心变体的图标（目前只有收藏）
-   * 传 false 才会变成空心，用来表达「未选中」。
-   */
   filled?: boolean
 }
 
 export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled = true }: IconProps) {
   const outline = (OUTLINE_VARIANTS as Partial<Record<IconName, GlyphName>>)[name]
   const glyph: GlyphName = !filled && outline ? outline : ICONS[name]
-  return <MaterialIcons name={glyph} size={size} color={color} />
+  return <Ionicons name={glyph} size={size} color={color} />
 }
 
 export interface IconButtonProps extends IconProps {
@@ -133,19 +113,25 @@ export interface IconButtonProps extends IconProps {
   accessibilityLabel: string
   disabled?: boolean
   style?: StyleProp<ViewStyle>
+  isActive?: boolean
 }
 
 /** 纯图标按钮：命中区固定撑到 44×44（iOS HIG 最小可点面积），视觉大小不受影响 */
-export function IconButton({ onPress, accessibilityLabel, disabled = false, style, ...icon }: IconButtonProps) {
+export function IconButton({ onPress, accessibilityLabel, disabled = false, style, isActive, ...icon }: IconButtonProps) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
       hitSlop={12}
-      style={[styles.button, style]}
+      style={({ pressed }) => [
+        styles.button,
+        isActive && styles.buttonActive,
+        pressed && styles.buttonPressed,
+        style,
+      ]}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected: isActive }}
     >
       <Icon {...icon} />
     </Pressable>
@@ -153,5 +139,7 @@ export function IconButton({ onPress, accessibilityLabel, disabled = false, styl
 }
 
 const styles = StyleSheet.create({
-  button: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  button: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
+  buttonActive: { backgroundColor: 'rgba(255, 255, 255, 0.15)' },
+  buttonPressed: { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
 })

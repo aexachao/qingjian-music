@@ -1,60 +1,87 @@
 import ExpoModulesCore
 import MediaPlayer
-import UIKit
+import AVFoundation
 
-/// iOS 没有公开 API 能直接改系统音量，只能放一个系统的 MPVolumeView 让用户去拖。
-/// 这里把它的外观收紧成跟 App 进度条一致：细线、白 thumb、去掉内置的喇叭图标。
-/// 只允许用户拖动，不做代码侧的 setVolume（那要私有 API，审核会 2.5.1 被打回）。
+class VolumeObserver: NSObject {
+  var onVolumeChange: ((Float) -> Void)?
+  
+  override init() {
+    super.init()
+    do {
+      try AVAudioSession.sharedInstance().setActive(true)
+    } catch {}
+    AVAudioSession.sharedInstance().addObserver(
+      self,
+      forKeyPath: "outputVolume",
+      options: [.new, .initial],
+      context: nil
+    )
+  }
+  
+  deinit {
+    AVAudioSession.sharedInstance().removeObserver(self, forKeyPath: "outputVolume")
+  }
+  
+  override func observeValue(
+    forKeyPath keyPath: String?,
+    of object: Any?,
+    change: [NSKeyValueChangeKey : Any]?,
+    context: UnsafeMutableRawPointer?
+  ) {
+    if keyPath == "outputVolume", let volume = change?[.newKey] as? Float {
+      onVolumeChange?(volume)
+    }
+  }
+}
+
 class SystemVolumeSliderView: ExpoView {
   private let volumeView = MPVolumeView()
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
-    volumeView.showsRouteButton = false
     volumeView.showsVolumeSlider = true
     addSubview(volumeView)
+    
+    // 彻底将原生滑块移出屏幕，仅保留其在视图层级中以抑制系统音量 HUD
     volumeView.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
-      volumeView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      volumeView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      volumeView.centerYAnchor.constraint(equalTo: centerYAnchor),
-      volumeView.heightAnchor.constraint(equalToConstant: 24),
+      volumeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -9999),
+      volumeView.topAnchor.constraint(equalTo: topAnchor, constant: -9999),
+      volumeView.widthAnchor.constraint(equalToConstant: 100),
+      volumeView.heightAnchor.constraint(equalToConstant: 20)
     ])
-    styleSlider()
-  }
-
-  /// MPVolumeView 内部其实是 UISlider 的子类，缩进边距和轨道的样式都从这里调
-  private func styleSlider() {
-    for view in volumeView.subviews {
-      if let slider = view as? UISlider {
-        slider.minimumTrackTintColor = .white
-        slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.25)
-        slider.thumbTintColor = .white
-        // 让 thumb 小一点，别像个大圆球
-        slider.setThumbImage(thumbImage(), for: .normal)
-      }
-    }
-  }
-
-  private func thumbImage() -> UIImage {
-    let size = CGSize(width: 14, height: 14)
-    let renderer = UIGraphicsImageRenderer(size: size)
-    return renderer.image { context in
-      UIColor.white.setFill()
-      context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
-    }
-  }
-
-  override func layoutSubviews() {
-    super.layoutSubviews()
-    // 音量 slider 偶尔会被系统重建，每次布局后都顺手把样式刷回来
-    styleSlider()
   }
 }
 
 public class SystemVolumeModule: Module {
+  private var observer: VolumeObserver?
+  private let sharedVolumeView = MPVolumeView() // 用于编程式设置音量
+
   public func definition() -> ModuleDefinition {
     Name("SystemVolume")
+    
+    Events("onVolumeChange")
+
+    OnStartObserving {
+      if self.observer == nil {
+        self.observer = VolumeObserver()
+        self.observer?.onVolumeChange = { [weak self] volume in
+          self?.sendEvent("onVolumeChange", ["volume": volume])
+        }
+      }
+    }
+
+    OnStopObserving {
+      self.observer = nil
+    }
+    
+    AsyncFunction("setSystemVolume") { (volume: Double) in
+      DispatchQueue.main.async {
+        if let slider = self.sharedVolumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+          slider.value = Float(volume)
+        }
+      }
+    }
 
     View(SystemVolumeSliderView.self) {}
   }

@@ -10,7 +10,7 @@ export const MINI_PLAYER_HEIGHT = 68
 /** 当前是不是在四个页签里面（二级页面如播放页、队列页没有 Tab 栏） */
 function useInTabs(): boolean {
   const segments = useSegments()
-  return segments[0] === '(tabs)'
+  return segments[0] === '(tabs)' || segments[0] === 'player'
 }
 
 /**
