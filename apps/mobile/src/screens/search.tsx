@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Genre } from '@qj/core-domain'
 import { AlbumRow, ArtistRow } from '@/components/entity-row'
 import { Icon, IconButton, iconSize } from '@/components/icon'
-import { EmptyState } from '@/components/list-states'
+import { EmptyState, ErrorState } from '@/components/list-states'
 import { useToast } from '@/components/toast'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -38,7 +38,7 @@ export function SearchScreen() {
   const href = useDetailHref()
   const router = useRouter()
   const toast = useToast()
-  const playingQid = usePlayerStore(selectCurrent)?.qid
+  const current = usePlayerStore(selectCurrent)
   const searching = Boolean(provider) && keyword.length > 0
 
   const tracks = useQuery({
@@ -65,6 +65,7 @@ export function SearchScreen() {
   const trackItems = tracks.data?.items ?? []
   const albumItems = albums.data?.items ?? []
   const artistItems = artists.data?.items ?? []
+  const searchError = tracks.error ?? albums.error ?? artists.error
   const nothingFound =
     searching &&
     !tracks.isPending &&
@@ -122,7 +123,17 @@ export function SearchScreen() {
 
       {searching ? (
         <>
-          {trackItems.length > 0 ? (
+          {searchError ? (
+            <ErrorState
+              error={searchError}
+              onRetry={() => {
+                void tracks.refetch()
+                void albums.refetch()
+                void artists.refetch()
+              }}
+            />
+          ) : null}
+          {!searchError && trackItems.length > 0 ? (
             <View>
               <SectionHeader
                 title="歌曲"
@@ -134,7 +145,7 @@ export function SearchScreen() {
                   track={track}
                   index={index}
                   leading="cover"
-                  playing={playingQid === `${connection?.id}:${track.id}`}
+                  playing={current?.serverId === connection?.id && current?.trackId === track.id}
                   onPress={() => {
                     if (!provider || !connection) return
                     void playTrackList({
@@ -150,7 +161,7 @@ export function SearchScreen() {
             </View>
           ) : null}
 
-          {albumItems.length > 0 ? (
+          {!searchError && albumItems.length > 0 ? (
             <View>
               <SectionHeader
                 title="专辑"
@@ -162,7 +173,7 @@ export function SearchScreen() {
             </View>
           ) : null}
 
-          {artistItems.length > 0 ? (
+          {!searchError && artistItems.length > 0 ? (
             <View>
               <SectionHeader
                 title="艺术家"
@@ -174,12 +185,15 @@ export function SearchScreen() {
             </View>
           ) : null}
 
-          {nothingFound ? <EmptyState text="没有找到匹配的结果" /> : null}
+          {!searchError && nothingFound ? <EmptyState text="没有找到匹配的结果" /> : null}
         </>
       ) : (
         <View>
           <Text style={styles.sectionTitle}>按流派收听</Text>
-          <View style={styles.genreGrid}>
+          {genres.isError ? (
+            <ErrorState error={genres.error} onRetry={() => void genres.refetch()} />
+          ) : (
+            <View style={styles.genreGrid}>
             {(genres.data?.items ?? []).map((genre) => (
               <View key={genre.id} style={styles.genreCard}>
                 <Pressable
@@ -202,7 +216,8 @@ export function SearchScreen() {
                 />
               </View>
             ))}
-          </View>
+            </View>
+          )}
         </View>
       )}
     </ScrollView>

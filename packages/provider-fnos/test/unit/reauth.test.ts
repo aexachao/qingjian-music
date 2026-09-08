@@ -83,6 +83,51 @@ describe('token 失效后的静默重登', () => {
     ])
   })
 
+  it('多个并发 401 共用一次重登，随后全部用新 token 重试', async () => {
+    let loginCalls = 0
+    let freshToken = false
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const token = (init?.headers as Record<string, string> | undefined)?.authorization
+      if (url.includes('/user/password-login')) {
+        loginCalls += 1
+        await Promise.resolve()
+        freshToken = true
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            msg: '',
+            data: { userToken: 'tok-fresh', user: { guid: 'u1', name: 'test', role: 'member' } },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      const body = token === 'tok-fresh' && freshToken
+        ? { code: 0, msg: '', data: { list: [trackPayload], total: 1 } }
+        : { code: 99999, msg: 'invalid token', data: null }
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    const provider = new FnosProvider(
+      connection,
+      {
+        sha256Hex: async (input) => `sha256(${input})`,
+        deviceId: 'device-1',
+        fetchImpl,
+        recoverPassword: async () => '示例密码-不是真实凭据',
+      },
+      staleSession,
+    )
+
+    const [first, second] = await Promise.all([
+      provider.tracks({ page: 1, size: 50 }),
+      provider.tracks({ page: 2, size: 50 }),
+    ])
+
+    expect(first.items[0]?.title).toBe('心植桂冠')
+    expect(second.items[0]?.title).toBe('心植桂冠')
+    expect(loginCalls).toBe(1)
+  })
+
   it('宿主没提供密码时不重登，直接抛 unauthorized', async () => {
     const { fetchImpl, calls } = makeStaleThenFreshFetch()
     const provider = new FnosProvider(

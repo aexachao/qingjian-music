@@ -2,7 +2,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
-import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
+import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -21,7 +21,7 @@ export function PlaylistsScreen() {
   })
 
   if (query.isPending) return <LoadingState />
-  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+  if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (
     <FlatList
@@ -43,7 +43,13 @@ export function PlaylistsScreen() {
         </Link>
       )}
       onEndReached={loadMore}
-      ListFooterComponent={<FooterLoader loading={query.isFetchingNextPage} />}
+      ListFooterComponent={
+        <PaginationFooter
+          loading={query.isFetchingNextPage}
+          error={query.isFetchNextPageError ? query.error : undefined}
+          onRetry={() => void query.fetchNextPage()}
+        />
+      }
       ItemSeparatorComponent={() => <View style={styles.separator} />}
     />
   )

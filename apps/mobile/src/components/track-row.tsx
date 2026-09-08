@@ -26,7 +26,8 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
       style={styles.row}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`播放 ${track.title}，${artistText}`}
+      accessibilityLabel={`${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`}
+      accessibilityState={{ selected: playing }}
     >
       {leading === 'index' ? (
         // 正在播放的那首用跳动的律动条顶掉序号

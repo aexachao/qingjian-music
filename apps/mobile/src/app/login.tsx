@@ -13,6 +13,7 @@ import {
 import { useRouter } from 'expo-router'
 import { isMusicError } from '@qj/core-domain'
 import { useServerSession } from '@/lib/server-session'
+import { AuthGate } from '@/lib/auth-gate'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 /**
@@ -52,7 +53,8 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AuthGate group="login">
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>轻简音乐</Text>
         <Text style={styles.subtitle}>连接你的飞牛音乐服务器</Text>
@@ -83,7 +85,8 @@ export default function LoginScreen() {
           {busy ? <ActivityIndicator color={colors.textOnAccent} /> : <Text style={styles.buttonLabel}>连接</Text>}
         </Pressable>
       </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </AuthGate>
   )
 }
 

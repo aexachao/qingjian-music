@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native'
 import Animated, {
   Easing,
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withRepeat,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated'
 
@@ -14,8 +14,8 @@ import Animated, {
 const MS_PER_PIXEL = 22
 /** 两端各停多久再继续滚 */
 const PAUSE_MS = 1400
-/** 溢出小于这个值就不折腾，直接静止显示 */
-const MIN_OVERFLOW = 6
+/** 同一份文字之间的留白，避免尾部直接粘到下一轮开头 */
+const MARQUEE_GAP = 32
 /**
  * 给文字一个足够宽的盒子。
  * numberOfLines={1} 会按可用宽度截断成「…」，只有把盒子撑开才会真的溢出，
@@ -40,25 +40,20 @@ export function MarqueeText({ text, style, containerStyle, accessibilityLabel }:
   const translateX = useSharedValue(0)
 
   const overflow = textWidth - containerWidth
+  const shouldScroll = containerWidth > 0 && overflow > 6
 
   useEffect(() => {
+    cancelAnimation(translateX)
     translateX.value = 0
-    if (containerWidth <= 0 || overflow <= MIN_OVERFLOW) return
-    const duration = Math.round(overflow * MS_PER_PIXEL)
-    // 停一下 → 滚到尾 → 停一下 → 滚回头，无限循环
+    if (!shouldScroll) return
+    const distance = textWidth + MARQUEE_GAP
+    const duration = Math.round(distance * MS_PER_PIXEL)
+    // 业内常见的 ticker：停一下后单向匀速滚动，第二份文字无缝接上，不来回反弹。
     translateX.value = withDelay(
       PAUSE_MS,
-      withRepeat(
-        withSequence(
-          withTiming(-overflow, { duration, easing: Easing.linear }),
-          withDelay(PAUSE_MS, withTiming(0, { duration, easing: Easing.linear })),
-          withDelay(PAUSE_MS, withTiming(0, { duration: 0 })),
-        ),
-        -1,
-        false,
-      ),
+      withRepeat(withTiming(-distance, { duration, easing: Easing.linear }), -1, false),
     )
-  }, [containerWidth, overflow, text, translateX])
+  }, [shouldScroll, text, textWidth, translateX])
 
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
 
@@ -69,21 +64,29 @@ export function MarqueeText({ text, style, containerStyle, accessibilityLabel }:
       accessible
       accessibilityLabel={accessibilityLabel ?? text}
     >
-      <Animated.Text
-        numberOfLines={1}
-        style={[style, styles.text, animatedStyle]}
-        onTextLayout={(event) => {
-          const measured = event.nativeEvent.lines[0]?.width
-          if (measured) setTextWidth(Math.ceil(measured))
-        }}
-      >
-        {text}
-      </Animated.Text>
+      <Animated.View style={[styles.track, animatedStyle]}>
+        <Animated.Text
+          numberOfLines={1}
+          style={[style, styles.text]}
+          onTextLayout={(event) => {
+            const measured = event.nativeEvent.lines[0]?.width
+            if (measured) setTextWidth(Math.ceil(measured))
+          }}
+        >
+          {text}
+        </Animated.Text>
+        {shouldScroll ? (
+          <Animated.Text numberOfLines={1} style={[style, styles.text, { marginLeft: MARQUEE_GAP }]}>
+            {text}
+          </Animated.Text>
+        ) : null}
+      </Animated.View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
-  text: { width: TEXT_BOX_WIDTH },
+  track: { flexDirection: 'row', width: TEXT_BOX_WIDTH },
+  text: { flexShrink: 0 },
 })

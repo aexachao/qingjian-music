@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, Animated as RNAnimated, type FlatList } from 'react-native'
-import { BlurView } from 'expo-blur'
+import { Alert, Pressable, StyleSheet, Text, View, useWindowDimensions, Animated as RNAnimated, type FlatList } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
@@ -12,12 +11,11 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
 
-import type { QueueItem, PlayMode, PlaySource } from '@qj/core-domain'
+import type { QueueItem, PlayMode } from '@qj/core-domain'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { useServerSession } from '@/lib/server-session'
@@ -27,6 +25,7 @@ import {
   extendWithRadio,
   fillRadio,
   moveInQueue,
+  playHistoryItem,
   RADIO_UPCOMING_KEEP,
   removeFromQueue,
   setShuffledOrder,
@@ -41,37 +40,38 @@ import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
 import { useToggleFavorite } from '@/lib/favorites'
 import { DeckMoreButton } from '@/components/player/player-deck'
 
-const USE_BLUR = Platform.OS === 'ios'
-
-const LONG_PRESS_MS = 250
+const LONG_PRESS_MS = 350
 const TAP_SLOP = 12
 const RADIO_FETCH_MORE = 10
 
 // 互斥的左滑删除引用
 let openSwipeableRef: Swipeable | null = null
 
-const closeOpenSwipeable = () => {
-  if (openSwipeableRef) {
-    openSwipeableRef.close()
-    openSwipeableRef = null
-  }
+export const closeOpenQueueAction = (): boolean => {
+  if (!openSwipeableRef) return false
+  openSwipeableRef.close()
+  openSwipeableRef = null
+  return true
 }
 
+type QueueTab = 'upcoming' | 'history'
+
 type QueueRowData =
-  | { id: string; type: 'historyHeader' }
-  | { id: string; type: 'historyTrack'; item: QueueItem; index: number }
   | { id: string; type: 'currentInfo'; item: QueueItem }
   | { id: string; type: 'modesHeader' }
+  | { id: string; type: 'historyTrack'; item: QueueItem; index: number }
   | { id: string; type: 'upcomingTrack'; item: QueueItem; index: number }
 
 export function PlayerQueue({
   bottomSpace,
   listAnim,
   onTopStateChange,
+  onActionOpenChange,
 }: {
   bottomSpace: number
   listAnim?: SharedValue<number>
   onTopStateChange?: (atTop: boolean) => void
+  onActionOpenChange?: (open: boolean) => void
 }) {
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
@@ -79,54 +79,44 @@ export function PlayerQueue({
 
   const { provider, connection } = useServerSession()
   const queue = usePlayerStore((state) => state.queue)
+  const history = usePlayerStore((state) => state.history)
   const index = usePlayerStore((state) => state.index)
   const playMode = usePlayerStore((state) => state.playMode)
   const autoplay = usePlayerStore((state) => state.autoplay)
-  const source = usePlayerStore((state) => state.source)
+  const [tab, setTab] = useState<QueueTab>('upcoming')
   const { playing: isGloballyPlaying } = useIsPlaying()
+
+  const setQueueActionOpen = useCallback((open: boolean) => {
+    onActionOpenChange?.(open)
+  }, [onActionOpenChange])
 
   const queueData = useMemo(() => {
     const data: QueueRowData[] = []
-    
-    const history = queue.slice(0, index)
-    if (history.length > 0) {
-      data.push({ id: 'historyHeader', type: 'historyHeader' })
-      history.forEach((item, i) => {
-        data.push({ id: `hist_${item.qid}`, type: 'historyTrack', item, index: i })
-      })
-    }
-
     const currentItem = queue[index]
-    if (currentItem) {
-      data.push({ id: 'currentInfo', type: 'currentInfo', item: currentItem })
-    }
+    if (currentItem) data.push({ id: 'currentInfo', type: 'currentInfo', item: currentItem })
 
     const modesIndex = data.length
     data.push({ id: 'modesHeader', type: 'modesHeader' })
 
-    const upcoming = queue.slice(index + 1)
-    upcoming.forEach((item, i) => {
-      data.push({ id: `upcoming_${item.qid}`, type: 'upcomingTrack', item, index: index + 1 + i })
+    const tracks = tab === 'upcoming' ? queue.slice(1) : history
+    tracks.forEach((item, itemIndex) => {
+      const queueIndex = tab === 'upcoming' ? itemIndex + 1 : itemIndex
+      data.push({
+        id: `${tab}_${item.qid}_${itemIndex}`,
+        type: tab === 'upcoming' ? 'upcomingTrack' : 'historyTrack',
+        item,
+        index: queueIndex,
+      })
     })
 
-    const historyOffset = history.length > 0 ? 52 + history.length * 56 : 0;
-    return { data, modesIndex, currentInfoIndex: history.length > 0 ? history.length + 1 : 0, historyOffset }
-  }, [queue, index])
+    return { data, modesIndex }
+  }, [history, index, queue, tab])
 
-  const modesContentOffset = queueData.historyOffset + 88
-  const scrollY = useSharedValue(queueData.historyOffset)
-  const dragStartScrollY = useSharedValue(0)
-  const isAtTopRef = useSharedValue(queueData.historyOffset === 0)
-  const [atTop, setAtTop] = useState(queueData.historyOffset === 0)
-
-  const snapToHistoryOffset = useCallback(() => {
-    listRef.current?.scrollToOffset({ offset: queueData.historyOffset, animated: true })
-  }, [queueData.historyOffset])
+  const modesContentOffset = 88
+  const scrollY = useSharedValue(0)
+  const isAtTopRef = useSharedValue(true)
 
   const scrollHandler = useAnimatedScrollHandler({
-    onBeginDrag: (event) => {
-      dragStartScrollY.value = event.contentOffset.y
-    },
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y
       const isTop = event.contentOffset.y <= 2
@@ -135,16 +125,6 @@ export function PlayerQueue({
         if (onTopStateChange) {
           runOnJS(onTopStateChange)(isTop)
         }
-        runOnJS(setAtTop)(isTop)
-      }
-    },
-    onEndDrag: (event) => {
-      // 若滑动起始于继续播放/模式栏区域（正在播放下方），向下滑动时强制拦截在正在播放吸顶处（historyOffset），绝不单次滑入历史记录
-      if (
-        dragStartScrollY.value >= queueData.historyOffset + 10 &&
-        event.contentOffset.y < queueData.historyOffset
-      ) {
-        runOnJS(snapToHistoryOffset)()
       }
     },
   })
@@ -159,48 +139,27 @@ export function PlayerQueue({
     usePlayerStore.getState().setAutoplay(next)
     if (!next || !provider || !connection) return
     const state = usePlayerStore.getState()
-    if (state.queue.length - state.index - 1 > RADIO_UPCOMING_KEEP) return
+    if (state.queue.length - 1 > RADIO_UPCOMING_KEEP) return
     void extendWithRadio(provider, connection.id).catch(() => {})
   }, [autoplay, connection, provider])
 
-  const getItemLayout = useCallback((_: any, index: number) => {
-    let offset = 0;
-    const items = queueData.data;
-    for (let i = 0; i < index; i++) {
-      const t = items[i]?.type;
-      offset += t === 'historyHeader' ? 52 : t === 'modesHeader' ? 106 : t === 'currentInfo' ? 88 : 56;
+  const getItemLayout = useCallback((_: any, itemIndex: number) => {
+    let offset = 0
+    const items = queueData.data
+    for (let currentIndex = 0; currentIndex < itemIndex; currentIndex += 1) {
+      offset += items[currentIndex]?.type === 'modesHeader' ? 106 : items[currentIndex]?.type === 'currentInfo' ? 88 : 56
     }
-    const currType = items[index]?.type;
-    const length = currType === 'historyHeader' ? 52 : currType === 'modesHeader' ? 106 : currType === 'currentInfo' ? 88 : 56;
-    return { length, offset, index };
+    const length = items[itemIndex]?.type === 'modesHeader' ? 106 : items[itemIndex]?.type === 'currentInfo' ? 88 : 56
+    return { length, offset, index: itemIndex }
   }, [queueData.data])
 
   const listRef = useRef<FlatList<any>>(null)
 
-  const lockToCurrent = useCallback(() => {
-    if (queueData.historyOffset > 0 && listRef.current) {
-      listRef.current.scrollToOffset({ offset: queueData.historyOffset, animated: false })
-      scrollY.value = queueData.historyOffset
-    }
-  }, [queueData.historyOffset, scrollY])
-
-  useEffect(() => {
-    lockToCurrent()
-    const t1 = setTimeout(lockToCurrent, 16)
-    const t2 = setTimeout(lockToCurrent, 60)
-    const t3 = setTimeout(lockToCurrent, 150)
-    return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-    }
-  }, [lockToCurrent])
-
   const fillingRef = useRef(false)
   const onEndReached = useCallback(() => {
-    if (!provider || !connection) return
-    const { source: src, index: current, queue: list } = usePlayerStore.getState()
-    const upcoming = list.length - current - 1
+    if (tab !== 'upcoming' || !provider || !connection) return
+    const { source: src, queue: list } = usePlayerStore.getState()
+    const upcoming = list.length - 1
     if (src?.kind === 'radio') {
       if (fillingRef.current) return
       fillingRef.current = true
@@ -210,7 +169,7 @@ export function PlayerQueue({
     } else if (autoplay && upcoming <= RADIO_UPCOMING_KEEP) {
       void extendWithRadio(provider, connection.id).catch(() => {})
     }
-  }, [autoplay, connection, provider])
+  }, [autoplay, connection, provider, tab])
 
   const onReorder = useCallback(({ from, to }: ReorderableListReorderEvent) => {
     const fromItem = queueData.data[from]
@@ -221,30 +180,50 @@ export function PlayerQueue({
     
     const clampedTo = Math.max(firstUpcomingIndex, to)
     const actualFrom = fromItem.index
-    const actualTo = index + 1 + (clampedTo - firstUpcomingIndex)
+    const actualTo = 1 + (clampedTo - firstUpcomingIndex)
     
     void moveInQueue(actualFrom, actualTo)
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }, [queueData.data, index])
+  }, [queueData.data])
 
+  const [dragging, setDragging] = useState(false)
   const onDragStart = useCallback(() => {
     'worklet'
-    runOnJS(closeOpenSwipeable)()
+    runOnJS(setDragging)(true)
+    runOnJS(closeOpenQueueAction)()
     runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy)
   }, [])
 
-  const renderItem = useCallback(({ item, index: rowIndex }: { item: QueueRowData; index: number }) => {
-    if (item.type === 'historyHeader') {
-      return (
-        <View style={styles.historyHeader}>
-          <Text style={styles.historyTitle}>历史记录</Text>
-          <Pressable onPress={() => void clearHistory()} hitSlop={8}>
-            <Text style={styles.historyClear}>清除</Text>
-          </Pressable>
-        </View>
-      )
-    }
+  const onDragEnd = useCallback(() => {
+    'worklet'
+    runOnJS(setDragging)(false)
+  }, [])
 
+  useEffect(() => () => {
+    closeOpenQueueAction()
+    onActionOpenChange?.(false)
+  }, [onActionOpenChange])
+
+  const consumeOpenAction = useCallback(() => {
+    const consumed = closeOpenQueueAction()
+    if (consumed) setQueueActionOpen(false)
+    return consumed
+  }, [setQueueActionOpen])
+
+  const onTabChange = useCallback((nextTab: QueueTab) => {
+    if (consumeOpenAction() || nextTab === tab) return
+    setTab(nextTab)
+  }, [consumeOpenAction, tab])
+
+  const confirmClearHistory = useCallback(() => {
+    if (consumeOpenAction()) return
+    Alert.alert('清除历史记录？', '该操作不可撤销。', [
+      { text: '取消', style: 'cancel' },
+      { text: '清除', style: 'destructive', onPress: () => void clearHistory() },
+    ])
+  }, [consumeOpenAction])
+
+  const renderItem = useCallback(({ item }: { item: QueueRowData; index: number }) => {
     if (item.type === 'modesHeader') {
       return (
         <ModesHeader
@@ -256,8 +235,11 @@ export function PlayerQueue({
           screenHeight={screenHeight}
           playMode={playMode}
           autoplay={autoplay}
-          source={source}
+          tab={tab}
           provider={provider}
+          onTabChange={onTabChange}
+          consumeOpenAction={consumeOpenAction}
+          onClearHistory={confirmClearHistory}
           onToggleAutoplay={onToggleAutoplay}
         />
       )
@@ -268,8 +250,9 @@ export function PlayerQueue({
         <CurrentTrackCard
           item={item.item}
           listAnim={listAnim}
+          consumeOpenAction={consumeOpenAction}
           stickyTopOffset={stickyTopOffset}
-          historyOffset={queueData.historyOffset}
+          historyOffset={0}
           scrollY={scrollY}
           screenWidth={screenWidth}
           screenHeight={screenHeight}
@@ -277,7 +260,7 @@ export function PlayerQueue({
       )
     }
 
-    const playing = item.type === 'upcomingTrack' ? false : (item.index === index)
+    const playing = false
     const isHistory = item.type === 'historyTrack'
 
     return (
@@ -287,6 +270,9 @@ export function PlayerQueue({
         playing={playing} 
         isGloballyPlaying={!!isGloballyPlaying}
         isHistory={isHistory}
+        onSelect={isHistory ? () => void playHistoryItem(item.item) : () => void skipToIndex(item.index)}
+        swipeEnabled={!dragging}
+        onActionOpenChange={setQueueActionOpen}
       />
     )
   }, [
@@ -294,17 +280,21 @@ export function PlayerQueue({
     index,
     stickyTopOffset,
     modesContentOffset,
-    queueData.historyOffset,
     scrollY,
     screenWidth,
     screenHeight,
     playMode,
     autoplay,
-    source,
+    tab,
     provider,
+    onTabChange,
+    confirmClearHistory,
     onToggleAutoplay,
     isGloballyPlaying,
     listAnim,
+    dragging,
+    consumeOpenAction,
+    setQueueActionOpen,
   ])
 
   return (
@@ -318,23 +308,21 @@ export function PlayerQueue({
         onEndReached={onEndReached}
         onEndReachedThreshold={0.5}
         panActivateAfterLongPress={LONG_PRESS_MS}
+        dragEnabled={tab === 'upcoming'}
         getItemLayout={getItemLayout}
-        initialScrollIndex={queueData.currentInfoIndex}
         initialNumToRender={queueData.data.length}
-        contentOffset={{ x: 0, y: queueData.historyOffset }}
-        onLayout={lockToCurrent}
         onScroll={scrollHandler}
+        onScrollBeginDrag={() => {
+          if (closeOpenQueueAction()) setQueueActionOpen(false)
+        }}
         shouldUpdateActiveItem={true}
         onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         onIndexChange={onIndexChange}
         cellAnimations={{ transform: [] }}
         renderItem={renderItem}
-        stickyHeaderIndices={
-          queueData.data[queueData.currentInfoIndex]?.type === 'currentInfo'
-            ? [queueData.currentInfoIndex, queueData.modesIndex]
-            : [queueData.modesIndex]
-        }
-        bounces={!atTop}
+        stickyHeaderIndices={[queueData.modesIndex]}
+        bounces
         decelerationRate="normal"
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={<Text style={styles.empty}>队列是空的</Text>}
@@ -346,6 +334,7 @@ export function PlayerQueue({
 function CurrentTrackCard({
   item,
   listAnim,
+  consumeOpenAction,
   stickyTopOffset,
   historyOffset,
   scrollY,
@@ -354,6 +343,7 @@ function CurrentTrackCard({
 }: {
   item: QueueItem
   listAnim?: SharedValue<number>
+  consumeOpenAction: () => boolean
   stickyTopOffset?: number
   historyOffset?: number
   scrollY?: SharedValue<number>
@@ -422,10 +412,13 @@ function CurrentTrackCard({
           size={iconSize.lg}
           color={item.isFavorite ? colors.like : colors.iconMid}
           filled={item.isFavorite}
-          onPress={() => void toggleFavorite(item.trackId, !item.isFavorite)}
+          onPress={() => {
+            if (consumeOpenAction()) return
+            void toggleFavorite(item.trackId, !item.isFavorite)
+          }}
           accessibilityLabel={item.isFavorite ? '取消喜欢' : '喜欢'}
         />
-        <DeckMoreButton current={item} />
+        <DeckMoreButton current={item} onBeforeOpen={consumeOpenAction} />
       </Animated.View>
     </View>
   )
@@ -440,8 +433,11 @@ function ModesHeader({
   screenHeight,
   playMode,
   autoplay,
-  source,
+  tab,
   provider,
+  onTabChange,
+  consumeOpenAction,
+  onClearHistory,
   onToggleAutoplay,
 }: {
   artwork?: any
@@ -452,8 +448,11 @@ function ModesHeader({
   screenHeight: number
   playMode: PlayMode
   autoplay: boolean
-  source?: PlaySource
+  tab: QueueTab
   provider: any
+  onTabChange: (tab: QueueTab) => void
+  consumeOpenAction: () => boolean
+  onClearHistory: () => void
   onToggleAutoplay: () => void
 }) {
   const bgStyle = useAnimatedStyle(() => {
@@ -486,23 +485,62 @@ function ModesHeader({
           icon="shuffle"
           label="随机播放"
           active={playMode.shuffle}
-          onPress={() => void setShuffledOrder(!playMode.shuffle)}
+          onPress={() => {
+            if (consumeOpenAction()) return
+            void setShuffledOrder(!playMode.shuffle)
+          }}
         />
         <ModeButton
           icon={playMode.repeat === 'one' ? 'repeatOne' : 'repeat'}
           label={playMode.repeat === 'one' ? '单曲循环' : '列表循环'}
           active={playMode.repeat !== 'off'}
-          onPress={() => void cycleRepeat()}
+          onPress={() => {
+            if (consumeOpenAction()) return
+            void cycleRepeat()
+          }}
         />
         {provider?.capabilities.radio ? (
-          <ModeButton icon="infinity" label="无限播放" active={autoplay} onPress={onToggleAutoplay} />
+          <ModeButton
+            icon="infinity"
+            label="无限播放"
+            active={autoplay}
+            onPress={() => {
+              if (consumeOpenAction()) return
+              onToggleAutoplay()
+            }}
+          />
         ) : null}
       </View>
-      <View style={styles.continuePlaying}>
-        <Text style={styles.continueTitle}>继续播放</Text>
-        {source ? <Text style={styles.continueSubtitle}>来自 {source.label}</Text> : null}
+      <View style={styles.queueTabs} accessibilityRole="tablist">
+        <QueueTabButton label="继续播放" selected={tab === 'upcoming'} onPress={() => onTabChange('upcoming')} />
+        <QueueTabButton label="历史记录" selected={tab === 'history'} onPress={() => onTabChange('history')} />
+        <View style={styles.queueTabSpacer} />
+        {tab === 'history' ? (
+          <Pressable
+            onPress={onClearHistory}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="清除播放历史"
+          >
+            <Text style={styles.historyClear}>清除</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
+  )
+}
+
+function QueueTabButton({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={styles.queueTab}
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+    >
+      <Text style={[styles.queueTabText, selected && styles.queueTabTextActive]}>{label}</Text>
+      <View style={[styles.queueTabIndicator, selected && styles.queueTabIndicatorActive]} />
+    </Pressable>
   )
 }
 
@@ -520,7 +558,7 @@ function ModeButton({ icon, label, active, onPress }: { icon: IconName; label: s
   )
 }
 
-function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: { item: QueueItem; queueIndex: number; playing: boolean; isGloballyPlaying: boolean; isHistory: boolean }) {
+function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory, onSelect, swipeEnabled, onActionOpenChange }: { item: QueueItem; queueIndex: number; playing: boolean; isGloballyPlaying: boolean; isHistory: boolean; onSelect: () => void; swipeEnabled: boolean; onActionOpenChange?: (open: boolean) => void }) {
   const isActive = useIsActive()
   const drag = useReorderableDrag()
   const elevation = useSharedValue(0)
@@ -541,13 +579,27 @@ function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: {
   const startX = useRef(0)
   const startY = useRef(0)
   const moved = useRef(false)
+  const [dragHandlePressed, setDragHandlePressed] = useState(false)
+  const dismissedSwipeOnHandlePress = useRef(false)
   const swipeableRef = useRef<Swipeable>(null)
+
+  useEffect(() => () => {
+    if (openSwipeableRef === swipeableRef.current) {
+      openSwipeableRef = null
+      onActionOpenChange?.(false)
+    }
+  }, [onActionOpenChange])
 
   const renderRightActions = (progress: any, dragX: any) => {
     const trans = dragX.interpolate({ inputRange: [-80, 0], outputRange: [0, 80], extrapolate: 'clamp' });
     return (
       <RNAnimated.View style={{ transform: [{ translateX: trans }] }}>
-        <Pressable style={styles.deleteAction} onPress={() => void removeFromQueue(queueIndex)}>
+        <Pressable
+          style={styles.deleteAction}
+          onPress={() => void removeFromQueue(queueIndex)}
+          accessibilityRole="button"
+          accessibilityLabel={`从队列移除 ${item.title}`}
+        >
           <View style={styles.deleteIconBg}>
             <Icon name="remove" size={20} color={colors.danger || 'red'} />
           </View>
@@ -558,9 +610,16 @@ function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: {
 
   const onSwipeableWillOpen = () => {
     if (openSwipeableRef && openSwipeableRef !== swipeableRef.current) {
-      closeOpenSwipeable()
+      closeOpenQueueAction()
     }
     openSwipeableRef = swipeableRef.current
+    onActionOpenChange?.(true)
+  }
+
+  const onSwipeableClose = () => {
+    if (openSwipeableRef !== swipeableRef.current) return
+    openSwipeableRef = null
+    onActionOpenChange?.(false)
   }
 
   const content = (
@@ -578,9 +637,13 @@ function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: {
         }
       }}
       onPress={() => {
-        if (!moved.current) void skipToIndex(queueIndex)
+        if (moved.current) return
+        if (closeOpenQueueAction()) return
+        onSelect()
       }}
       style={styles.row}
+      accessibilityRole="button"
+      accessibilityLabel={`播放 ${item.title}，${item.artistText}`}
     >
       <CoverImage resource={item.artwork} size={48} borderRadius={radius.sm} />
       <View style={styles.rowMain}>
@@ -603,7 +666,21 @@ function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: {
             />
           ) : null}
           <Pressable
-            onPressIn={drag}
+            onPressIn={() => {
+              dismissedSwipeOnHandlePress.current = closeOpenQueueAction()
+              if (dismissedSwipeOnHandlePress.current) onActionOpenChange?.(false)
+            }}
+            onLongPress={() => {
+              if (dismissedSwipeOnHandlePress.current) return
+              setDragHandlePressed(true)
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              drag()
+            }}
+            delayLongPress={LONG_PRESS_MS}
+            onPressOut={() => {
+              dismissedSwipeOnHandlePress.current = false
+              setDragHandlePressed(false)
+            }}
             hitSlop={{ top: 14, bottom: 14, left: 16, right: 16 }}
             style={styles.dragSlot}
             accessibilityRole="button"
@@ -624,12 +701,15 @@ function QueueRow({ item, queueIndex, playing, isGloballyPlaying, isHistory }: {
   return (
     <Swipeable 
       ref={swipeableRef}
+      enabled={swipeEnabled && !dragHandlePressed}
+      dragOffsetFromRightEdge={20}
       renderRightActions={renderRightActions} 
       overshootRight={false}
       friction={2}
       overshootFriction={8} 
       containerStyle={{ overflow: 'visible' }}
       onSwipeableWillOpen={onSwipeableWillOpen}
+      onSwipeableClose={onSwipeableClose}
     >
       {content}
     </Swipeable>
@@ -641,17 +721,6 @@ const styles = StyleSheet.create({
   list: { paddingBottom: spacing.xxl },
   empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   
-  historyHeader: {
-    height: 52,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 8,
-  },
-  historyTitle: { ...typography.title, lineHeight: 28, color: colors.textPrimary },
-  historyClear: { ...typography.callout, color: colors.iconMid, paddingBottom: 2 },
-
   modesHeader: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xs,
@@ -674,22 +743,31 @@ const styles = StyleSheet.create({
   },
   modeActive: { backgroundColor: colors.textPrimary },
   
-  continuePlaying: {
-    gap: 4,
-    marginBottom: spacing.xs,
+  queueTabs: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.lg,
   },
-  continueTitle: {
+  queueTab: { minHeight: 34, justifyContent: 'flex-start' },
+  queueTabText: {
     fontSize: 16,
     fontFamily: fonts.bold,
-    color: colors.textPrimary,
+    color: colors.textSecondary,
     letterSpacing: -0.2,
   },
-  continueSubtitle: {
-    fontSize: 14,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    letterSpacing: -0.1,
+  queueTabTextActive: { color: colors.textPrimary },
+  queueTabIndicator: {
+    width: '50%',
+    alignSelf: 'center',
+    height: 2,
+    marginTop: 6,
+    borderRadius: radius.pill,
+    backgroundColor: 'transparent',
   },
+  queueTabIndicatorActive: { backgroundColor: colors.textPrimary },
+  queueTabSpacer: { flex: 1 },
+  historyClear: { ...typography.callout, color: colors.iconMid },
 
   currentCard: {
     height: 88,

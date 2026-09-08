@@ -15,9 +15,8 @@ export function useToggleFavorite() {
   return useCallback(
     async (trackId: string, favorite: boolean): Promise<boolean> => {
       if (!provider?.setFavorite || !connection) return !favorite
-      const qid = `${connection.id}:${trackId}`
       const patch = (value: boolean) => {
-        usePlayerStore.getState().patchItem(qid, { isFavorite: value })
+        usePlayerStore.getState().patchItem(trackId, { isFavorite: value })
         // 已经拉下来的列表页同步改，免得返回上一页状态还是旧的
         queryClient.setQueriesData<{ pages?: { items: Track[] }[] }>({ queryKey: [] }, (data) => {
           if (!data?.pages) return data

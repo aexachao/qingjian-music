@@ -20,6 +20,16 @@ export interface RequestOptions {
 
 const DEFAULT_TIMEOUT_MS = 15_000
 
+function httpStatusError(status: number, body: string): MusicError {
+  const detail = body.trim().slice(0, 200)
+  const message = detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`
+  if (status === 401) return new MusicError({ code: 'unauthorized', message: '登录已失效，请重新登录', status })
+  if (status === 403) return new MusicError({ code: 'forbidden', message: '没有权限执行此操作', status })
+  if (status === 404) return new MusicError({ code: 'notFound', message: '资源不存在', status })
+  if (status === 408 || status === 504) return new MusicError({ code: 'timeout', message, status })
+  return new MusicError({ code: status >= 500 ? 'server' : 'protocol', message, status })
+}
+
 export class HttpClient {
   private readonly baseUrl: string
   private readonly timeoutMs: number
@@ -64,8 +74,8 @@ export class HttpClient {
         },
       })
       const text = await response.text()
-      if (!response.ok && !text) {
-        throw new MusicError({ code: response.status >= 500 ? 'server' : 'protocol', message: `HTTP ${response.status}`, status: response.status })
+      if (!response.ok) {
+        throw httpStatusError(response.status, text)
       }
       if (!text) return undefined
       try {

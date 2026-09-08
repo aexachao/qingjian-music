@@ -1,5 +1,5 @@
 import TrackPlayer from 'react-native-track-player'
-import type { StreamSession } from '@qj/core-domain'
+import { isMusicError, type StreamSession } from '@qj/core-domain'
 
 /**
  * 转码会话保活。飞牛的转码任务靠心跳判活：
@@ -15,6 +15,7 @@ interface ActiveSession {
 
 let active: ActiveSession | null = null
 let sessionLostHandler: ((qid: string) => void) | null = null
+let transition: Promise<void> = Promise.resolve()
 
 /** 心跳失败（任务已被回收）时的回调，由 PlayerBridge 注册成「重开会话」 */
 export function setSessionLostHandler(handler: ((qid: string) => void) | null): void {
@@ -32,7 +33,9 @@ async function beat(): Promise<void> {
     const progress = await TrackPlayer.getProgress()
     await current.session.heartbeat(progress.position * 1000)
   } catch (error) {
-    console.warn('转码会话保活失败', error)
+    if (!isMusicError(error) || error.code !== 'notFound') {
+      console.warn('转码会话保活失败', error)
+    }
     // 任务没了就别继续敲了，交给上层重新起一个
     if (active === current) {
       clearInterval(current.timer)
@@ -42,18 +45,33 @@ async function beat(): Promise<void> {
   }
 }
 
-/** 注册并开始保活；换曲目时会先把上一个会话关掉 */
-export function startTranscodeSession(qid: string, session: StreamSession): void {
-  if (active?.qid === qid) return
-  void stopTranscodeSession()
+async function replaceNow(qid: string, session: StreamSession): Promise<void> {
+  if (active?.qid === qid) {
+    await session.close().catch((error: unknown) => {
+      console.warn('重复转码会话退出失败', error)
+    })
+    return
+  }
+  await stopNow()
   const timer = setInterval(() => {
     void beat()
   }, session.heartbeatIntervalMs)
   active = { qid, session, timer }
 }
 
+export function replaceTranscodeSession(qid: string, session: StreamSession): Promise<void> {
+  const result = transition.then(() => replaceNow(qid, session))
+  transition = result.catch(() => undefined)
+  return result
+}
+
+/** 注册并开始保活；兼容无需等待的调用方 */
+export function startTranscodeSession(qid: string, session: StreamSession): void {
+  void replaceTranscodeSession(qid, session)
+}
+
 /** 关闭当前会话（传 qid 时只关这一个）；quit 失败只记日志 */
-export async function stopTranscodeSession(qid?: string): Promise<void> {
+async function stopNow(qid?: string): Promise<void> {
   const current = active
   if (!current) return
   if (qid && current.qid !== qid) return
@@ -64,4 +82,10 @@ export async function stopTranscodeSession(qid?: string): Promise<void> {
   } catch (error) {
     console.warn('转码会话退出失败', error)
   }
+}
+
+export function stopTranscodeSession(qid?: string): Promise<void> {
+  const result = transition.then(() => stopNow(qid))
+  transition = result.catch(() => undefined)
+  return result
 }

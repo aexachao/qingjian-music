@@ -1,4 +1,5 @@
 import TrackPlayer, { Event } from 'react-native-track-player'
+import { skipToNextSafe, skipToPreviousSmart } from './controller'
 
 /**
  * 播放服务：处理锁屏 / 控制中心 / 耳机线控 / 车机发来的远程指令。
@@ -15,10 +16,10 @@ export async function playbackService(): Promise<void> {
     void TrackPlayer.stop()
   })
   TrackPlayer.addEventListener(Event.RemoteNext, () => {
-    void TrackPlayer.skipToNext()
+    void skipToNextSafe()
   })
   TrackPlayer.addEventListener(Event.RemotePrevious, () => {
-    void TrackPlayer.skipToPrevious()
+    void skipToPreviousSmart()
   })
   TrackPlayer.addEventListener(Event.RemoteSeek, ({ position }) => {
     void TrackPlayer.seekTo(position)

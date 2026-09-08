@@ -3,7 +3,7 @@ import { Link, Stack, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
-import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
+import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
@@ -21,7 +21,7 @@ export function ArtistDetailScreen() {
   const { width } = useWindowDimensions()
   const bottom = useBottomSpace()
   const href = useDetailHref()
-  const playingQid = usePlayerStore(selectCurrent)?.qid
+  const current = usePlayerStore(selectCurrent)
 
   const columns = width >= 700 ? 3 : 2
   const gap = spacing.md
@@ -59,7 +59,7 @@ export function ArtistDetailScreen() {
   const title = <Stack.Screen options={{ title: artistName ?? '艺术家' }} />
 
   if (albums.query.isPending) return <>{title}<LoadingState /></>
-  if (albums.query.isError)
+  if (albums.query.isLoadingError)
     return (
       <>
         {title}
@@ -117,7 +117,7 @@ export function ArtistDetailScreen() {
                   track={track}
                   index={index}
                   leading="cover"
-                  playing={playingQid === `${connection?.id}:${track.id}`}
+                  playing={current?.serverId === connection?.id && current?.trackId === track.id}
                   onPress={() => void playTop(index)}
                 />
               ))}
@@ -139,7 +139,13 @@ export function ArtistDetailScreen() {
         </Link>
       )}
       onEndReached={albums.loadMore}
-      ListFooterComponent={<FooterLoader loading={albums.query.isFetchingNextPage} />}
+      ListFooterComponent={
+        <PaginationFooter
+          loading={albums.query.isFetchingNextPage}
+          error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
+          onRetry={() => void albums.query.fetchNextPage()}
+        />
+      }
       ItemSeparatorComponent={() => <View style={{ height: spacing.lg }} />}
     />
     </>

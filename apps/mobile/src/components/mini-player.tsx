@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics'
 import { useIsPlaying, useProgress } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { IconButton, iconSize } from '@/components/icon'
+import { MarqueeText } from '@/components/marquee-text'
 import { skipToNextSafe, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
@@ -94,9 +95,7 @@ export function MiniPlayer() {
         >
           <CoverImage resource={current.artwork} size={44} borderRadius={radius.sm} />
           <View style={styles.text}>
-            <Text numberOfLines={1} style={styles.title}>
-              {current.title}
-            </Text>
+            <MarqueeText text={current.title} style={styles.title} />
             <Text numberOfLines={1} style={styles.artist}>
               {current.artistText}
             </Text>

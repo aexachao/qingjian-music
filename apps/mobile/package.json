@@ -51,13 +51,15 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-track-player": "^4.1.2",
+    "react-native-track-player": "4.1.2",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1",
+    "shaka-player": "4.16.12",
     "zod": "^4.5.4",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/node": "22.20.1",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3",
     "vitest": "^5.0.0"

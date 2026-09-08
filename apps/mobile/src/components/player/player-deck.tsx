@@ -1,15 +1,12 @@
-import { useCallback } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { useCallback, useEffect, useState } from 'react'
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
-import { Button, Host, Menu, Section } from '@expo/ui/swift-ui'
-import { frame, tint } from '@expo/ui/swift-ui/modifiers'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
 import { SystemVolumeSlider, addVolumeListener, setSystemVolume } from '../../../modules/system-volume'
-import { useEffect } from 'react'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -79,7 +76,7 @@ export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
             {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
             <MarqueeText text={current.title} style={styles.title} />
             <MarqueeText
-              text={`${current.artistText}${current.albumText ? ` — ${current.albumText}` : ''}`}
+              text={current.artistText}
               style={styles.artist}
             />
           </View>
@@ -208,20 +205,18 @@ function VolumeBar() {
 }
 
 /**
- * 「···」按钮：点开 SwiftUI 原生菜单（@expo/ui）——系统毛玻璃样式、从锚点弹出、
- * 自带触感反馈，destructive 行自动红字。之前是 RN Modal 自绘的，样式追不上系统，
- * 连点按触感都得自己造，换掉。原来头部的「歌名 / 歌词偏移」两行降级成 Section 标题
- * （系统菜单的条目只支持文字 + SF Symbol，塞不进自定义排版）。
- *
- * 注意两条 @expo/ui 的硬规矩（都在模拟器 Release 上实测踩过）：
- * 1. SwiftUI 组件不能直接放在 RN View 里，必须用 <Host> 包一层，否则挂载即崩；
- * 2. 触发器只能用 label 字符串 + systemImage：label 传 ReactNode 会走 Slot 机制，
- *    57.0.16 往 SwiftUIVirtualView 里挂 RN 子视图同样崩（unrecognized selector）。
+  * 「···」使用受控 RN Modal：遮罩会独占触摸，点击菜单外只关闭菜单，不会继续触发底层切歌、滚动或页面下拉。
  */
-export function DeckMoreButton({ current }: { current: QueueItem }) {
+export function DeckMoreButton({ current, onBeforeOpen }: { current: QueueItem; onBeforeOpen?: () => boolean }) {
   const toast = useToast()
   const router = useRouter()
+  const [open, setOpen] = useState(false)
   const { offsetMs, adjust, canAdjust } = useLyricOffset(current.trackId)
+
+  const closeAndRun = useCallback((action: () => void) => {
+    setOpen(false)
+    action()
+  }, [])
 
   const adjustLyric = (deltaMs: number) => {
     adjust(deltaMs)
@@ -234,50 +229,61 @@ export function DeckMoreButton({ current }: { current: QueueItem }) {
   }
 
   return (
-    // label 留空：只渲染 ellipsis 图标不渲染文字。VoiceOver 会少一个可读名
-    // （SwiftUI 菜单按钮的无障碍名来自 label 文本），这是换系统菜单的已知代价。
-    <Host matchContents>
-      <Menu
-        label=""
-        systemImage="ellipsis"
-        modifiers={[tint(colors.iconMid)]}
-      >
-      {current.albumId || current.artistId ? (
-        <Section title={current.title}>
-          {current.albumId ? (
-            <Button
-              label="查看专辑"
-              systemImage="opticaldisc"
-              onPress={() => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } })}
-            />
-          ) : null}
-          {current.artistId ? (
-            <Button
-              label="查看艺术家"
-              systemImage="person.crop.circle"
-              onPress={() => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } })}
-            />
-          ) : null}
-        </Section>
-      ) : null}
-      {canAdjust ? (
-        <Section title={`歌词偏移 ${formatOffset(offsetMs)}`}>
-          <Button label="歌词提前 0.5 秒" onPress={() => adjustLyric(OFFSET_STEP_MS)} />
-          <Button label="歌词延后 0.5 秒" onPress={() => adjustLyric(-OFFSET_STEP_MS)} />
-          {offsetMs !== 0 ? <Button label="歌词偏移归零" onPress={resetOffset} /> : null}
-        </Section>
-      ) : null}
-      <Button
-        label="清空队列"
-        systemImage="trash"
-        role="destructive"
+    <>
+      <IconButton
+        name="more"
+        size={iconSize.lg}
+        color={colors.iconMid}
         onPress={() => {
-          void clearQueue()
-          router.back()
+          if (onBeforeOpen?.()) return
+          setOpen(true)
         }}
+        accessibilityLabel="更多快捷操作"
       />
-      </Menu>
-    </Host>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={styles.menuScrim}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="关闭快捷操作"
+          />
+          <View style={styles.menuCard}>
+            <Text style={styles.menuTitle} numberOfLines={1}>{current.title}</Text>
+            {current.albumId ? (
+              <MenuAction label="查看专辑" onPress={() => closeAndRun(() => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } }))} />
+            ) : null}
+            {current.artistId ? (
+              <MenuAction label="查看艺术家" onPress={() => closeAndRun(() => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } }))} />
+            ) : null}
+            {canAdjust ? (
+              <>
+                <Text style={styles.menuSection}>歌词偏移 {formatOffset(offsetMs)}</Text>
+                <MenuAction label="歌词提前 0.5 秒" onPress={() => closeAndRun(() => adjustLyric(OFFSET_STEP_MS))} />
+                <MenuAction label="歌词延后 0.5 秒" onPress={() => closeAndRun(() => adjustLyric(-OFFSET_STEP_MS))} />
+                {offsetMs !== 0 ? <MenuAction label="歌词偏移归零" onPress={() => closeAndRun(resetOffset)} /> : null}
+              </>
+            ) : null}
+            <MenuAction
+              label="清空队列"
+              destructive
+              onPress={() => closeAndRun(() => {
+                void clearQueue()
+                router.back()
+              })}
+            />
+          </View>
+        </View>
+      </Modal>
+    </>
+  )
+}
+
+function MenuAction({ label, destructive = false, onPress }: { label: string; destructive?: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={({ pressed }) => [styles.menuAction, pressed && styles.menuActionPressed]} onPress={onPress}>
+      <Text style={[styles.menuActionText, destructive && styles.menuActionDestructive]}>{label}</Text>
+    </Pressable>
   )
 }
 
@@ -291,6 +297,40 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐，去掉之前的偏移和缩放
   menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  menuScrim: {
+    flex: 1,
+    backgroundColor: colors.bgOverlay,
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  menuCard: {
+    backgroundColor: colors.bgModal,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderEmphasis,
+  },
+  menuTitle: { ...typography.callout, color: colors.textSecondary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  menuSection: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
+  },
+  menuAction: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderSubtle,
+  },
+  menuActionPressed: { backgroundColor: colors.bgCardHover },
+  menuActionText: { ...typography.body, color: colors.textPrimary },
+  menuActionDestructive: { color: colors.danger },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },

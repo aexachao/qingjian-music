@@ -3,7 +3,7 @@ import { Stack, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
-import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
+import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -15,7 +15,7 @@ import { colors, radius, spacing, typography } from '@/theme/tokens'
 export function AlbumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
-  const playingQid = usePlayerStore(selectCurrent)?.qid
+  const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
 
   const albumQuery = useQuery({
@@ -55,7 +55,7 @@ export function AlbumDetailScreen() {
         <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
       </>
     )
-  if (query.isError)
+  if (query.isLoadingError)
     return (
       <>
         {title}
@@ -108,12 +108,18 @@ export function AlbumDetailScreen() {
           track={item}
           index={index}
           leading="index"
-          playing={playingQid === `${connection?.id}:${item.id}`}
+          playing={current?.serverId === connection?.id && current?.trackId === item.id}
           onPress={() => void play(index)}
         />
       )}
       onEndReached={loadMore}
-      ListFooterComponent={<FooterLoader loading={query.isFetchingNextPage} />}
+      ListFooterComponent={
+        <PaginationFooter
+          loading={query.isFetchingNextPage}
+          error={query.isFetchNextPageError ? query.error : undefined}
+          onRetry={() => void query.fetchNextPage()}
+        />
+      }
     />
     </>
   )

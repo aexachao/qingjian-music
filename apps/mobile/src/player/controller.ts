@@ -5,20 +5,32 @@ import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
 import { contentTypeFor } from './audio-cache-policy'
 import { needsTranscode } from './format-support'
-import { deletePlaybackSnapshot, readPlaybackSnapshot } from './persist'
+import { GenerationToken } from './generation-token'
+import { clearPlaybackSnapshot, readPlaybackSnapshot } from './persist'
+import { QueueOccurrenceIds } from './queue-occurrence'
 import { ensurePlayer } from './setup'
+import { AsyncMutationQueue } from './mutation-queue'
 import { usePlayerStore } from './store'
-import { hasTranscodeSession, startTranscodeSession, stopTranscodeSession } from './transcode-session'
+import { clearWarmTranscode, setWarmTranscode, takeWarmTranscode } from './transcode-prewarm'
+import { hasTranscodeSession, replaceTranscodeSession, startTranscodeSession, stopTranscodeSession } from './transcode-session'
 
 const ARTWORK_SIZE = 600
 /** 预取范围：当前这首 + 后面两首 */
 const PREFETCH_AHEAD = 2
+const queueMutations = new AsyncMutationQueue()
+const playbackGeneration = new GenerationToken()
+
+const queueOccurrenceIds = new QueueOccurrenceIds()
+
+function nextQueueId(serverId: string, trackId: string): string {
+  return queueOccurrenceIds.create(serverId, trackId)
+}
 
 /** 领域曲目 → 队列元素（带鉴权头的封面地址一并算好，锁屏/车机直接用） */
 export function toQueueItem(track: Track, provider: MusicProvider, serverId: string): QueueItem {
   const artwork = track.coverId ?? track.album?.coverId
   return {
-    qid: `${serverId}:${track.id}`,
+    qid: nextQueueId(serverId, track.id),
     serverId,
     trackId: track.id,
     title: track.title,
@@ -30,7 +42,7 @@ export function toQueueItem(track: Track, provider: MusicProvider, serverId: str
     ...(track.audio?.format ? { format: track.audio.format } : {}),
     ...(track.audio?.sizeBytes ? { sizeBytes: track.audio.sizeBytes } : {}),
     durationMs: track.durationMs,
-    ...(artwork ? { artwork: provider.image(artwork, ARTWORK_SIZE) } : {}),
+    ...(artwork ? { coverId: artwork, artwork: provider.image(artwork, ARTWORK_SIZE) } : {}),
   }
 }
 
@@ -112,31 +124,37 @@ export interface PlayListInput {
 }
 
 /** 从一个列表开始播放（专辑、艺术家、搜索结果都走这里） */
-export async function playTrackList({ provider, serverId, tracks, startIndex, source }: PlayListInput): Promise<void> {
+async function playTrackListMutation({ provider, serverId, tracks, startIndex, source }: PlayListInput): Promise<void> {
   if (tracks.length === 0) return
   await ensurePlayer()
 
   const items = tracks.map((track) => toQueueItem(track, provider, serverId))
   const safeStart = Math.min(Math.max(startIndex, 0), items.length - 1)
+  const selected = items[safeStart]!
+  const orderedItems = [selected, ...items.filter((_, itemIndex) => itemIndex !== safeStart)]
   const rntpTracks = await Promise.all(
-    items.map((item, index) => toRntpTrack(item, provider, { allowTranscode: index === safeStart })),
+    orderedItems.map((item, itemIndex) => toRntpTrack(item, provider, { allowTranscode: itemIndex === 0 })),
   )
 
   // 换成别的来源就结束漫游会话，否则后面会往专辑队列里塞电台歌
-  if (source.kind !== 'radio') radioCursor = undefined
+  if (source.kind !== 'radio') resetRadioSession()
 
   await TrackPlayer.reset()
   await TrackPlayer.add(rntpTracks)
-  const safeIndex = safeStart
-  if (safeIndex > 0) await TrackPlayer.skip(safeIndex)
-  usePlayerStore.getState().setQueue(items, safeIndex, source)
+  const safeIndex = 0
+  usePlayerStore.getState().setQueue(orderedItems, safeIndex, source)
   await TrackPlayer.play()
   void refreshArtwork(safeIndex)
   schedulePrefetch(safeIndex)
 }
 
+export function playTrackList(input: PlayListInput): Promise<void> {
+  playbackGeneration.advance()
+  return queueMutations.run(() => playTrackListMutation(input))
+}
+
 /** 往队尾追加曲目（漫游续歌、以后的「稍后播放」都用它）。追加的都不是当前曲目，所以不开转码 */
-export async function appendTracks({
+async function appendTracksMutation({
   provider,
   serverId,
   tracks,
@@ -149,12 +167,24 @@ export async function appendTracks({
   usePlayerStore.getState().appendItems(items)
 }
 
+export function appendTracks(input: Omit<PlayListInput, 'startIndex' | 'source'>): Promise<void> {
+  return queueMutations.run(() => appendTracksMutation(input))
+}
+
 // ---- 漫游电台 ----
 
 /** 漫游游标（飞牛的 roamId），指向队列里最后一首电台曲目 */
 let radioCursor: string | undefined
 /** 正在补歌，防止同一时刻发多份请求 */
 let radioFilling = false
+let radioSession = 0
+
+function resetRadioSession(): void {
+  radioSession += 1
+  radioCursor = undefined
+  radioFilling = false
+}
+
 /** 平时播放时队尾至少留几首，听着才像无限流 */
 export const RADIO_UPCOMING_KEEP = 6
 /** 首次进漫游就先把队尾补到这个量（+正在播的这首 ≈ 20 首） */
@@ -163,14 +193,22 @@ export const RADIO_ENTRY_UPCOMING = 19
 /** 开始漫游：服务端按口味推歌，起播一首后立刻在后台把队尾补到 ~20 首 */
 export async function startRadio(provider: MusicProvider, serverId: string): Promise<void> {
   if (!provider.radioStart) return
+  playbackGeneration.advance()
+  resetRadioSession()
+  const generation = playbackGeneration.capture()
+  const session = radioSession
   const slice = await provider.radioStart()
-  await playTrackList({
-    provider,
-    serverId,
-    tracks: [slice.current],
-    startIndex: 0,
-    source: { kind: 'radio', label: '漫游' },
-  })
+  if (!playbackGeneration.isCurrent(generation) || session !== radioSession) return
+  await queueMutations.run(() =>
+    playTrackListMutation({
+      provider,
+      serverId,
+      tracks: [slice.current],
+      startIndex: 0,
+      source: { kind: 'radio', label: '漫游' },
+    }),
+  )
+  if (!playbackGeneration.isCurrent(generation) || session !== radioSession) return
   radioCursor = slice.cursor
   // 不阻塞：第一首先唱着，队尾在后台一首一首往后取
   void fillRadio(provider, serverId, RADIO_ENTRY_UPCOMING).catch((error: unknown) => {
@@ -189,22 +227,27 @@ export async function fillRadio(
   upcomingTarget: number = RADIO_UPCOMING_KEEP,
 ): Promise<void> {
   if (!provider.radioNext || !radioCursor || radioFilling) return
+  const session = radioSession
   radioFilling = true
   try {
     for (;;) {
+      if (session !== radioSession) break
       const { queue, index } = usePlayerStore.getState()
       const upcoming = queue.length - index - 1
       if (upcoming >= upcomingTarget || upcoming > 60) break
-      const slice = await provider.radioNext(radioCursor)
+      const cursor: string | undefined = radioCursor
+      if (!cursor) break
+      const slice = await provider.radioNext(cursor)
+      if (session !== radioSession) break
       // 游标没往前走就停手，避免死循环刷同一首
-      if (!slice.cursor || slice.cursor === radioCursor) break
+      if (!slice.cursor || slice.cursor === cursor) break
       radioCursor = slice.cursor
       await appendTracks({ provider, serverId, tracks: [slice.current] })
     }
   } catch {
     // 续歌失败不影响已经在放的队列，下次再试
   } finally {
-    radioFilling = false
+    if (session === radioSession) radioFilling = false
   }
 }
 
@@ -267,11 +310,11 @@ export async function skipToNextSafe(): Promise<void> {
   } catch {
     // 已经是最后一首（循环由原生 RepeatMode 管）
   }
-  await syncIndexFromPlayer()
 }
 
-/** 队列页点某一行：直接跳到该曲目并播放 */
+/** 待播列表点某一行：只取出选中项成为当前，其他待播顺序保持不变。 */
 export async function skipToIndex(index: number): Promise<void> {
+  if (index <= 0) return
   await ensurePlayer()
   try {
     await TrackPlayer.skip(index)
@@ -281,8 +324,28 @@ export async function skipToIndex(index: number): Promise<void> {
   }
 }
 
+/** 历史点播创建新 occurrence；历史日志和待播列表都保持不变。 */
+export function playHistoryItem(item: QueueItem): Promise<void> {
+  const provider = activeProvider
+  if (!provider) return Promise.resolve()
+  return queueMutations.run(async () => {
+    await ensurePlayer()
+    const selected = { ...item, qid: nextQueueId(item.serverId, item.trackId) }
+    const track = await toRntpTrack(selected, provider, { allowTranscode: true })
+    pendingHistoryActivation = { qid: selected.qid, item }
+    try {
+      await TrackPlayer.add(track, 0)
+      await TrackPlayer.skip(0)
+      await TrackPlayer.play()
+    } catch (error) {
+      pendingHistoryActivation = undefined
+      throw error
+    }
+  })
+}
+
 /** 队列页拖动排序：先改播放器队列，再同步本地展示顺序 */
-export async function moveInQueue(from: number, to: number): Promise<void> {
+async function moveInQueueMutation(from: number, to: number): Promise<void> {
   if (from === to) return
   await ensurePlayer()
   try {
@@ -293,8 +356,12 @@ export async function moveInQueue(from: number, to: number): Promise<void> {
   usePlayerStore.getState().moveItem(from, to)
 }
 
+export function moveInQueue(from: number, to: number): Promise<void> {
+  return queueMutations.run(() => moveInQueueMutation(from, to))
+}
+
 /** 队列页删除一首；当前播放那首不允许删（避免打断播放） */
-export async function removeFromQueue(index: number): Promise<void> {
+async function removeFromQueueMutation(index: number): Promise<void> {
   const { index: current } = usePlayerStore.getState()
   if (index === current) return
   await ensurePlayer()
@@ -306,28 +373,36 @@ export async function removeFromQueue(index: number): Promise<void> {
   usePlayerStore.getState().removeItem(index)
 }
 
-/** 清空历史记录：移除当前曲目之前的所有歌曲 */
-export async function clearHistory(): Promise<void> {
-  const { index: current } = usePlayerStore.getState()
-  if (current <= 0) return
-  await ensurePlayer()
-  try {
-    const indices = Array.from({ length: current }, (_, i) => i)
-    await TrackPlayer.remove(indices)
-  } catch {
-    // 忽略移除异常
-  }
+export function removeFromQueue(index: number): Promise<void> {
+  return queueMutations.run(() => removeFromQueueMutation(index))
+}
+
+/** 清空独立历史日志，不修改 RNTP 当前曲目或待播队列。 */
+async function clearHistoryMutation(): Promise<void> {
   usePlayerStore.getState().clearHistory()
 }
 
+export function clearHistory(): Promise<void> {
+  return queueMutations.run(clearHistoryMutation)
+}
+
 /** 清空队列并停止播放；转码会话必须显式退出，否则服务端会留着转码进程 */
-export async function clearQueue(): Promise<void> {
+async function clearQueueMutation(): Promise<void> {
+  prefetchToken += 1
+  forcedTranscode.clear()
+  resetRadioSession()
+  await clearWarmTranscode()
   await ensurePlayer()
   await stopTranscodeSession()
   await TrackPlayer.reset()
   usePlayerStore.getState().clear()
   // 清空是用户主动的：下次进来应该是全新状态，别把旧会话又恢复出来
-  deletePlaybackSnapshot()
+  await clearPlaybackSnapshot()
+}
+
+export function clearQueue(): Promise<void> {
+  playbackGeneration.advance()
+  return queueMutations.run(clearQueueMutation)
 }
 
 const REPEAT_ORDER: RepeatMode[] = ['off', 'queue', 'one']
@@ -361,15 +436,17 @@ function shuffled<T>(items: T[]): T[] {
  * 所以切换随机不会打断正在播的歌（也不用 seek，没有声音断点）。
  * 关闭时按 store 里的原始顺序快照（baseQueue）还原待播部分。
  */
-export async function setShuffledOrder(shuffle: boolean): Promise<void> {
+async function setShuffledOrderMutation(shuffle: boolean): Promise<void> {
   await ensurePlayer()
   const store = usePlayerStore.getState()
   if (store.playMode.shuffle === shuffle) return
-  store.setShuffle(shuffle)
 
-  const { queue, index, baseQueue } = usePlayerStore.getState()
-  // 队尾只剩一首就没什么可排的了
-  if (index < 0 || queue.length - index < 3) return
+  const { queue, index, baseQueue } = store
+  // 队尾只剩一首就没什么可排的了，但模式仍需同步。
+  if (index < 0 || queue.length - index < 3) {
+    store.setShuffle(shuffle)
+    return
+  }
 
   const head = queue.slice(0, index + 1)
   const played = new Set(head.map((item) => item.qid))
@@ -379,13 +456,23 @@ export async function setShuffledOrder(shuffle: boolean): Promise<void> {
 
   // RNTP 没有「重排队列」API：移除待播部分再按新顺序追加
   const removeIndices = Array.from({ length: queue.length - index - 1 }, (_, i) => index + 1 + i)
-  await TrackPlayer.remove(removeIndices)
-  const provider = activeProvider
-  if (provider) {
+  try {
+    await TrackPlayer.remove(removeIndices)
+    const provider = activeProvider
+    if (!provider) return
     const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
     await TrackPlayer.add(rntpTracks)
+  } catch {
+    return
   }
-  usePlayerStore.getState().reorder([...head, ...tail], index)
+  const latest = usePlayerStore.getState()
+  if (latest.queue !== queue) return
+  latest.reorder([...head, ...tail], index)
+  latest.setShuffle(shuffle)
+}
+
+export function setShuffledOrder(shuffle: boolean): Promise<void> {
+  return queueMutations.run(() => setShuffledOrderMutation(shuffle))
 }
 
 /** 兼容旧调用（专辑 / 艺术家页的「随机播放」按钮） */
@@ -411,33 +498,74 @@ export async function extendWithRadio(provider: MusicProvider, serverId: string)
 
 /** 随机播放与预取都要用 provider 重新生成播放地址，这里保存最近一次使用的实例 */
 let activeProvider: MusicProvider | null = null
+let pendingHistoryActivation: { qid: string; item: QueueItem } | undefined
+
+export function takePendingHistoryActivation(qid: string): QueueItem | undefined {
+  if (pendingHistoryActivation?.qid !== qid) return undefined
+  const item = pendingHistoryActivation.item
+  pendingHistoryActivation = undefined
+  return item
+}
 /** 每次切歌都会重排预取顺序，旧的循环靠这个令牌自行退出 */
 let prefetchToken = 0
 
 export function rememberProvider(provider: MusicProvider | null): void {
   activeProvider = provider
+  if (!provider) {
+    prefetchToken += 1
+    forcedTranscode.clear()
+    resetRadioSession()
+    void clearWarmTranscode()
+  }
 }
 
 /**
  * 切歌之后调用：这首需要转码就换成 HLS 会话继续播，否则把上一首的会话收掉。
  * 起播失败重试（markForcedTranscode 之后）也走这里。
  */
-export async function ensureTranscodeForIndex(index: number): Promise<void> {
+async function ensureTranscodeForIndexMutation(
+  index: number,
+  generation: number,
+  options: { resumePlayback?: boolean } = {},
+): Promise<void> {
   const provider = activeProvider
   const item = usePlayerStore.getState().queue[index]
-  if (!provider || !item) return
+  if (!provider || !item || !playbackGeneration.isCurrent(generation)) return
   if (!shouldTranscode(item)) {
     await stopTranscodeSession()
     return
   }
   if (hasTranscodeSession(item.qid)) return
-  await stopTranscodeSession()
   const position = (await TrackPlayer.getProgress()).position
-  const track = await toRntpTrack(item, provider, { allowTranscode: true })
-  await TrackPlayer.load(track)
+  const stream = (await takeWarmTranscode(item.qid))
+    ?? (await provider.stream(item.trackId, { quality: 'original', allowTranscode: true }))
+  if (!playbackGeneration.isCurrent(generation) || usePlayerStore.getState().queue[index]?.qid !== item.qid) {
+    await stream.session?.close().catch(() => undefined)
+    return
+  }
+  if (stream.session) await replaceTranscodeSession(item.qid, stream.session)
+  else await stopTranscodeSession()
+  const base = {
+    id: item.qid,
+    title: item.title,
+    artist: item.artistText,
+    ...(item.albumText ? { album: item.albumText } : {}),
+    duration: item.durationMs / 1000,
+  }
+  await TrackPlayer.load({
+    ...base,
+    url: stream.url,
+    headers: stream.headers,
+    ...(stream.transport === 'hls' ? { type: TrackType.HLS } : {}),
+  })
   // 保留已播进度（原生播放失败重试时用得上）
   if (position > 1) await TrackPlayer.seekTo(position)
-  await TrackPlayer.play()
+  if (options.resumePlayback !== false) await TrackPlayer.play()
+}
+
+export function ensureTranscodeForIndex(index: number, options?: { resumePlayback?: boolean }): Promise<void> {
+  const generation = playbackGeneration.capture()
+  return queueMutations.run(() => ensureTranscodeForIndexMutation(index, generation, options))
 }
 
 /**
@@ -448,14 +576,28 @@ export function schedulePrefetch(index: number): void {
   const provider = activeProvider
   if (!provider || index < 0) return
   const { queue } = usePlayerStore.getState()
-  // 需要转码的曲目缓存了也放不出来（存下来的是 WMA 原文件），直接跳过
+  const nextTranscode = queue[index + 1]
+  const shouldPrewarm = nextTranscode ? shouldTranscode(nextTranscode) : false
   const targets = queue.slice(index, index + 1 + PREFETCH_AHEAD).filter((item) => !shouldTranscode(item))
-  if (targets.length === 0) return
   protectTracks(targets.map(toCacheTarget))
 
   prefetchToken += 1
   const token = prefetchToken
   void (async () => {
+    if (nextTranscode && shouldPrewarm) {
+      try {
+        const stream = await provider.stream(nextTranscode.trackId, { quality: 'original', allowTranscode: true })
+        if (token !== prefetchToken || usePlayerStore.getState().queue[index + 1]?.qid !== nextTranscode.qid) {
+          await stream.session?.close().catch(() => undefined)
+          return
+        }
+        await setWarmTranscode(nextTranscode.qid, stream)
+      } catch {
+        // 预热失败不影响当前播放，切过去时仍会按原流程即时创建。
+      }
+    } else {
+      await clearWarmTranscode()
+    }
     for (const item of targets) {
       if (token !== prefetchToken) return
       const target = toCacheTarget(item)
@@ -492,7 +634,11 @@ export async function restoreQueuedPlayback(
   provider: MusicProvider,
   snapshot: NonNullable<ReturnType<typeof readPlaybackSnapshot>>,
 ): Promise<boolean> {
-  const items = snapshot.queue
+  const hydrateArtwork = (item: QueueItem): QueueItem =>
+    item.coverId ? { ...item, artwork: provider.image(item.coverId, ARTWORK_SIZE) } : item
+  const items = snapshot.queue.map(hydrateArtwork)
+  const historyItems = snapshot.history.map(hydrateArtwork)
+  const baseItems = snapshot.baseQueue.map(hydrateArtwork)
   if (items.length === 0) return false
   await ensurePlayer()
 
@@ -503,7 +649,9 @@ export async function restoreQueuedPlayback(
   suppressingReports = true
   try {
     const index = Math.min(Math.max(snapshot.index, 0), items.length - 1)
-    const rntpTracks = await Promise.all(items.map((item) => toRntpTrack(item, provider)))
+    const rntpTracks = await Promise.all(
+      items.map((item, itemIndex) => toRntpTrack(item, provider, { allowTranscode: itemIndex === index })),
+    )
     // 转码 / 鉴权等网络步骤也可能耗时，回到主线程前再查一次
     if (usePlayerStore.getState().queue.length > 0) return false
     await TrackPlayer.reset()
@@ -522,13 +670,16 @@ export async function restoreQueuedPlayback(
 
     usePlayerStore.getState().restore({
       queue: items,
-      baseQueue: snapshot.baseQueue?.length === items.length ? snapshot.baseQueue : items,
+      history: historyItems,
+      baseQueue: baseItems.length === items.length ? baseItems : items,
       index,
       source: snapshot.source,
       playMode: snapshot.playMode,
       autoplay: snapshot.autoplay,
       lyricOffsetMs: snapshot.lyricOffsetMs ?? 0,
     })
+    // 冷启动已为当前歌曲创建所需转码会话；仍显式暂停，绝不恢复播放动作。
+    await TrackPlayer.pause()
 
     // 换歌事件异步到来时 store 已就位，refetch 封面与预取照常跑
     void refreshArtwork(index)

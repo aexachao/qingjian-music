@@ -66,7 +66,6 @@ function buildOptions(): UpdateOptions {
       Capability.SeekTo,
     ],
     likeOptions: { isActive: likeActive, title: likeActive ? '取消收藏' : '收藏' },
-    progressUpdateEventInterval: 1,
     android: {
       appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
     },

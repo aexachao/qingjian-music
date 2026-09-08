@@ -1,5 +1,5 @@
 import type { HttpResource } from './media'
-import type { EntityId, QualifiedId, ServerId } from './ids'
+import type { EntityId, ServerId } from './ids'
 
 /**
  * 播放队列元素。
@@ -7,13 +7,16 @@ import type { EntityId, QualifiedId, ServerId } from './ids'
  * 不再回头查 provider，避免在车机场景发额外请求。
  */
 export interface QueueItem {
-  qid: QualifiedId
+  /** 本次入队 occurrence 的唯一 id；同一曲目可在队列中出现多次 */
+  qid: string
   serverId: ServerId
   trackId: EntityId
   title: string
   artistText: string
   albumText?: string
   durationMs: number
+  /** 封面领域 id；持久化只保存它，鉴权资源必须用当前 provider 重新生成 */
+  coverId?: EntityId
   artwork?: HttpResource
   /** 专辑 / 艺术家 id，队列页和正在播放页用它跳回来源 */
   albumId?: EntityId

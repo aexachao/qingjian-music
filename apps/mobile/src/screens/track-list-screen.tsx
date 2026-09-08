@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { FlatList, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
 import type { Page, PlaySource, Track } from '@qj/core-domain'
-import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
+import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -34,7 +34,7 @@ export function TrackListScreen({
   enabled = true,
 }: TrackListScreenProps) {
   const { provider, connection } = useServerSession()
-  const playingQid = usePlayerStore(selectCurrent)?.qid
+  const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
   const { query, items, loadMore } = usePagedQuery<Track>({
     queryKey,
@@ -43,7 +43,7 @@ export function TrackListScreen({
   })
 
   if (query.isPending) return <LoadingState />
-  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+  if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (
     <FlatList
@@ -57,7 +57,7 @@ export function TrackListScreen({
           track={item}
           index={index}
           leading={leading}
-          playing={playingQid === `${connection?.id}:${item.id}`}
+          playing={current?.serverId === connection?.id && current?.trackId === item.id}
           onPress={() => {
             if (!provider || !connection) return
             void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, source })
@@ -66,7 +66,13 @@ export function TrackListScreen({
       )}
       onEndReached={loadMore}
       onEndReachedThreshold={0.4}
-      ListFooterComponent={<FooterLoader loading={query.isFetchingNextPage} />}
+      ListFooterComponent={
+        <PaginationFooter
+          loading={query.isFetchingNextPage}
+          error={query.isFetchNextPageError ? query.error : undefined}
+          onRetry={() => void query.fetchNextPage()}
+        />
+      }
       ItemSeparatorComponent={() => <View style={styles.separator} />}
     />
   )

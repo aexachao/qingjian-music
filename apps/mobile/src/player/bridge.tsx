@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import TrackPlayer, { Event, useTrackPlayerEvents } from 'react-native-track-player'
+import TrackPlayer, { Event, State, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
 import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
@@ -13,6 +13,7 @@ import {
   rememberProvider,
   restoreQueuedPlayback,
   schedulePrefetch,
+  takePendingHistoryActivation,
 } from './controller'
 import { readPlaybackSnapshot, startPlaybackPersistence } from './persist'
 import { ensurePlayer, setLikeState } from './setup'
@@ -84,17 +85,29 @@ export function PlayerBridge() {
     }
     if (event.type === Event.PlaybackActiveTrackChanged) {
       const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
-      const { queue } = usePlayerStore.getState()
+      const { queue, index: previousIndex } = usePlayerStore.getState()
       // 优先用曲目 id 反查下标：RNTP 换队列时下标会短暂漂移，光看 index 会跟错曲目
       const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
       const index = byId >= 0 ? byId : (event.index ?? -1)
       if (index < 0) return
-      usePlayerStore.getState().setIndex(index)
-      void refreshArtwork(index)
-      reportPlay(index, qid)
-      schedulePrefetch(index)
-      // 这首必须转码就立刻换成 HLS，否则把上一首的转码会话收掉
-      void ensureTranscodeForIndex(index).catch((error: unknown) => {
+      // 自然播完由 RNTP 先激活下一首：此时把旧当前追加历史并从原生队列移除。
+      if (index > 0 && previousIndex === 0) {
+        usePlayerStore.getState().activateIndex(index)
+        void TrackPlayer.remove([0]).catch(() => undefined)
+      } else if (index === 0 && previousIndex === 0 && qid && queue[0]?.qid !== qid) {
+        // 历史点播会先把新 occurrence 插到 RNTP 队头；事件到达时再原子同步 store。
+        const historyItem = takePendingHistoryActivation(qid)
+        if (historyItem) usePlayerStore.getState().activateHistoryItem(historyItem, qid)
+        void TrackPlayer.remove([1]).catch(() => undefined)
+      } else {
+        usePlayerStore.getState().setIndex(index)
+      }
+      const activeIndex = index > 0 && previousIndex === 0 ? 0 : index
+      void refreshArtwork(activeIndex)
+      reportPlay(activeIndex, qid)
+      schedulePrefetch(activeIndex)
+      // 冷启动恢复永远保持暂停；正常切歌或播放错误重试才续播。
+      void ensureTranscodeForIndex(activeIndex, { resumePlayback: !isRestoringSession() }).catch((error: unknown) => {
         console.warn('转码会话切换失败', error)
       })
       // 漫游电台：快到队尾就接着往后取，听着是无限的
@@ -102,7 +115,7 @@ export function PlayerBridge() {
         const { source, autoplay, queue } = usePlayerStore.getState()
         if (source?.kind === 'radio') {
           void fillRadio(provider, connection.id)
-        } else if (autoplay && index >= queue.length - 2) {
+        } else if (autoplay && activeIndex >= queue.length - 2) {
           // 无限播放：普通队列快播完了，用漫游接着放
           void extendWithRadio(provider, connection.id).catch((error: unknown) => {
             console.warn('无限播放续歌失败', error)
@@ -128,7 +141,11 @@ export function PlayerBridge() {
     setSessionLostHandler((qid) => {
       const { queue, index } = usePlayerStore.getState()
       if (queue[index]?.qid !== qid) return
-      void ensureTranscodeForIndex(index).catch((error: unknown) => {
+      void (async () => {
+        // 心跳可能在暂停期间失败；重建会话只能延续当时的播放意图，不能擅自起播。
+        const { state } = await TrackPlayer.getPlaybackState()
+        await ensureTranscodeForIndex(index, { resumePlayback: state === State.Playing })
+      })().catch((error: unknown) => {
         console.warn('转码会话重建失败', error)
       })
     })

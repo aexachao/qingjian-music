@@ -75,7 +75,7 @@ export class FnosClient {
     } catch (error) {
       const expired = isMusicError(error) && error.code === 'unauthorized'
       // 重登过程中自身的请求（login）不再触发重登，避免递归
-      if (!expired || !this.reauthorize || this.refreshing) throw error
+      if (!expired || !this.reauthorize) throw error
       const token = await this.refreshToken()
       if (!token) throw error
       return this.unwrap(await run(), schema, path)
@@ -84,13 +84,15 @@ export class FnosClient {
 
   private async refreshToken(): Promise<string | undefined> {
     if (!this.reauthorize) return undefined
-    this.refreshing = this.reauthorize()
+    if (this.refreshing) return this.refreshing
+    const refresh = this.reauthorize()
+    this.refreshing = refresh
     try {
-      return await this.refreshing
+      return await refresh
     } catch {
       return undefined
     } finally {
-      this.refreshing = null
+      if (this.refreshing === refresh) this.refreshing = null
     }
   }
 

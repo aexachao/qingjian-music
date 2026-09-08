@@ -3,8 +3,12 @@ import { isMusicError } from '@qj/core-domain'
 import type { MusicProvider, ProviderSession, ServerConnection } from '@qj/provider-api'
 import { providerRegistry, validateBaseUrl } from '@qj/provider-api'
 import { createFnosFactory } from '@qj/provider-fnos'
+import { clearQueue } from '@/player/controller'
+import { queryClient } from './query-client'
+import { sessionAfterBootstrapFailure, teardownSession, type SessionStatus } from './session-state'
 import { sha256Hex } from './crypto'
 import {
+  clearPassword,
   clearSession,
   getActiveServerId,
   getDeviceId,
@@ -26,7 +30,7 @@ export interface SignInInput {
 }
 
 interface ServerSessionValue {
-  status: 'loading' | 'signedOut' | 'signedIn'
+  status: SessionStatus
   connection: ServerConnection | null
   session: ProviderSession | null
   provider: MusicProvider | null
@@ -58,7 +62,7 @@ async function ensureRegistry(): Promise<void> {
 }
 
 export function ServerSessionProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<ServerSessionValue['status']>('loading')
+  const [status, setStatus] = useState<SessionStatus>('loading')
   const [connection, setConnection] = useState<ServerConnection | null>(null)
   const [session, setSession] = useState<ProviderSession | null>(null)
   const [provider, setProvider] = useState<MusicProvider | null>(null)
@@ -104,7 +108,15 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
       } catch {
         if (!cancelled) setStatus('signedOut')
       }
-    })()
+    })().catch((error: unknown) => {
+      console.warn('恢复服务器会话失败', error)
+      if (cancelled) return
+      const fallback = sessionAfterBootstrapFailure()
+      setConnection(fallback.connection)
+      setSession(fallback.session)
+      setProvider(fallback.provider)
+      setStatus(fallback.status)
+    })
     return () => {
       cancelled = true
     }
@@ -128,6 +140,10 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
       const instance = providerRegistry.get(target.providerId).create(target)
       const fresh = await instance.login({ password: input.password })
 
+      if (connection && connection.id !== target.id) {
+        await clearQueue()
+        queryClient.clear()
+      }
       await upsertServer(target)
       await setActiveServerId(target.id)
       await saveSession(target.id, fresh)
@@ -135,29 +151,32 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
       setServers(await listServers())
       await activate(target, fresh)
     },
-    [activate],
+    [activate, connection],
   )
 
   const switchServer = useCallback(
     async (serverId: string) => {
+      if (serverId === connection?.id) return
       const target = (await listServers()).find((item) => item.id === serverId)
       if (!target) throw new Error('找不到这台服务器')
       await ensureRegistry()
       const stored = await getSession(serverId)
-      if (stored) {
-        await setActiveServerId(serverId)
-        await activate(target, stored)
-        return
+      let targetSession = stored
+      if (!targetSession) {
+        const password = await getPassword(serverId)
+        if (!password) throw new Error('这台服务器需要重新登录')
+        const instance = providerRegistry.get(target.providerId).create(target)
+        targetSession = await instance.login({ password })
+        await saveSession(serverId, targetSession)
       }
-      const password = await getPassword(serverId)
-      if (!password) throw new Error('这台服务器需要重新登录')
-      const instance = providerRegistry.get(target.providerId).create(target)
-      const fresh = await instance.login({ password })
-      await saveSession(serverId, fresh)
+
+      // 新服务器已具备可用会话后，再清旧播放域，避免认证失败把当前播放白白清掉。
+      await clearQueue()
+      queryClient.clear()
       await setActiveServerId(serverId)
-      await activate(target, fresh)
+      await activate(target, targetSession)
     },
-    [activate],
+    [activate, connection],
   )
 
   const signOut = useCallback(async () => {
@@ -168,11 +187,28 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
         // 服务端登出失败不影响本地退出
         if (!isMusicError(error)) console.warn('登出失败', error)
       }
-      await clearSession(connection.id)
     }
-    setProvider(null)
-    setSession(null)
-    setStatus('signedOut')
+    await teardownSession({
+      clearPlayback: async () => {
+        try {
+          await clearQueue()
+        } catch (error) {
+          console.warn('退出登录时清理播放队列失败', error)
+        }
+      },
+      clearQueryCache: () => queryClient.clear(),
+      clearCredentials: async () => {
+        if (!connection) return
+        await Promise.all([clearSession(connection.id), clearPassword(connection.id), setActiveServerId(null)])
+      },
+      publishSignedOut: () => {
+        setProvider(null)
+        setSession(null)
+        setConnection(null)
+        setStatus('signedOut')
+      },
+    })
+    setServers(await listServers())
   }, [connection, provider])
 
   const value = useMemo<ServerSessionValue>(

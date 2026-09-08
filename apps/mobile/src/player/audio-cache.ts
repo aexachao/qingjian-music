@@ -35,6 +35,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 const inflight = new Map<string, Promise<void>>()
 /** 正在播放与马上要播的文件名，淘汰时必须跳过 */
 let protectedNames: ReadonlySet<string> = new Set()
+let cacheGeneration = 0
 
 function audioDir(): Directory {
   const dir = new Directory(Paths.cache, AUDIO_DIR)
@@ -161,6 +162,7 @@ export async function cacheAudio(target: AudioCacheTarget, resource: HttpResourc
   if (inflight.size >= MAX_PARALLEL_DOWNLOADS) return
 
   const task = (async () => {
+    const generation = cacheGeneration
     const dir = audioDir()
     const final = new File(dir, name)
     if (final.exists) return
@@ -168,6 +170,10 @@ export async function cacheAudio(target: AudioCacheTarget, resource: HttpResourc
     try {
       if (part.exists) part.delete()
       const downloaded = await File.downloadFileAsync(resource.url, part, { headers: resource.headers })
+      if (generation !== cacheGeneration) {
+        if (downloaded.exists) downloaded.delete()
+        return
+      }
       const size = downloaded.size ?? target.sizeBytes ?? 0
       evictFor(size, name)
       if (final.exists) {
@@ -206,6 +212,11 @@ export function audioCacheStats(): { bytes: number; files: number; budgetBytes: 
 
 /** 设置页「清理音频缓存」 */
 export function clearAudioCache(): void {
+  cacheGeneration += 1
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
   try {
     const dir = new Directory(Paths.cache, AUDIO_DIR)
     if (dir.exists) dir.delete()

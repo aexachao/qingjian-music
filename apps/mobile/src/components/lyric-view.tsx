@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { LyricLine } from '@qj/core-domain'
+import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
 import { useLyricSheet } from '@/lib/lyric-offset'
 import { usePlayerStore } from '@/player/store'
@@ -111,6 +112,10 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, o
         <ActivityIndicator color={colors.accent} />
       </View>
     )
+  }
+
+  if (query.isError) {
+    return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   }
 
   if (lines.length === 0) {
@@ -270,6 +275,12 @@ function LyricsSheetModal({
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.sheetScrim}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="关闭全部歌词"
+        />
         <View style={styles.sheetCard}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle} numberOfLines={1}>
@@ -300,11 +311,21 @@ function LyricsSheetModal({
           </ScrollView>
 
           <View style={styles.sheetActions}>
-            <Pressable style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]} onPress={copyAll}>
+            <Pressable
+              style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]}
+              onPress={copyAll}
+              accessibilityRole="button"
+              accessibilityLabel="复制全部歌词"
+            >
               <Icon name="copy" size={iconSize.md} color={colors.textPrimary} />
               <Text style={styles.sheetButtonLabel}>复制全部歌词</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]} onPress={shareAll}>
+            <Pressable
+              style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]}
+              onPress={shareAll}
+              accessibilityRole="button"
+              accessibilityLabel="分享全部歌词"
+            >
               <Icon name="share" size={iconSize.md} color={colors.textPrimary} />
               <Text style={styles.sheetButtonLabel}>分享</Text>
             </Pressable>

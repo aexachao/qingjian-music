@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router'
+import { AuthGate } from '@/lib/auth-gate'
 import { Icon, iconSize } from '@/components/icon'
 import { MiniPlayerHost } from '@/components/mini-player-host'
 import { colors } from '@/theme/tokens'
@@ -12,7 +13,8 @@ const TAB_INACTIVE_COLOR = colors.iconDim
 
 export default function TabsLayout() {
   return (
-    <>
+    <AuthGate group="protected">
+      <>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -62,7 +64,8 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
-    <MiniPlayerHost />
-    </>
+      <MiniPlayerHost />
+      </>
+    </AuthGate>
   )
 }

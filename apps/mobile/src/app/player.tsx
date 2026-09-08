@@ -17,12 +17,13 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { AirplayRouteButton } from '../../modules/airplay-button'
+import { AuthGate } from '@/lib/auth-gate'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck } from '@/components/player/player-deck'
-import { PlayerQueue } from '@/components/player/player-queue'
+import { closeOpenQueueAction, PlayerQueue } from '@/components/player/player-queue'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
@@ -37,6 +38,7 @@ export default function PlayerScreen() {
   const { width, height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
+  const source = usePlayerStore((state) => state.source)
   const { playing } = useIsPlaying()
 
   const [mode, setMode] = useState<PlayerMode>('cover')
@@ -103,24 +105,10 @@ export default function PlayerScreen() {
 
   const dismiss = useCallback(() => router.back(), [router])
 
-  if (!current) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.empty}>还没有正在播放的歌曲</Text>
-        <IconButton
-          name="chevronDown"
-          size={iconSize.xl}
-          color={colors.iconMid}
-          onPress={dismiss}
-          accessibilityLabel="收起播放页"
-        />
-      </View>
-    )
-  }
-
   const translateY = useSharedValue(height || 850)
   const startY = useSharedValue(0)
   const [isListAtTop, setIsListAtTop] = useState(false)
+  const [queueActionOpen, setQueueActionOpen] = useState(false)
 
   useEffect(() => {
     if (mode === 'list') {
@@ -140,6 +128,11 @@ export default function PlayerScreen() {
       .enabled(enabled)
       .activeOffsetY(8)
       .failOffsetY(-15)
+      .onTouchesDown(() => {
+        if (!queueActionOpen) return
+        runOnJS(closeOpenQueueAction)()
+        runOnJS(setQueueActionOpen)(false)
+      })
       .onBegin(() => {
         // 若在进场动画期间触摸，立即中止当前动画并锚定当前位置
         translateY.value = translateY.value
@@ -246,14 +239,20 @@ export default function PlayerScreen() {
     opacity: interpolate(listAnim.value, [0.95, 1], [1, 0], Extrapolation.CLAMP),
   }))
 
+  if (!current) {
+    return <EmptyPlayerState onDismiss={dismiss} />
+  }
+
   return (
-    <GestureDetector gesture={dismissGesture}>
+    <AuthGate group="protected">
+      <GestureDetector gesture={dismissGesture}>
       <Animated.View style={[rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
         <CoverBackdrop artwork={current.artwork} />
 
         <GestureDetector gesture={headerDismissGesture}>
           <Animated.View style={[styles.header, topHandleStyle]}>
             <View style={styles.dragHandle} />
+            {source ? <Text style={styles.queueSource}>来自 {source.label}</Text> : null}
           </Animated.View>
         </GestureDetector>
 
@@ -280,6 +279,7 @@ export default function PlayerScreen() {
                     bottomSpace={0}
                     listAnim={listAnim}
                     onTopStateChange={setIsListAtTop}
+                    onActionOpenChange={setQueueActionOpen}
                   />
                 </Animated.View>
 
@@ -327,7 +327,23 @@ export default function PlayerScreen() {
           />
         </Animated.View>
       </Animated.View>
-    </GestureDetector>
+      </GestureDetector>
+    </AuthGate>
+  )
+}
+
+function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <View style={[styles.container, styles.center]}>
+      <Text style={styles.empty}>还没有正在播放的歌曲</Text>
+      <IconButton
+        name="chevronDown"
+        size={iconSize.xl}
+        color={colors.iconMid}
+        onPress={onDismiss}
+        accessibilityLabel="收起播放页"
+      />
+    </View>
   )
 }
 
@@ -369,10 +385,11 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   empty: { ...typography.subhead, color: colors.textSecondary },
   header: {
-    height: 32,
+    height: 50,
     alignItems: 'center',
     justifyContent: 'flex-start',
     paddingTop: spacing.xs,
+    gap: spacing.xs,
   },
   dragHandle: {
     width: 36,
@@ -380,6 +397,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.iconDim,
   },
+  queueSource: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
   page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },

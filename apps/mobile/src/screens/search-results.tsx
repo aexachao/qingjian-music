@@ -2,7 +2,7 @@ import { FlatList, StyleSheet, View } from 'react-native'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import type { Album, Artist } from '@qj/core-domain'
 import { AlbumRow, ArtistRow } from '@/components/entity-row'
-import { EmptyState, ErrorState, FooterLoader, LoadingState } from '@/components/list-states'
+import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
@@ -57,7 +57,7 @@ export function SearchResultsScreen({ type }: { type: 'tracks' | 'albums' | 'art
       </>
     )
   }
-  if (list.query.isError) {
+  if (list.query.isLoadingError) {
     return (
       <>
         {header}
@@ -78,7 +78,13 @@ export function SearchResultsScreen({ type }: { type: 'tracks' | 'albums' | 'art
           renderItem={({ item }) => <AlbumRow album={item} />}
           onEndReached={albums.loadMore}
           onEndReachedThreshold={0.4}
-          ListFooterComponent={<FooterLoader loading={albums.query.isFetchingNextPage} />}
+          ListFooterComponent={
+            <PaginationFooter
+              loading={albums.query.isFetchingNextPage}
+              error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
+              onRetry={() => void albums.query.fetchNextPage()}
+            />
+          }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
       ) : (
@@ -90,7 +96,13 @@ export function SearchResultsScreen({ type }: { type: 'tracks' | 'albums' | 'art
           renderItem={({ item }) => <ArtistRow artist={item} />}
           onEndReached={artists.loadMore}
           onEndReachedThreshold={0.4}
-          ListFooterComponent={<FooterLoader loading={artists.query.isFetchingNextPage} />}
+          ListFooterComponent={
+            <PaginationFooter
+              loading={artists.query.isFetchingNextPage}
+              error={artists.query.isFetchNextPageError ? artists.query.error : undefined}
+              onRetry={() => void artists.query.fetchNextPage()}
+            />
+          }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
         />
       )}

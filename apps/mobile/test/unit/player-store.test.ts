@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { QueueItem } from '@qj/core-domain'
 import { selectCurrent, usePlayerStore } from '../../src/player/store'
 
-function item(id: string): QueueItem {
+function item(id: string, occurrence = id): QueueItem {
   return {
-    qid: `srv:${id}`,
+    qid: `srv:${id}:${occurrence}`,
     serverId: 'srv',
     trackId: id,
     title: `曲目 ${id}`,
@@ -13,145 +13,149 @@ function item(id: string): QueueItem {
   }
 }
 
-const queue = ['a', 'b', 'c', 'd'].map(item)
+const queue = ['a', 'b', 'c', 'd'].map((id) => item(id))
 
 beforeEach(() => {
   usePlayerStore.getState().clear()
 })
 
-describe('队列排序', () => {
-  it('把靠后的曲目拖到当前播放之前时，当前下标跟着后移', () => {
-    const store = usePlayerStore.getState()
-    store.setQueue(queue, 1, { kind: 'album', id: 'al-1', label: '专辑 · 测试' })
-
-    // d 拖到最前面：当前播放的 b 从 1 变成 2
-    usePlayerStore.getState().moveItem(3, 0)
+describe('独立当前、待播和历史语义', () => {
+  it('新播放列表把选中歌曲放在当前，其余歌曲保持原顺序待播', () => {
+    const ordered = [queue[2]!, queue[0]!, queue[1]!, queue[3]!]
+    usePlayerStore.getState().setQueue(ordered, 0, { kind: 'tracks', label: '全部歌曲' })
 
     const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['d', 'a', 'b', 'c'])
-    expect(state.index).toBe(2)
+    expect(selectCurrent(state)?.trackId).toBe('c')
+    expect(state.queue.slice(1).map((entry) => entry.trackId)).toEqual(['a', 'b', 'd'])
+    expect(state.history).toEqual([])
+  })
+
+  it('点击待播中间歌曲只取出该项，其他待播不动，旧当前追加历史', () => {
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+
+    usePlayerStore.getState().activateIndex(2)
+
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['c', 'b', 'd'])
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a'])
+    expect(state.index).toBe(0)
+  })
+
+  it('自然或手动切到下一首时旧当前只追加一次', () => {
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+
+    usePlayerStore.getState().activateIndex(1)
+    usePlayerStore.getState().activateIndex(0)
+
+    const state = usePlayerStore.getState()
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a'])
     expect(selectCurrent(state)?.trackId).toBe('b')
   })
 
-  it('把当前播放的曲目自己拖走，下标跟着它走', () => {
+  it('从历史点播不修改历史和待播，并给当前创建新 occurrence', () => {
     usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+    usePlayerStore.getState().activateIndex(1)
+    const historicA = usePlayerStore.getState().history[0]!
+    const upcomingBefore = usePlayerStore.getState().queue.slice(1).map((entry) => entry.qid)
 
-    usePlayerStore.getState().moveItem(0, 2)
+    usePlayerStore.getState().activateHistoryItem(historicA, 'srv:a:replay')
 
     const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['b', 'c', 'a', 'd'])
-    expect(state.index).toBe(2)
-    expect(selectCurrent(state)?.trackId).toBe('a')
+    expect(state.queue[0]?.qid).toBe('srv:a:replay')
+    expect(state.queue.slice(1).map((entry) => entry.qid)).toEqual(upcomingBefore)
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a', 'b'])
   })
 
-  it('from 等于 to 时原样返回', () => {
-    usePlayerStore.getState().setQueue(queue, 2, { kind: 'tracks', label: '全部歌曲' })
-    usePlayerStore.getState().moveItem(2, 2)
-    expect(usePlayerStore.getState().queue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
-    expect(usePlayerStore.getState().index).toBe(2)
+  it('同一首歌多次离开当前会在历史中重复追加', () => {
+    usePlayerStore.getState().setQueue([item('a', 'first'), item('b'), item('a', 'second')], 0)
+    usePlayerStore.getState().activateIndex(1)
+    usePlayerStore.getState().activateIndex(1)
+
+    expect(usePlayerStore.getState().history.map((entry) => entry.trackId)).toEqual(['a', 'b'])
+    usePlayerStore.getState().activateHistoryItem(item('a', 'history'), 'srv:a:replay')
+    usePlayerStore.getState().activateIndex(1)
+    expect(usePlayerStore.getState().history.map((entry) => entry.trackId)).toEqual(['a', 'b', 'a'])
+  })
+
+  it('同一 occurrence 即使收到重复切歌事件也只进入历史一次', () => {
+    usePlayerStore.getState().setQueue([item('a', 'current'), item('b')], 0)
+    usePlayerStore.getState().activateIndex(1)
+    const historicA = usePlayerStore.getState().history[0]!
+
+    // 模拟旧版计数器重启后错误复用了历史里的 qid。
+    usePlayerStore.getState().activateHistoryItem(historicA, historicA.qid)
+    usePlayerStore.getState().activateIndex(1)
+
+    const historyIds = usePlayerStore.getState().history.map((entry) => entry.qid)
+    expect(new Set(historyIds).size).toBe(historyIds.length)
+  })
+
+  it('清历史只清日志，不影响当前和待播', () => {
+    usePlayerStore.getState().setQueue(queue, 0)
+    usePlayerStore.getState().activateIndex(1)
+    const queueBefore = usePlayerStore.getState().queue
+
+    usePlayerStore.getState().clearHistory()
+
+    expect(usePlayerStore.getState().history).toEqual([])
+    expect(usePlayerStore.getState().queue).toEqual(queueBefore)
   })
 })
 
-describe('队列删除', () => {
-  it('删掉当前播放之前的曲目，下标左移', () => {
-    usePlayerStore.getState().setQueue(queue, 2, { kind: 'tracks', label: '全部歌曲' })
-
-    usePlayerStore.getState().removeItem(0)
-
-    const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['b', 'c', 'd'])
-    expect(state.index).toBe(1)
-    expect(selectCurrent(state)?.trackId).toBe('c')
+describe('待播排序和删除', () => {
+  it('排序待播不会改变当前项', () => {
+    usePlayerStore.getState().setQueue(queue, 0)
+    usePlayerStore.getState().moveItem(3, 1)
+    expect(usePlayerStore.getState().queue.map((entry) => entry.trackId)).toEqual(['a', 'd', 'b', 'c'])
+    expect(selectCurrent(usePlayerStore.getState())?.trackId).toBe('a')
   })
 
-  it('删掉当前播放之后的曲目，下标不变', () => {
-    usePlayerStore.getState().setQueue(queue, 1, { kind: 'tracks', label: '全部歌曲' })
-
-    usePlayerStore.getState().removeItem(3)
-
-    const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c'])
-    expect(state.index).toBe(1)
-  })
-
-  it('删到只剩一首时下标不会越界', () => {
-    usePlayerStore.getState().setQueue(queue.slice(0, 2), 1, { kind: 'tracks', label: '全部歌曲' })
-
+  it('删除重复曲目的一个 occurrence 不影响另一个', () => {
+    usePlayerStore.getState().setQueue([item('a', 'current'), item('a', 'first'), item('a', 'second')], 0)
     usePlayerStore.getState().removeItem(1)
-
-    expect(usePlayerStore.getState().index).toBe(0)
+    expect(usePlayerStore.getState().queue.map((entry) => entry.qid)).toEqual(['srv:a:current', 'srv:a:second'])
   })
 })
 
-describe('收藏状态', () => {
-  it('patchItem 只改命中的那一首', () => {
-    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
-
-    usePlayerStore.getState().patchItem('srv:c', { isFavorite: true })
-
+describe('收藏、恢复和设置', () => {
+  it('收藏状态同步到队列、历史和原始顺序中的同曲目 occurrence', () => {
+    usePlayerStore.getState().setQueue([item('a', 'first'), item('b'), item('a', 'second')], 0)
+    usePlayerStore.getState().activateIndex(1)
+    usePlayerStore.getState().patchItem('a', { isFavorite: true })
     const state = usePlayerStore.getState()
-    expect(state.queue.find((entry) => entry.trackId === 'c')?.isFavorite).toBe(true)
-    expect(state.queue.find((entry) => entry.trackId === 'a')?.isFavorite).toBeUndefined()
-  })
-})
-
-describe('原始顺序快照', () => {
-  it('换队列时同时记下原始顺序，并把随机关掉', () => {
-    usePlayerStore.getState().setShuffle(true)
-
-    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
-
-    const state = usePlayerStore.getState()
-    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
-    expect(state.playMode.shuffle).toBe(false)
+    expect(state.queue.filter((entry) => entry.trackId === 'a').every((entry) => entry.isFavorite)).toBe(true)
+    expect(state.history.filter((entry) => entry.trackId === 'a').every((entry) => entry.isFavorite)).toBe(true)
   })
 
-  it('重排只动展示顺序，原始顺序留着给「关掉随机」用', () => {
-    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
-
-    // 模拟随机播放：当前曲目留在原位，后面打乱
-    usePlayerStore.getState().reorder([queue[0]!, queue[2]!, queue[3]!, queue[1]!], 0)
-
+  it('旧结构恢复时把当前之前迁移为历史并把当前固定到队首', () => {
+    usePlayerStore.getState().restore({
+      queue,
+      baseQueue: queue,
+      index: 2,
+      playMode: { repeat: 'off', shuffle: false },
+      autoplay: false,
+      lyricOffsetMs: 0,
+    })
     const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'c', 'd', 'b'])
-    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a', 'b'])
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['c', 'd'])
+    expect(state.index).toBe(0)
   })
 
-  it('续歌追加的曲目也会进原始顺序，删除时两边一起删', () => {
-    usePlayerStore.getState().setQueue(queue.slice(0, 2), 0, { kind: 'tracks', label: '全部歌曲' })
-
-    usePlayerStore.getState().appendItems([item('e')])
-    usePlayerStore.getState().removeItem(1)
-
-    const state = usePlayerStore.getState()
-    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'e'])
-    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual(['a', 'e'])
-  })
-})
-
-describe('无限播放', () => {
-  it('默认关闭，可以单独打开', () => {
+  it('无限播放默认关闭，可以单独打开', () => {
     expect(usePlayerStore.getState().autoplay).toBe(false)
-
     usePlayerStore.getState().setAutoplay(true)
-
     expect(usePlayerStore.getState().autoplay).toBe(true)
-    // 与随机、循环互不影响
-    expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
-    expect(usePlayerStore.getState().playMode.repeat).toBe('off')
   })
-})
 
-describe('清空', () => {
-  it('清空后来源与下标一起复位', () => {
-    usePlayerStore.getState().setQueue(queue, 3, { kind: 'album', id: 'al-1', label: '专辑 · 测试' })
-
+  it('清空后所有播放区域和来源一起复位', () => {
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'album', id: 'al-1', label: '专辑 · 测试' })
+    usePlayerStore.getState().activateIndex(1)
     usePlayerStore.getState().clear()
-
     const state = usePlayerStore.getState()
     expect(state.queue).toEqual([])
+    expect(state.history).toEqual([])
     expect(state.index).toBe(-1)
     expect(state.source).toBeUndefined()
-    expect(selectCurrent(state)).toBeUndefined()
   })
 })

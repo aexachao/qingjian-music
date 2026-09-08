@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store'
 import * as Crypto from 'expo-crypto'
 import type { ProviderSession, ServerConnection } from '@qj/provider-api'
+import { StorageMutationQueue } from './storage-mutation-queue'
 
 /**
  * 服务器配置、会话 token、密码统一放 Keychain（SecureStore）。
@@ -11,6 +12,7 @@ const KEY_ACTIVE = 'qj.activeServerId'
 const KEY_DEVICE = 'qj.deviceId'
 const keySession = (serverId: string) => `qj.session.${serverId}`
 const keyPassword = (serverId: string) => `qj.password.${serverId}`
+const serverMutations = new StorageMutationQueue()
 
 async function readJson<T>(key: string): Promise<T | null> {
   const raw = await SecureStore.getItemAsync(key)
@@ -39,22 +41,26 @@ export async function listServers(): Promise<ServerConnection[]> {
   return (await readJson<ServerConnection[]>(KEY_SERVERS)) ?? []
 }
 
-export async function upsertServer(connection: ServerConnection): Promise<void> {
-  const servers = await listServers()
-  const index = servers.findIndex((item) => item.id === connection.id)
-  if (index >= 0) servers[index] = connection
-  else servers.push(connection)
-  await writeJson(KEY_SERVERS, servers)
+export function upsertServer(connection: ServerConnection): Promise<void> {
+  return serverMutations.run(async () => {
+    const servers = await listServers()
+    const index = servers.findIndex((item) => item.id === connection.id)
+    if (index >= 0) servers[index] = connection
+    else servers.push(connection)
+    await writeJson(KEY_SERVERS, servers)
+  })
 }
 
-export async function removeServer(serverId: string): Promise<void> {
-  const servers = (await listServers()).filter((item) => item.id !== serverId)
-  await writeJson(KEY_SERVERS, servers)
-  await SecureStore.deleteItemAsync(keySession(serverId))
-  await SecureStore.deleteItemAsync(keyPassword(serverId))
-  if ((await getActiveServerId()) === serverId) {
-    await setActiveServerId(servers[0]?.id ?? null)
-  }
+export function removeServer(serverId: string): Promise<void> {
+  return serverMutations.run(async () => {
+    const servers = (await listServers()).filter((item) => item.id !== serverId)
+    await writeJson(KEY_SERVERS, servers)
+    await SecureStore.deleteItemAsync(keySession(serverId))
+    await SecureStore.deleteItemAsync(keyPassword(serverId))
+    if ((await getActiveServerId()) === serverId) {
+      await setActiveServerId(servers[0]?.id ?? null)
+    }
+  })
 }
 
 export async function getActiveServerId(): Promise<string | null> {
@@ -84,6 +90,10 @@ export async function savePassword(serverId: string, password: string): Promise<
 
 export async function getPassword(serverId: string): Promise<string | null> {
   return SecureStore.getItemAsync(keyPassword(serverId))
+}
+
+export async function clearPassword(serverId: string): Promise<void> {
+  await SecureStore.deleteItemAsync(keyPassword(serverId))
 }
 
 /** SecureStore 的 key 只允许字母数字与 . - _ */

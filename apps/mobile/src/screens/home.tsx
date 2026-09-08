@@ -45,7 +45,7 @@ export function HomeScreen() {
   const href = useDetailHref()
   const router = useRouter()
   const toast = useToast()
-  const playingQid = usePlayerStore(selectCurrent)?.qid
+  const current = usePlayerStore(selectCurrent)
   const [startingRadio, setStartingRadio] = useState(false)
 
   const cards = useMemo(() => {
@@ -139,7 +139,7 @@ export function HomeScreen() {
           track={track}
           index={index}
           leading="cover"
-          playing={playingQid === `${connection?.id}:${track.id}`}
+          playing={current?.serverId === connection?.id && current?.trackId === track.id}
           onPress={() => {
             if (!provider || !connection) return
             void playTrackList({

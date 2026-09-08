@@ -21,16 +21,29 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => 
   return (
     <View style={styles.center}>
       <Text style={styles.muted}>{error instanceof Error ? error.message : '加载失败'}</Text>
-      <Pressable onPress={onRetry} accessibilityRole="button" style={styles.retry}>
+      <Pressable onPress={onRetry} accessibilityRole="button" accessibilityLabel="重新加载" style={styles.retry}>
         <Text style={styles.retryLabel}>重试</Text>
       </Pressable>
     </View>
   )
 }
 
-export function FooterLoader({ loading }: { loading: boolean }) {
-  if (!loading) return null
-  return <ActivityIndicator style={styles.footer} color={colors.accent} />
+export function PaginationFooter({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean
+  error?: unknown
+  onRetry?: () => void
+}) {
+  if (loading) return <ActivityIndicator style={styles.footer} color={colors.accent} />
+  if (!error || !onRetry) return null
+  return (
+    <Pressable onPress={onRetry} accessibilityRole="button" style={styles.footerRetry}>
+      <Text style={styles.muted}>加载更多失败，点按重试</Text>
+    </Pressable>
+  )
 }
 
 const styles = StyleSheet.create({
@@ -47,4 +60,5 @@ const styles = StyleSheet.create({
   },
   retryLabel: { ...typography.headline, color: colors.textPrimary },
   footer: { paddingVertical: spacing.lg },
+  footerRetry: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm },
 })

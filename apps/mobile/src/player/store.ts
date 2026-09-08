@@ -3,8 +3,10 @@ import type { PlayMode, PlaySource, QueueItem, RepeatMode } from '@qj/core-domai
 import { DEFAULT_PLAY_MODE } from '@qj/core-domain'
 
 interface PlayerState {
-  /** 与 RNTP 队列一一对应的展示数据（锁屏、迷你条、正在播放页、队列页都读它） */
+  /** 与 RNTP 队列一一对应：当前曲目固定在 0，后面是稳定的待播列表。 */
   queue: QueueItem[]
+  /** 已经离开“正在播放”的 occurrence 日志；允许同一曲目重复出现。 */
+  history: QueueItem[]
   /**
    * 队列的原始顺序快照。开随机播放时只重排「当前曲目之后」的部分，
    * 关掉随机要靠这份快照还原顺序。
@@ -25,6 +27,10 @@ interface PlayerState {
   /** 重排后同步展示顺序（随机播放开/关都走它） */
   reorder(queue: QueueItem[], index: number): void
   setIndex(index: number): void
+  /** RNTP 活跃项变化时，把离开的当前项追加历史，并把新当前项移到队头。 */
+  activateIndex(index: number): void
+  /** 从历史点播：历史不变，新 occurrence 成为当前，原当前追加到历史。 */
+  activateHistoryItem(item: QueueItem, qid: string): void
   setRepeat(repeat: RepeatMode): void
   setShuffle(shuffle: boolean): void
   setAutoplay(autoplay: boolean): void
@@ -33,7 +39,7 @@ interface PlayerState {
   moveItem(from: number, to: number): void
   /** 队列页删除一首后同步本地顺序 */
   removeItem(target: number): void
-  patchItem(qid: string, patch: Partial<QueueItem>): void
+  patchItem(trackId: string, patch: Partial<QueueItem>): void
   clear(): void
   clearHistory(): void
   /** 冷启动恢复上次会话：一次性把整套状态放回去 */
@@ -43,6 +49,7 @@ interface PlayerState {
 /** 持久化恢复时用的整套状态（restore 的入参） */
 export interface RestorePayload {
   queue: QueueItem[]
+  history?: QueueItem[]
   baseQueue: QueueItem[]
   index: number
   source?: PlaySource
@@ -51,8 +58,14 @@ export interface RestorePayload {
   lyricOffsetMs: number
 }
 
+function appendHistoryOccurrence(history: QueueItem[], item: QueueItem | undefined): QueueItem[] {
+  if (!item || history.some((entry) => entry.qid === item.qid)) return history
+  return [...history, item]
+}
+
 export const usePlayerStore = create<PlayerState>((set) => ({
   queue: [],
+  history: [],
   baseQueue: [],
   index: -1,
   playMode: DEFAULT_PLAY_MODE,
@@ -62,6 +75,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setQueue: (queue, index, source) =>
     set((state) => ({
       queue,
+      history: [],
       baseQueue: queue,
       index,
       source,
@@ -71,6 +85,32 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     set((state) => ({ queue: [...state.queue, ...items], baseQueue: [...state.baseQueue, ...items] })),
   reorder: (queue, index) => set({ queue, index }),
   setIndex: (index) => set({ index }),
+  activateIndex: (target) =>
+    set((state) => {
+      if (target < 0 || target >= state.queue.length || target === state.index) return state
+      const current = state.index >= 0 ? state.queue[state.index] : undefined
+      const selected = state.queue[target]
+      if (!selected) return state
+      const queue = [selected, ...state.queue.filter((_, itemIndex) => itemIndex !== target && itemIndex !== state.index)]
+      const remainingIds = new Set(queue.map((item) => item.qid))
+      return {
+        queue,
+        baseQueue: state.baseQueue.filter((item) => remainingIds.has(item.qid)),
+        history: appendHistoryOccurrence(state.history, current),
+        index: 0,
+      }
+    }),
+  activateHistoryItem: (item, qid) =>
+    set((state) => {
+      const current = state.index >= 0 ? state.queue[state.index] : undefined
+      const queue = [{ ...item, qid }, ...state.queue.filter((_, itemIndex) => itemIndex !== state.index)]
+      return {
+        queue,
+        baseQueue: queue,
+        history: appendHistoryOccurrence(state.history, current),
+        index: 0,
+      }
+    }),
   setRepeat: (repeat) => set((state) => ({ playMode: { ...state.playMode, repeat } })),
   setShuffle: (shuffle) => set((state) => ({ playMode: { ...state.playMode, shuffle } })),
   setAutoplay: (autoplay) => set({ autoplay }),
@@ -99,36 +139,31 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         index: Math.min(index, queue.length - 1),
       }
     }),
-  patchItem: (qid, patch) =>
+  patchItem: (trackId, patch) =>
     set((state) => ({
-      queue: state.queue.map((item) => (item.qid === qid ? { ...item, ...patch } : item)),
-      baseQueue: state.baseQueue.map((item) => (item.qid === qid ? { ...item, ...patch } : item)),
+      queue: state.queue.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
+      history: state.history.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
+      baseQueue: state.baseQueue.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
     })),
   restore: (payload) =>
-    set(() => ({
-      queue: payload.queue,
-      baseQueue: payload.baseQueue,
-      index: payload.index,
-      source: payload.source,
-      playMode: payload.playMode,
-      autoplay: payload.autoplay,
-      lyricOffsetMs: payload.lyricOffsetMs,
-    })),
-  clear: () => set({ queue: [], baseQueue: [], index: -1, source: undefined }),
-  clearHistory: () =>
-    set((state) => {
-      if (state.index <= 0) return state
-      const queue = state.queue.slice(state.index)
-      const currentItem = state.queue[state.index]
-      const baseQueue = currentItem
-        ? state.baseQueue.filter((item) => queue.some((q) => q.qid === item.qid))
-        : state.baseQueue
+    set(() => {
+      const history = payload.history ?? payload.queue.slice(0, payload.index)
+      const current = payload.queue[payload.index]
+      const upcoming = payload.queue.filter((_, itemIndex) => itemIndex > payload.index)
+      const queue = current ? [current, ...upcoming] : payload.queue
       return {
         queue,
-        baseQueue,
-        index: 0,
+        history,
+        baseQueue: queue,
+        index: queue.length > 0 ? 0 : -1,
+        source: payload.source,
+        playMode: payload.playMode,
+        autoplay: payload.autoplay,
+        lyricOffsetMs: payload.lyricOffsetMs,
       }
     }),
+  clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined }),
+  clearHistory: () => set({ history: [] }),
 }))
 
 /** 当前曲目（没有则 undefined） */
