@@ -22,4 +22,26 @@ describe('播放恢复与队列点击语义', () => {
     expect(queue).toContain('if (closeOpenQueueAction()) return')
     expect(queue.indexOf('if (closeOpenQueueAction()) return')).toBeLessThan(queue.indexOf('onSelect()'))
   })
+
+  it('上一首与下一首在切歌或回到开头后均恢复播放状态', () => {
+    const controller = source('player/controller.ts')
+    const prevFunc = controller.slice(
+      controller.indexOf('export async function skipToPreviousSmart'),
+      controller.indexOf('export async function skipToNextSafe'),
+    )
+    expect(prevFunc).toContain('await TrackPlayer.play()')
+    const nextFunc = controller.slice(
+      controller.indexOf('export async function skipToNextSafe'),
+      controller.indexOf('export async function skipToIndex'),
+    )
+    expect(nextFunc).toContain('await TrackPlayer.play()')
+  })
+
+  it('快捷菜单支持 popDirection 并在队列卡片向下弹出时保证正序视觉排列', () => {
+    const deck = source('components/player/player-deck.tsx')
+    const queue = source('components/player/player-queue.tsx')
+    expect(deck).toContain("popDirection = 'up'")
+    expect(deck).toContain("popDirection === 'down'")
+    expect(queue).toContain('popDirection="down"')
+  })
 })

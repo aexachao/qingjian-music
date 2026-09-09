@@ -91,6 +91,8 @@ export function PlayerQueue({
   stageHeight: propStageHeight,
   onTopStateChange,
   onActionOpenChange,
+  onDismissWithAction,
+  onMenuOpenChange,
 }: {
   bottomSpace: number
   listAnim?: SharedValue<number>
@@ -98,6 +100,8 @@ export function PlayerQueue({
   stageHeight?: SharedValue<number>
   onTopStateChange?: (atTop: boolean) => void
   onActionOpenChange?: (open: boolean) => void
+  onDismissWithAction?: (action: () => void) => void
+  onMenuOpenChange?: (open: boolean) => void
 }) {
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
@@ -350,6 +354,8 @@ export function PlayerQueue({
             item={currentItem}
             listAnim={listAnim}
             consumeOpenAction={consumeOpenAction}
+            onDismissWithAction={onDismissWithAction}
+            onMenuOpenChange={onMenuOpenChange}
           />
         ) : null}
         <ModesHeader
@@ -435,10 +441,14 @@ export function PlayerQueue({
 function CurrentTrackCard({
   item,
   consumeOpenAction,
+  onDismissWithAction,
+  onMenuOpenChange,
 }: {
   item: QueueItem
   listAnim?: SharedValue<number>
   consumeOpenAction: () => boolean
+  onDismissWithAction?: (action: () => void) => void
+  onMenuOpenChange?: (open: boolean) => void
 }) {
   const toggleFavorite = useToggleFavorite()
 
@@ -461,7 +471,13 @@ function CurrentTrackCard({
           }}
           accessibilityLabel={item.isFavorite ? '取消喜欢' : '喜欢'}
         />
-        <DeckMoreButton current={item} onBeforeOpen={consumeOpenAction} />
+        <DeckMoreButton
+          current={item}
+          onBeforeOpen={consumeOpenAction}
+          onDismissWithAction={onDismissWithAction}
+          onMenuOpenChange={onMenuOpenChange}
+          popDirection="down"
+        />
       </View>
     </View>
   )

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Platform, Share, StyleSheet, Text, View } from 'react-native'
+import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import { useRouter } from 'expo-router'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
-import { Icon, IconButton, iconSize } from '@/components/icon'
+import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
 import { SystemVolumeSlider, addVolumeListener, getSystemVolume, setSystemVolume } from '../../../modules/system-volume'
@@ -19,16 +20,18 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
+import { useDetailHref } from '@/lib/detail-href'
 import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
-import { formatOffset, OFFSET_STEP_MS, useLyricOffset } from '@/lib/lyric-offset'
-import { clearQueue, skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
+import { skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface PlayerDeckProps {
   current: QueueItem
   listAnim?: SharedValue<number>
+  onDismissWithAction?: (action: () => void) => void
+  onMenuOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -36,7 +39,7 @@ interface PlayerDeckProps {
  * 封面页和歌词页共用它，两页只有上半部分不同。
  * 「···」的快捷菜单在这个按钮上方浮现（对齐 iOS 上下文菜单的位置）。
  */
-export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
+export function PlayerDeck({ current, listAnim, onDismissWithAction, onMenuOpenChange }: PlayerDeckProps) {
   const { playing } = useIsPlaying()
   const progress = useProgress(500)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
@@ -92,7 +95,11 @@ export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
               accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
             />
             <View style={styles.menuWrapper}>
-              <DeckMoreButton current={current} />
+              <DeckMoreButton
+                current={current}
+                onDismissWithAction={onDismissWithAction}
+                onMenuOpenChange={onMenuOpenChange}
+              />
             </View>
           </View>
         </View>
@@ -223,85 +230,285 @@ function VolumeBar() {
 }
 
 /**
-  * 「···」使用受控 RN Modal：遮罩会独占触摸，点击菜单外只关闭菜单，不会继续触发底层切歌、滚动或页面下拉。
+ * 「···」按钮 + 系统原生快捷菜单 (iOS: UIContextMenu / Android: PopupMenu)。
  */
-export function DeckMoreButton({ current, onBeforeOpen }: { current: QueueItem; onBeforeOpen?: () => boolean }) {
+export function DeckMoreButton({
+  current,
+  onBeforeOpen,
+  onDismissWithAction,
+  onMenuOpenChange,
+  popDirection = 'up',
+}: {
+  current: QueueItem
+  onBeforeOpen?: () => boolean
+  onDismissWithAction?: (action: () => void) => void
+  onMenuOpenChange?: (open: boolean) => void
+  popDirection?: 'up' | 'down'
+}) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const toast = useToast()
   const router = useRouter()
-  const [open, setOpen] = useState(false)
-  const { offsetMs, adjust, canAdjust } = useLyricOffset(current.trackId)
+  const href = useDetailHref()
 
-  const closeAndRun = useCallback((action: () => void) => {
-    setOpen(false)
-    action()
-  }, [])
-
-  const adjustLyric = (deltaMs: number) => {
-    adjust(deltaMs)
-    toast(`歌词偏移 ${deltaMs > 0 ? '提前' : '延后'} 0.5 秒`)
+  const dismissAndNavigate = (navigateAction: () => void) => {
+    setIsMenuOpen(false)
+    onMenuOpenChange?.(false)
+    if (onDismissWithAction) {
+      onDismissWithAction(navigateAction)
+    } else {
+      router.back()
+      setTimeout(navigateAction, 320)
+    }
   }
 
-  const resetOffset = () => {
-    adjust(-offsetMs)
-    toast('歌词偏移已归零')
+  const actions = useMemo<MenuAction[]>(() => {
+    if (Platform.OS === 'ios') {
+      if (popDirection === 'down') {
+        // 向下弹出（如队列顶部的卡片）：UIKit 从锚点（顶部）由近及远向下排列，第 0 项在最顶端
+        return [
+          {
+            id: 'group-playlist',
+            title: '',
+            displayInline: true,
+            subactions: [
+              {
+                id: 'add-to-playlist',
+                title: '添加到歌单',
+                image: 'plus.circle',
+                imageColor: '#ffffff',
+              },
+            ],
+          },
+          {
+            id: 'group-share',
+            title: '',
+            displayInline: true,
+            subactions: [
+              {
+                id: 'share-song',
+                title: '分享歌曲',
+                image: 'square.and.arrow.up',
+                imageColor: '#ffffff',
+              },
+              {
+                id: 'share-lyrics',
+                title: '分享歌词',
+                image: 'quote.bubble',
+                imageColor: '#ffffff',
+              },
+            ],
+          },
+          {
+            id: 'group-details',
+            title: '',
+            displayInline: true,
+            subactions: [
+              {
+                id: 'song-info',
+                title: '歌曲信息',
+                image: 'info.circle',
+                imageColor: '#ffffff',
+              },
+              {
+                id: 'goto-album',
+                title: '前往专辑',
+                image: 'music.note.list',
+                imageColor: '#ffffff',
+              },
+              {
+                id: 'goto-artist',
+                title: '查看艺术家',
+                image: 'person.crop.circle',
+                imageColor: '#ffffff',
+              },
+            ],
+          },
+        ]
+      }
+
+      // 向上弹出（默认，用于播放页底部的 DeckMoreButton）：
+      // UIKit 从锚点（底部）由近及远向上排列，第 0 项在最靠近底部的指尖位置
+      return [
+        {
+          id: 'group-details',
+          title: '',
+          displayInline: true,
+          subactions: [
+            {
+              id: 'goto-artist',
+              title: '查看艺术家',
+              image: 'person.crop.circle',
+              imageColor: '#ffffff',
+            },
+            {
+              id: 'goto-album',
+              title: '前往专辑',
+              image: 'music.note.list',
+              imageColor: '#ffffff',
+            },
+            {
+              id: 'song-info',
+              title: '歌曲信息',
+              image: 'info.circle',
+              imageColor: '#ffffff',
+            },
+          ],
+        },
+        {
+          id: 'group-share',
+          title: '',
+          displayInline: true,
+          subactions: [
+            {
+              id: 'share-lyrics',
+              title: '分享歌词',
+              image: 'quote.bubble',
+              imageColor: '#ffffff',
+            },
+            {
+              id: 'share-song',
+              title: '分享歌曲',
+              image: 'square.and.arrow.up',
+              imageColor: '#ffffff',
+            },
+          ],
+        },
+        {
+          id: 'group-playlist',
+          title: '',
+          displayInline: true,
+          subactions: [
+            {
+              id: 'add-to-playlist',
+              title: '添加到歌单',
+              image: 'plus.circle',
+              imageColor: '#ffffff',
+            },
+          ],
+        },
+      ]
+    }
+
+    return [
+      {
+        id: 'add-to-playlist',
+        title: '添加到歌单',
+        image: 'ic_menu_add',
+        imageColor: '#ffffff',
+      },
+      {
+        id: 'share-song',
+        title: '分享歌曲',
+        image: 'ic_menu_share',
+        imageColor: '#ffffff',
+      },
+      {
+        id: 'share-lyrics',
+        title: '分享歌词',
+        image: 'ic_menu_info_details',
+        imageColor: '#ffffff',
+      },
+      {
+        id: 'song-info',
+        title: '歌曲信息',
+        image: 'ic_menu_help',
+        imageColor: '#ffffff',
+      },
+      {
+        id: 'goto-album',
+        title: '前往专辑',
+        image: 'ic_media_play',
+        imageColor: '#ffffff',
+      },
+      {
+        id: 'goto-artist',
+        title: '查看艺术家',
+        image: 'ic_menu_myplaces',
+        imageColor: '#ffffff',
+      },
+    ]
+  }, [popDirection])
+
+  const handleAction = ({ nativeEvent }: NativeActionEvent) => {
+    setIsMenuOpen(false)
+    onMenuOpenChange?.(false)
+    switch (nativeEvent.event) {
+      case 'add-to-playlist':
+        toast('已添加到歌单')
+        break
+      case 'share-song':
+        void Share.share({
+          title: current.title,
+          message: `正在听 ${current.title} - ${current.artistText}`,
+        })
+        break
+      case 'share-lyrics':
+        void Share.share({
+          title: `${current.title} 歌词`,
+          message: `《${current.title}》- ${current.artistText}\n(分享自轻简音乐)`,
+        })
+        break
+      case 'song-info': {
+        const durationSec = Math.round(current.durationMs / 1000)
+        const m = Math.floor(durationSec / 60)
+        const s = durationSec % 60
+        const durationStr = `${m}:${String(s).padStart(2, '0')}`
+        const meta = [current.title, current.artistText, current.albumText].filter(Boolean).join(' · ')
+        toast(`${meta} (${durationStr})`)
+        break
+      }
+      case 'goto-album':
+        if (current.albumId) {
+          const target = href.album(current.albumId)
+          dismissAndNavigate(() => {
+            router.push(target)
+          })
+        } else {
+          toast('暂无专辑信息')
+        }
+        break
+      case 'goto-artist':
+        if (current.artistId) {
+          const target = href.artist(current.artistId)
+          dismissAndNavigate(() => {
+            router.push(target)
+          })
+        } else {
+          toast('暂无艺术家信息')
+        }
+        break
+    }
   }
 
   return (
-    <>
+    <MenuView
+      title="歌曲选项"
+      themeVariant="dark"
+      shouldOpenOnLongPress={false}
+      isAnchoredToRight={true}
+      actions={actions}
+      onOpenMenu={() => {
+        setIsMenuOpen(true)
+        onMenuOpenChange?.(true)
+        onBeforeOpen?.()
+      }}
+      onCloseMenu={() => {
+        setIsMenuOpen(false)
+        onMenuOpenChange?.(false)
+      }}
+      onPressAction={handleAction}
+    >
       <IconButton
         name="more"
         size={iconSize.lg}
-        color={colors.iconMid}
+        color={isMenuOpen ? colors.textPrimary : colors.iconMid}
+        isActive={isMenuOpen}
         onPress={() => {
-          if (onBeforeOpen?.()) return
-          setOpen(true)
+          onBeforeOpen?.()
         }}
         accessibilityLabel="更多快捷操作"
       />
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={styles.menuScrim}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="关闭快捷操作"
-          />
-          <View style={styles.menuCard}>
-            <Text style={styles.menuTitle} numberOfLines={1}>{current.title}</Text>
-            {current.albumId ? (
-              <MenuAction label="查看专辑" onPress={() => closeAndRun(() => router.replace({ pathname: '/library/album/[id]', params: { id: current.albumId! } }))} />
-            ) : null}
-            {current.artistId ? (
-              <MenuAction label="查看艺术家" onPress={() => closeAndRun(() => router.replace({ pathname: '/library/artist/[id]', params: { id: current.artistId! } }))} />
-            ) : null}
-            {canAdjust ? (
-              <>
-                <Text style={styles.menuSection}>歌词偏移 {formatOffset(offsetMs)}</Text>
-                <MenuAction label="歌词提前 0.5 秒" onPress={() => closeAndRun(() => adjustLyric(OFFSET_STEP_MS))} />
-                <MenuAction label="歌词延后 0.5 秒" onPress={() => closeAndRun(() => adjustLyric(-OFFSET_STEP_MS))} />
-                {offsetMs !== 0 ? <MenuAction label="歌词偏移归零" onPress={() => closeAndRun(resetOffset)} /> : null}
-              </>
-            ) : null}
-            <MenuAction
-              label="清空队列"
-              destructive
-              onPress={() => closeAndRun(() => {
-                void clearQueue()
-                router.back()
-              })}
-            />
-          </View>
-        </View>
-      </Modal>
-    </>
-  )
-}
-
-function MenuAction({ label, destructive = false, onPress }: { label: string; destructive?: boolean; onPress: () => void }) {
-  return (
-    <Pressable style={({ pressed }) => [styles.menuAction, pressed && styles.menuActionPressed]} onPress={onPress}>
-      <Text style={[styles.menuActionText, destructive && styles.menuActionDestructive]}>{label}</Text>
-    </Pressable>
+    </MenuView>
   )
 }
 
@@ -315,40 +522,6 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐，去掉之前的偏移和缩放
   menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  menuScrim: {
-    flex: 1,
-    backgroundColor: colors.bgOverlay,
-    justifyContent: 'flex-end',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
-  },
-  menuCard: {
-    backgroundColor: colors.bgModal,
-    borderRadius: radius.xl,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderEmphasis,
-  },
-  menuTitle: { ...typography.callout, color: colors.textSecondary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  menuSection: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderSubtle,
-  },
-  menuAction: {
-    minHeight: 48,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderSubtle,
-  },
-  menuActionPressed: { backgroundColor: colors.bgCardHover },
-  menuActionText: { ...typography.body, color: colors.textPrimary },
-  menuActionDestructive: { color: colors.danger },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },

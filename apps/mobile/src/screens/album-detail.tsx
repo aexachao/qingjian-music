@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { StackBackButton } from '@/components/stack-back-button'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -44,8 +45,8 @@ export function AlbumDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
-  // 标题要在早退之前就挂上，否则加载时导航栏是空的，加载完标题才蹦出来
-  const title = <Stack.Screen options={{ title: album?.name ?? '专辑' }} />
+  // 标题与返回按钮要在早退之前就挂上，否则加载时导航栏是空的，加载完标题才蹦出来
+  const title = <Stack.Screen options={{ title: album?.name ?? '专辑', headerLeft: () => <StackBackButton /> }} />
 
   if (albumQuery.isPending || query.isPending) return <>{title}<LoadingState /></>
   if (albumQuery.isError)

@@ -319,11 +319,13 @@ export async function skipToPreviousSmart(): Promise<void> {
   if (store.playbackEnded) {
     store.setPlaybackEnded(false)
     await TrackPlayer.seekTo(0)
+    await TrackPlayer.play()
     return
   }
   const progress = await TrackPlayer.getProgress()
   if (progress.position > 3) {
     await TrackPlayer.seekTo(0)
+    await TrackPlayer.play()
     return
   }
   try {
@@ -332,10 +334,12 @@ export async function skipToPreviousSmart(): Promise<void> {
     // 已经是第一首：回到开头
     await TrackPlayer.seekTo(0)
   }
+  await TrackPlayer.play()
   await syncIndexFromPlayer()
 }
 
 export async function skipToNextSafe(): Promise<void> {
+  await ensurePlayer()
   const { queue } = usePlayerStore.getState()
   if (queue.length <= 1) {
     // 已经是最后一首
@@ -350,6 +354,8 @@ export async function skipToNextSafe(): Promise<void> {
       // 忽略
     }
   }
+  await TrackPlayer.play()
+  await syncIndexFromPlayer()
 }
 
 /** 待播列表点某一行：只取出选中项成为当前，其他待播顺序保持不变。 */

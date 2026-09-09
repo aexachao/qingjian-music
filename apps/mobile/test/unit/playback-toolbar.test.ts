@@ -38,4 +38,11 @@ describe('播放工具栏：随机 / 循环 / 无限', () => {
     expect(bridgeSource).toContain("source?.kind === 'radio' && autoplay")
     expect(bridgeSource).toContain('autoplay && activeIndex >= queue.length - 2')
   })
+
+  it('歌词图标使用 1:1 Apple 风格的实心反白双引号气泡 SVG 绘制', () => {
+    const iconSource = readFileSync(resolve(__dirname, '../../src/components/icon.tsx'), 'utf8')
+    expect(iconSource).toContain("name === 'lyrics'")
+    expect(iconSource).toContain('fillRule="evenodd"')
+    expect(iconSource).toContain('viewBox="0 0 24 24"')
+  })
 })

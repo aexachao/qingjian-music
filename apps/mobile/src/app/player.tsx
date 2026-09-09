@@ -43,6 +43,7 @@ export default function PlayerScreen() {
 
   const [mode, setMode] = useState<PlayerMode>('cover')
   const [chromeVisible, setChromeVisible] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
   const stageHeight = useSharedValue(380)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
@@ -178,8 +179,19 @@ export default function PlayerScreen() {
     })
   }, [height, translateY, dismiss])
 
-  const dismissGesture = createDismissPan(mode !== 'list' || isListAtTop)
-  const headerDismissGesture = createDismissPan(true)
+  const dismissWithAction = useCallback((action: () => void) => {
+    const pageHeight = height || 850
+    translateY.value = withTiming(pageHeight, {
+      duration: 350,
+      easing: Easing.bezier(0.25, 1, 0.5, 1),
+    }, () => {
+      runOnJS(dismiss)()
+      runOnJS(action)()
+    })
+  }, [height, translateY, dismiss])
+
+  const dismissGesture = createDismissPan(!menuOpen && (mode !== 'list' || isListAtTop))
+  const headerDismissGesture = createDismissPan(!menuOpen)
 
   const rootAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -259,6 +271,8 @@ export default function PlayerScreen() {
                     stageHeight={stageHeight}
                     onTopStateChange={setIsListAtTop}
                     onActionOpenChange={setQueueActionOpen}
+                    onDismissWithAction={dismissWithAction}
+                    onMenuOpenChange={setMenuOpen}
                   />
                 </Animated.View>
 
@@ -273,7 +287,14 @@ export default function PlayerScreen() {
           </View>
 
           <Animated.View style={chromeStyle} pointerEvents={chromeVisible ? 'auto' : 'none'}>
-            <View style={{ paddingHorizontal: spacing.xl }}><PlayerDeck current={current} listAnim={listAnim} /></View>
+            <View style={{ paddingHorizontal: spacing.xl }}>
+              <PlayerDeck
+                current={current}
+                listAnim={listAnim}
+                onDismissWithAction={dismissWithAction}
+                onMenuOpenChange={setMenuOpen}
+              />
+            </View>
           </Animated.View>
         </View>
 
@@ -303,6 +324,13 @@ export default function PlayerScreen() {
             style={styles.bottomIcon}
           />
         </Animated.View>
+
+        {menuOpen ? (
+          <Pressable
+            style={[StyleSheet.absoluteFill, styles.menuScrim]}
+            onPress={() => setMenuOpen(false)}
+          />
+        ) : null}
       </Animated.View>
       </GestureDetector>
     </AuthGate>
@@ -387,4 +415,5 @@ const styles = StyleSheet.create({
   },
   airplayNative: { width: 44, height: 44 },
   bottomIcon: { borderRadius: 12 },
+  menuScrim: { backgroundColor: 'rgba(0, 0, 0, 0.001)', zIndex: 9999 },
 })

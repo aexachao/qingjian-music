@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { StackBackButton } from '@/components/stack-back-button'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
@@ -55,8 +56,8 @@ export function ArtistDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
-  // 标题要在早退之前就挂上，否则加载时导航栏是空的
-  const title = <Stack.Screen options={{ title: artistName ?? '艺术家' }} />
+  // 标题与返回按钮要在早退之前就挂上，否则加载时导航栏是空的
+  const title = <Stack.Screen options={{ title: artistName ?? '艺术家', headerLeft: () => <StackBackButton /> }} />
 
   if (albums.query.isPending) return <>{title}<LoadingState /></>
   if (albums.query.isLoadingError)

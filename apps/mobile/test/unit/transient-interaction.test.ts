@@ -7,12 +7,10 @@ function source(path: string): string {
 }
 
 describe('临时交互层手势优先级', () => {
-  it('快捷菜单由原生 Modal 遮罩独占触摸，点击外部只关闭菜单', () => {
+  it('快捷菜单由系统原生组件 MenuView 承载，并配置消费同级手势', () => {
     const deck = source('components/player/player-deck.tsx')
-    expect(deck).toContain('<Modal visible={open} transparent')
-    expect(deck).toContain('style={StyleSheet.absoluteFill}')
-    expect(deck).toContain('onPress={() => setOpen(false)}')
-    expect(deck).toContain('<View style={styles.menuCard}>')
+    expect(deck).toContain('<MenuView')
+    expect(deck).toContain('onBeforeOpen?.()')
   })
 
   it('队列左滑打开时所有同级操作先消费关闭动作', () => {
@@ -36,5 +34,25 @@ describe('临时交互层手势优先级', () => {
     expect(lyrics).toContain('style={StyleSheet.absoluteFill}')
     expect(lyrics).toContain('onPress={onClose}')
     expect(lyrics).toContain('<View style={styles.sheetCard}>')
+  })
+
+  it('快捷菜单包含歌曲选项分组，跳转二级页面时先收起播放器', () => {
+    const deck = source('components/player/player-deck.tsx')
+    expect(deck).toContain('歌曲选项')
+    expect(deck).toContain('添加到歌单')
+    expect(deck).toContain('分享歌曲')
+    expect(deck).toContain('分享歌词')
+    expect(deck).toContain('歌曲信息')
+    expect(deck).toContain('前往专辑')
+    expect(deck).toContain('查看艺术家')
+    expect(deck).toContain('dismissAndNavigate')
+    expect(deck).toContain('router.back()')
+  })
+
+  it('专辑与艺术家二级页面头部显式配置返回按钮', () => {
+    const album = source('screens/album-detail.tsx')
+    expect(album).toContain('headerLeft: () => <StackBackButton />')
+    const artist = source('screens/artist-detail.tsx')
+    expect(artist).toContain('headerLeft: () => <StackBackButton />')
   })
 })
