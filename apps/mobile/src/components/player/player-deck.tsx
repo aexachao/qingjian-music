@@ -6,7 +6,7 @@ import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
-import { SystemVolumeSlider, addVolumeListener, setSystemVolume } from '../../../modules/system-volume'
+import { SystemVolumeSlider, addVolumeListener, getSystemVolume, setSystemVolume } from '../../../modules/system-volume'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -23,6 +23,7 @@ import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
 import { formatOffset, OFFSET_STEP_MS, useLyricOffset } from '@/lib/lyric-offset'
 import { clearQueue, skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
+import { usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface PlayerDeckProps {
@@ -38,6 +39,7 @@ interface PlayerDeckProps {
 export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
   const { playing } = useIsPlaying()
   const progress = useProgress(500)
+  const playbackEnded = usePlayerStore((s) => s.playbackEnded)
   const toggleFavorite = useToggleFavorite()
   const toast = useToast()
 
@@ -53,20 +55,20 @@ export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
 
   const titleAnimatedStyle = useAnimatedStyle(() => {
     if (!listAnim) return {}
-    // 切到列表前 18% 柔和淡出；切回封面最后 18% 才柔和淡入（彻底杜绝列表尚未退场时双标题重叠）
-    const opacity = interpolate(listAnim.value, [0, 0.18], [1, 0], Extrapolation.CLAMP)
-    const maxHeight = interpolate(listAnim.value, [0.05, 0.35], [58, 0], Extrapolation.CLAMP)
-    const marginBottom = interpolate(listAnim.value, [0.05, 0.35], [0, -spacing.lg], Extrapolation.CLAMP)
-    const translateY = interpolate(listAnim.value, [0, 0.18], [0, 8], Extrapolation.CLAMP)
+    const opacity = interpolate(listAnim.value, [0, 0.35], [1, 0], Extrapolation.CLAMP)
+    const maxHeight = interpolate(listAnim.value, [0.1, 0.9], [58, 0], Extrapolation.CLAMP)
+    const marginBottom = interpolate(listAnim.value, [0.1, 0.9], [0, -spacing.lg], Extrapolation.CLAMP)
 
     return {
       opacity,
       maxHeight,
       marginBottom,
       overflow: 'hidden',
-      transform: [{ translateY }],
     }
   })
+
+  const duration = progress.duration > 0 ? progress.duration : current.durationMs / 1000
+  const position = playbackEnded ? duration : progress.position
 
   return (
     <View style={styles.container}>
@@ -97,9 +99,12 @@ export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
       </Animated.View>
 
       <ProgressBar
-        position={progress.position}
-        duration={progress.duration > 0 ? progress.duration : current.durationMs / 1000}
-        onSeek={(seconds) => void TrackPlayer.seekTo(seconds)}
+        position={position}
+        duration={duration}
+        onSeek={(seconds) => {
+          usePlayerStore.getState().setPlaybackEnded(false)
+          void TrackPlayer.seekTo(seconds)
+        }}
       />
 
 
@@ -142,11 +147,18 @@ export function PlayerDeck({ current, listAnim }: PlayerDeckProps) {
  * 利用透明的 SystemVolumeSlider 拦截手势并抑制系统音量弹窗。
  */
 function VolumeBar() {
-  const volume = useSharedValue(0.5)
+  const currentVol = getSystemVolume()
+  const volume = useSharedValue(currentVol)
   const pressed = useSharedValue(0)
-  const initialVolume = useSharedValue(0.5)
+  const initialVolume = useSharedValue(currentVol)
+  const sliderWidth = useSharedValue(300)
 
   useEffect(() => {
+    // 挂载时立即拉取真实系统音量校准
+    const latest = getSystemVolume()
+    if (pressed.value === 0 && Math.abs(volume.value - latest) > 0.005) {
+      volume.value = latest
+    }
     const sub = addVolumeListener((e) => {
       // 只有在没被按住的时候，才接受系统音量变化
       if (pressed.value === 0) {
@@ -164,8 +176,8 @@ function VolumeBar() {
       initialVolume.value = volume.value
     })
     .onChange((event) => {
-      // 假设滑块物理宽度约为屏幕宽度减去两边 icon 和 padding (约 300)
-      const delta = event.translationX / 300
+      const width = sliderWidth.value || 300
+      const delta = event.translationX / width
       let next = initialVolume.value + delta
       next = Math.max(0, Math.min(1, next))
       volume.value = next
@@ -189,7 +201,13 @@ function VolumeBar() {
       <Icon name="volumeDown" size={iconSize.md} color={colors.iconDim} />
       
       <GestureDetector gesture={pan}>
-        <View style={styles.volumeSliderContainer} hitSlop={{ top: 12, bottom: 12 }}>
+        <View
+          style={styles.volumeSliderContainer}
+          hitSlop={{ top: 12, bottom: 12 }}
+          onLayout={(e) => {
+            sliderWidth.value = e.nativeEvent.layout.width
+          }}
+        >
           <Animated.View style={[styles.volumeTrack, trackStyle]}>
             <Animated.View style={[styles.volumeFill, fillStyle]} />
           </Animated.View>

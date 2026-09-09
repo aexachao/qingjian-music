@@ -7,7 +7,8 @@ class VolumeObserver: NSObject {
 
   private var observation: NSKeyValueObservation?
 
-  override init() {
+  init(onVolumeChange: @escaping (Float) -> Void) {
+    self.onVolumeChange = onVolumeChange
     super.init()
     _ = try? AVAudioSession.sharedInstance().setActive(true)
     observation = AVAudioSession.sharedInstance().observe(
@@ -54,8 +55,7 @@ public class SystemVolumeModule: Module {
 
     OnStartObserving {
       if self.observer == nil {
-        self.observer = VolumeObserver()
-        self.observer?.onVolumeChange = { [weak self] volume in
+        self.observer = VolumeObserver { [weak self] volume in
           self?.sendEvent("onVolumeChange", ["volume": volume])
         }
       }
@@ -63,6 +63,11 @@ public class SystemVolumeModule: Module {
 
     OnStopObserving {
       self.observer = nil
+    }
+
+    Function("getSystemVolume") { () -> Float in
+      _ = try? AVAudioSession.sharedInstance().setActive(true)
+      return AVAudioSession.sharedInstance().outputVolume
     }
 
     AsyncFunction("setSystemVolume") { (volume: Double) in

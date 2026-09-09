@@ -44,6 +44,10 @@ interface PlayerState {
   clearHistory(): void
   /** 冷启动恢复上次会话：一次性把整套状态放回去 */
   restore(payload: RestorePayload): void
+  /** 播放是否已在队尾自然播完停在 100% */
+  playbackEnded: boolean
+  setPlaybackEnded(ended: boolean): void
+  appendHistoryItem(item: QueueItem): void
 }
 
 /** 持久化恢复时用的整套状态（restore 的入参） */
@@ -71,6 +75,12 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   playMode: DEFAULT_PLAY_MODE,
   autoplay: false,
   lyricOffsetMs: 0,
+  playbackEnded: false,
+  setPlaybackEnded: (playbackEnded) => set({ playbackEnded }),
+  appendHistoryItem: (item) =>
+    set((state) => ({
+      history: appendHistoryOccurrence(state.history, item),
+    })),
   // 换了队列就把随机关掉：新队列本来就是原始顺序，标记留着会和实际顺序不一致
   setQueue: (queue, index, source) =>
     set((state) => ({
@@ -79,25 +89,42 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       baseQueue: queue,
       index,
       source,
+      playbackEnded: false,
       playMode: { ...state.playMode, shuffle: false },
     })),
   appendItems: (items) =>
     set((state) => ({ queue: [...state.queue, ...items], baseQueue: [...state.baseQueue, ...items] })),
   reorder: (queue, index) => set({ queue, index }),
-  setIndex: (index) => set({ index }),
+  setIndex: (index) => set({ index, playbackEnded: false }),
   activateIndex: (target) =>
     set((state) => {
       if (target < 0 || target >= state.queue.length || target === state.index) return state
       const current = state.index >= 0 ? state.queue[state.index] : undefined
       const selected = state.queue[target]
       if (!selected) return state
-      const queue = [selected, ...state.queue.filter((_, itemIndex) => itemIndex !== target && itemIndex !== state.index)]
+
+      const isRepeatQueue = state.playMode.repeat === 'queue'
+      let queue: QueueItem[]
+      if (isRepeatQueue && current) {
+        // 列表循环模式：当前播完的歌曲回到队尾
+        queue = [
+          selected,
+          ...state.queue.filter((_, itemIndex) => itemIndex !== target && itemIndex !== state.index),
+          current,
+        ]
+      } else {
+        queue = [
+          selected,
+          ...state.queue.filter((_, itemIndex) => itemIndex !== target && itemIndex !== state.index),
+        ]
+      }
       const remainingIds = new Set(queue.map((item) => item.qid))
       return {
         queue,
         baseQueue: state.baseQueue.filter((item) => remainingIds.has(item.qid)),
         history: appendHistoryOccurrence(state.history, current),
         index: 0,
+        playbackEnded: false,
       }
     }),
   activateHistoryItem: (item, qid) =>
@@ -109,6 +136,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         baseQueue: queue,
         history: appendHistoryOccurrence(state.history, current),
         index: 0,
+        playbackEnded: false,
       }
     }),
   setRepeat: (repeat) => set((state) => ({ playMode: { ...state.playMode, repeat } })),

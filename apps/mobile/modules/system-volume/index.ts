@@ -15,10 +15,31 @@ export const SystemVolumeSlider = requireNativeView<SystemVolumeSliderProps>('Sy
 
 const SystemVolumeModule = requireNativeModule('SystemVolume')
 
+let lastKnownVolume = 0.5
+
+export function getSystemVolume(): number {
+  try {
+    if (typeof SystemVolumeModule?.getSystemVolume === 'function') {
+      const vol = SystemVolumeModule.getSystemVolume()
+      if (typeof vol === 'number' && !isNaN(vol)) {
+        lastKnownVolume = vol
+        return vol
+      }
+    }
+  } catch {}
+  return lastKnownVolume
+}
+
 export function addVolumeListener(listener: (event: { volume: number }) => void): { remove: () => void } {
-  return SystemVolumeModule.addListener('onVolumeChange', listener)
+  return SystemVolumeModule.addListener('onVolumeChange', (event: { volume: number }) => {
+    if (typeof event?.volume === 'number' && !isNaN(event.volume)) {
+      lastKnownVolume = event.volume
+    }
+    listener(event)
+  })
 }
 
 export async function setSystemVolume(volume: number): Promise<void> {
+  lastKnownVolume = volume
   await SystemVolumeModule.setSystemVolume(volume)
 }

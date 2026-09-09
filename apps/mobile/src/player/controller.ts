@@ -273,11 +273,33 @@ export async function refreshArtwork(index: number): Promise<void> {
   }
 }
 
+export async function cycleCurrentToQueueEnd(oldCurrent: QueueItem): Promise<void> {
+  const provider = activeProvider
+  if (!provider) return
+  try {
+    const rntpTrack = await toRntpTrack(oldCurrent, provider, { allowTranscode: false })
+    await TrackPlayer.add(rntpTrack)
+    await TrackPlayer.remove([0])
+  } catch {
+    await TrackPlayer.remove([0]).catch(() => undefined)
+  }
+}
+
 export async function togglePlay(): Promise<void> {
   await ensurePlayer()
   const state = await TrackPlayer.getPlaybackState()
-  if (state.state === 'playing') await TrackPlayer.pause()
-  else await TrackPlayer.play()
+  if (state.state === 'playing') {
+    await TrackPlayer.pause()
+  } else {
+    const store = usePlayerStore.getState()
+    const progress = await TrackPlayer.getProgress()
+    const isAtEnd = store.playbackEnded || (progress.duration > 0 && progress.position >= progress.duration - 0.5)
+    if (isAtEnd) {
+      store.setPlaybackEnded(false)
+      await TrackPlayer.seekTo(0)
+    }
+    await TrackPlayer.play()
+  }
 }
 
 /** 切歌后把 RNTP 的真实下标同步回 store（事件没跟上时 UI 也不会停在旧歌名） */
@@ -293,6 +315,12 @@ async function syncIndexFromPlayer(): Promise<void> {
 /** 3 秒内按上一首视作「回到上一首」，否则回到本曲开头（对齐 Apple Music） */
 export async function skipToPreviousSmart(): Promise<void> {
   await ensurePlayer()
+  const store = usePlayerStore.getState()
+  if (store.playbackEnded) {
+    store.setPlaybackEnded(false)
+    await TrackPlayer.seekTo(0)
+    return
+  }
   const progress = await TrackPlayer.getProgress()
   if (progress.position > 3) {
     await TrackPlayer.seekTo(0)
@@ -308,10 +336,19 @@ export async function skipToPreviousSmart(): Promise<void> {
 }
 
 export async function skipToNextSafe(): Promise<void> {
+  const { queue } = usePlayerStore.getState()
+  if (queue.length <= 1) {
+    // 已经是最后一首
+    return
+  }
   try {
     await TrackPlayer.skipToNext()
   } catch {
-    // 已经是最后一首（循环由原生 RepeatMode 管）
+    try {
+      await TrackPlayer.skip(1)
+    } catch {
+      // 忽略
+    }
   }
 }
 

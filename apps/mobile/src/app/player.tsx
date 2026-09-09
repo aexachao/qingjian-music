@@ -44,6 +44,7 @@ export default function PlayerScreen() {
   const [mode, setMode] = useState<PlayerMode>('cover')
   const [chromeVisible, setChromeVisible] = useState(true)
   const stageHeight = useSharedValue(380)
+  const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
   // 动画状态
   const chromeAnim = useSharedValue(1) // 1: 显示，0: 隐藏
@@ -52,12 +53,12 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (mode === 'list') {
       listAnim.value = withTiming(1, {
-        duration: 380,
+        duration: 320,
         easing: Easing.bezier(0.25, 1, 0.5, 1),
       })
     } else {
       listAnim.value = withTiming(0, {
-        duration: 380,
+        duration: 320,
         easing: Easing.bezier(0.25, 1, 0.5, 1),
       })
     }
@@ -200,44 +201,20 @@ export default function PlayerScreen() {
   }))
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(listAnim.value, [0.35, 0.9], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(listAnim.value, [0.15, 0.9], [0, 1], Extrapolation.CLAMP),
     transform: [
-      { translateY: interpolate(listAnim.value, [0.35, 1], [24, 0], Extrapolation.CLAMP) },
+      { translateY: interpolate(listAnim.value, [0.15, 1], [16, 0], Extrapolation.CLAMP) },
     ],
   }))
 
-  const heroCoverStyle = useAnimatedStyle(() => {
-    const sH = stageHeight.value || 380
-    const targetScale = 64 / coverSize
-    const targetTranslateX = 56 - width / 2
-    const targetTranslateY = 44 - sH / 2
-
-    const scale = interpolate(listAnim.value, [0, 1], [1, targetScale], Extrapolation.CLAMP)
-    const translateX = interpolate(listAnim.value, [0, 1], [0, targetTranslateX], Extrapolation.CLAMP)
-    const translateY = interpolate(listAnim.value, [0, 1], [0, targetTranslateY], Extrapolation.CLAMP)
-    const currentRadius = interpolate(
-      listAnim.value,
-      [0, 1],
-      [radius.lg, radius.md / targetScale],
-      Extrapolation.CLAMP
-    )
-
+  const coverAnimatedStyle = useAnimatedStyle(() => {
+    const scale = interpolate(listAnim.value, [0, 1], [1, 0.92], Extrapolation.CLAMP)
+    const opacity = interpolate(listAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
     return {
-      width: coverSize,
-      height: coverSize,
-      transform: [
-        { translateX },
-        { translateY },
-        { scale },
-      ],
-      borderRadius: currentRadius,
-      overflow: 'hidden',
+      opacity,
+      transform: [{ scale }],
     }
   })
-
-  const heroCoverContainerStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(listAnim.value, [0.95, 1], [1, 0], Extrapolation.CLAMP),
-  }))
 
   if (!current) {
     return <EmptyPlayerState onDismiss={dismiss} />
@@ -278,6 +255,8 @@ export default function PlayerScreen() {
                   <PlayerQueue
                     bottomSpace={0}
                     listAnim={listAnim}
+                    stageTopOffset={stageTopOffset}
+                    stageHeight={stageHeight}
                     onTopStateChange={setIsListAtTop}
                     onActionOpenChange={setQueueActionOpen}
                   />
@@ -285,11 +264,9 @@ export default function PlayerScreen() {
 
                 <Animated.View
                   pointerEvents={mode === 'cover' ? 'auto' : 'none'}
-                  style={[StyleSheet.absoluteFill, styles.coverStage, heroCoverContainerStyle]}
+                  style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
                 >
-                  <Animated.View style={heroCoverStyle}>
-                    <CoverImage resource={current.artwork} size={coverSize} borderRadius={0} />
-                  </Animated.View>
+                  <CoverImage resource={current.artwork} size={coverSize} borderRadius={radius.lg} />
                 </Animated.View>
               </>
             )}
@@ -389,7 +366,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     paddingTop: spacing.xs,
-    gap: spacing.xs,
+    gap: spacing.sm, // 原为 spacing.xs(4px)，增加 4px 后为 spacing.sm(8px)
   },
   dragHandle: {
     width: 36,

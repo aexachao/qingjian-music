@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 import { colors } from '@/theme/tokens'
 
 /**
@@ -22,7 +22,7 @@ const ICONS = {
   previous: 'play-back',
   shuffle: 'shuffle',
   repeat: 'repeat',
-  repeatOne: 'repeat-outline',
+  repeatOne: 'repeat',
   infinity: 'infinite',
   airplay: 'tv', // Ionicons 不带 airplay，用 tv 或 radio 替代
   volumeDown: 'volume-low',
@@ -72,16 +72,6 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS
 
-/**
- * Ionicons 没有「单曲循环（循环箭头里带 1）」的字形，repeat 系列只有
- * repeat / repeat-outline，所以单曲循环借用 MaterialCommunityIcons 的
- * repeat-once（列表循环仍是 Ionicons 的 repeat，两者形状一眼可分）。
- */
-type MciGlyphName = ComponentProps<typeof MaterialCommunityIcons>['name']
-const MCI_GLYPHS: Partial<Record<IconName, MciGlyphName>> = {
-  repeatOne: 'repeat-once',
-}
-
 const OUTLINE_VARIANTS = {
   heart: 'heart-outline',
   play: 'play-outline',
@@ -113,9 +103,29 @@ export interface IconProps {
 }
 
 export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled = true }: IconProps) {
-  const mciGlyph = MCI_GLYPHS[name]
-  if (mciGlyph) {
-    return <MaterialCommunityIcons name={mciGlyph} size={size} color={color} />
+  if (name === 'repeatOne') {
+    // 恢复早期提交 d929d8d 中的 lucide repeat-1 字形（双环箭头带 1），光学尺寸缩放到 0.8 与 Ionicons repeat 视觉完全一致
+    const opticalSize = Math.round(size * 0.8)
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg
+          width={opticalSize}
+          height={opticalSize}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={color}
+          strokeWidth={2.2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <Path d="m17 2 4 4-4 4" />
+          <Path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+          <Path d="m7 22-4-4 4-4" />
+          <Path d="M21 13v1a4 4 0 0 1-4 4H3" />
+          <Path d="M11 10h1v4" />
+        </Svg>
+      </View>
+    )
   }
   const outline = (OUTLINE_VARIANTS as Partial<Record<IconName, GlyphName>>)[name]
   const glyph: GlyphName = !filled && outline ? outline : ICONS[name]

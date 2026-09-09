@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
 import {
+  cycleCurrentToQueueEnd,
   ensureTranscodeForIndex,
   extendWithRadio,
   fillRadio,
@@ -20,6 +21,8 @@ import { ensurePlayer, setLikeState } from './setup'
 import { selectCurrent, usePlayerStore } from './store'
 import { setSessionLostHandler } from './transcode-session'
 
+import { addVolumeListener } from '../../modules/system-volume'
+
 /** RNTP 偶尔会为同一次切歌连发两次事件，同一首这个时间窗内只上报一次 */
 const REPORT_DEDUPE_MS = 5_000
 
@@ -33,6 +36,12 @@ export function PlayerBridge() {
   const toggleFavorite = useToggleFavorite()
   const isFavorite = usePlayerStore(selectCurrent)?.isFavorite ?? false
   const lastReport = useRef<{ qid: string; at: number } | null>(null)
+
+  // 全局持续监听系统音量变化，确保进入播放页时能立即可用最新的真实系统音量
+  useEffect(() => {
+    const sub = addVolumeListener(() => {})
+    return () => sub.remove()
+  }, [])
 
   // 当前曲目的收藏状态同步给系统播放控制，锁屏 / 车机上的心形按钮才有正确的开关态
   useEffect(() => {
@@ -72,7 +81,7 @@ export function PlayerBridge() {
     [connection, provider, queryClient],
   )
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackError, Event.RemoteLike], (event) => {
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackQueueEnded, Event.PlaybackError, Event.RemoteLike], (event) => {
     // 锁屏 / 车机上点了心形：切当前曲目的收藏，状态回流后 setLikeState 会把按钮点亮
     if (event.type === Event.RemoteLike) {
       const { queue, index } = usePlayerStore.getState()
@@ -83,17 +92,31 @@ export function PlayerBridge() {
       })
       return
     }
+    if (event.type === Event.PlaybackQueueEnded) {
+      const { queue, index, playMode } = usePlayerStore.getState()
+      const currentItem = queue[index >= 0 ? index : 0]
+      if (currentItem && playMode.repeat === 'off') {
+        usePlayerStore.getState().setPlaybackEnded(true)
+        usePlayerStore.getState().appendHistoryItem(currentItem)
+      }
+      return
+    }
     if (event.type === Event.PlaybackActiveTrackChanged) {
       const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
-      const { queue, index: previousIndex } = usePlayerStore.getState()
+      const { queue, index: previousIndex, playMode } = usePlayerStore.getState()
       // 优先用曲目 id 反查下标：RNTP 换队列时下标会短暂漂移，光看 index 会跟错曲目
       const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
       const index = byId >= 0 ? byId : (event.index ?? -1)
       if (index < 0) return
-      // 自然播完由 RNTP 先激活下一首：此时把旧当前追加历史并从原生队列移除。
+      // 自然播完由 RNTP 先激活下一首：此时把旧当前追加历史并处理队列流转。
       if (index > 0 && previousIndex === 0) {
+        const oldCurrent = queue[0]
         usePlayerStore.getState().activateIndex(index)
-        void TrackPlayer.remove([0]).catch(() => undefined)
+        if (playMode.repeat === 'queue' && oldCurrent) {
+          void cycleCurrentToQueueEnd(oldCurrent)
+        } else {
+          void TrackPlayer.remove([0]).catch(() => undefined)
+        }
       } else if (index === 0 && previousIndex === 0 && qid && queue[0]?.qid !== qid) {
         // 历史点播会先把新 occurrence 插到 RNTP 队头；事件到达时再原子同步 store。
         const historyItem = takePendingHistoryActivation(qid)

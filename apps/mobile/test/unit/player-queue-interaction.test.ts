@@ -31,9 +31,10 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('<View style={styles.queueTabSpacer} />')
   })
 
-  it('选中横条居中且缩短为文字宽度一半', () => {
-    expect(queueSource).toContain("width: '50%'")
-    expect(queueSource).toContain("alignSelf: 'center'")
+  it('选中横条缩窄为精致胶囊并支持平滑位移与非选中项 regular 字体', () => {
+    expect(queueSource).toContain('width: 16')
+    expect(queueSource).toContain('fontFamily: fonts.regular')
+    expect(queueSource).toContain('indicatorX.value = withTiming')
   })
 
   it('排序把手需长按 350ms 才激活', () => {
@@ -48,5 +49,15 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('runOnJS(setDragging)(true)')
     expect(queueSource).toContain('dismissedSwipeOnHandlePress.current = closeOpenQueueAction()')
     expect(queueSource).toContain('onDragEnd={onDragEnd}')
+  })
+
+  it('Tab 切换支持双向循环且依赖项包含最新 tab 避免闭包死锁', () => {
+    // 确保 onTabChange 依赖项包含 tab，防止切到历史后无法切回继续播放
+    expect(queueSource).toMatch(/onTabChange\s*=\s*useCallback\([\s\S]*?,\s*\[[\s\S]*?\btab\b[\s\S]*?\]\)/)
+    // 采用双页预渲染平移架构：彻底移除渐变，纯粹横向位移动画
+    expect(queueSource).toContain('pagerX.value = withTiming')
+    expect(queueSource).toContain('styles.pagerViewport')
+    expect(queueSource).toContain('styles.pagerTrack')
+    expect(queueSource).not.toContain('slideOpacity')
   })
 })

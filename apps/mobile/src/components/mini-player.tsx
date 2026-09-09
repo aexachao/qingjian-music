@@ -40,6 +40,7 @@ export function MiniPlayer() {
   const isPlayerOpen = segments[0] === 'player'
 
   const current = usePlayerStore(selectCurrent)
+  const playbackEnded = usePlayerStore((s) => s.playbackEnded)
   const { playing } = useIsPlaying()
   const progress = useProgress(500)
 
@@ -71,7 +72,11 @@ export function MiniPlayer() {
 
   if (!current) return null
 
-  const ratio = progress.duration > 0 ? Math.min(Math.max(progress.position / progress.duration, 0), 1) : 0
+  const ratio = playbackEnded
+    ? 1
+    : progress.duration > 0
+    ? Math.min(Math.max(progress.position / progress.duration, 0), 1)
+    : 0
 
   const togglePlayWithHaptics = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)

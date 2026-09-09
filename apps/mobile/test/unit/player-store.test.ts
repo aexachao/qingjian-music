@@ -158,4 +158,32 @@ describe('收藏、恢复和设置', () => {
     expect(state.index).toBe(-1)
     expect(state.source).toBeUndefined()
   })
+
+  it('列表循环模式下播完切歌：旧当前追加到历史，并回到继续播放列表最末尾', () => {
+    usePlayerStore.getState().setQueue(queue, 0)
+    usePlayerStore.getState().setRepeat('queue')
+
+    // 切到下一首 b
+    usePlayerStore.getState().activateIndex(1)
+
+    const state = usePlayerStore.getState()
+    // a 应该被排到了队尾：[b, c, d, a]
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['b', 'c', 'd', 'a'])
+    // 历史记录正常追加 a
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a'])
+    expect(state.index).toBe(0)
+    expect(state.playbackEnded).toBe(false)
+  })
+
+  it('播完停在 100% 状态管理：切歌或重新起播时自动复位', () => {
+    usePlayerStore.getState().setQueue(queue, 0)
+    expect(usePlayerStore.getState().playbackEnded).toBe(false)
+
+    usePlayerStore.getState().setPlaybackEnded(true)
+    expect(usePlayerStore.getState().playbackEnded).toBe(true)
+
+    // 切歌时复位
+    usePlayerStore.getState().activateIndex(1)
+    expect(usePlayerStore.getState().playbackEnded).toBe(false)
+  })
 })
