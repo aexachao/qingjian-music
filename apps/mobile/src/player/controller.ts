@@ -8,6 +8,7 @@ import { needsTranscode } from './format-support'
 import { GenerationToken } from './generation-token'
 import { clearPlaybackSnapshot, readPlaybackSnapshot } from './persist'
 import { QueueOccurrenceIds } from './queue-occurrence'
+import { planTailReorder } from './queue-reorder'
 import { ensurePlayer } from './setup'
 import { AsyncMutationQueue } from './mutation-queue'
 import { usePlayerStore } from './store'
@@ -463,22 +464,32 @@ async function setShuffledOrderMutation(shuffle: boolean): Promise<void> {
     ? shuffled(queue.slice(index + 1))
     : baseQueue.filter((item) => !played.has(item.qid))
 
-  // RNTP 没有「重排队列」API：移除待播部分再按新顺序追加
-  const removeIndices = Array.from({ length: queue.length - index - 1 }, (_, i) => index + 1 + i)
+  const start = index + 1
   try {
-    await TrackPlayer.remove(removeIndices)
-    const provider = activeProvider
-    if (!provider) return
-    const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
-    await TrackPlayer.add(rntpTracks)
+    // 随机/还原只是重排顺序：曲目都已在播放器里，用 move 原位挪动即可，
+    // 不重新生成播放地址，所以是纯原生操作、瞬时完成。
+    await reorderRntpUpcoming(start, tail, queue)
   } catch (error) {
     // 重排是用户主动操作，失败要有日志；开关已翻转，不会卡住
     console.warn('随机播放重排失败', error)
     return
   }
+  // RNTP 队列已就位；期间没有新的切歌/追加才同步展示顺序
   const latest = usePlayerStore.getState()
   if (latest.queue !== queue) return
   latest.reorder([...head, ...tail], index)
+}
+
+/**
+ * 用 RNTP 的 move 把「当前曲目之后」的原生队列重排成 tail 的顺序。
+ * RNTP 队列与 store 一一对应，current 是操作开始时的快照（与 tail 同源）。
+ */
+async function reorderRntpUpcoming(start: number, tail: QueueItem[], current: QueueItem[]): Promise<void> {
+  const currentTail = current.slice(start)
+  const moves = planTailReorder(currentTail, tail, (item) => item.qid)
+  for (const [fromOffset, toOffset] of moves) {
+    await TrackPlayer.move(start + fromOffset, start + toOffset)
+  }
 }
 
 export function setShuffledOrder(shuffle: boolean): Promise<void> {

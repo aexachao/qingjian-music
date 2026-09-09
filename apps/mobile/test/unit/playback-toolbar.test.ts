@@ -6,12 +6,15 @@ const controllerSource = readFileSync(resolve(__dirname, '../../src/player/contr
 const bridgeSource = readFileSync(resolve(__dirname, '../../src/player/bridge.tsx'), 'utf8')
 
 describe('播放工具栏：随机 / 循环 / 无限', () => {
-  it('随机开关先翻转状态，重排失败也不会卡在旧状态', () => {
+  it('随机开关先翻转状态，重排用原位 move、不重新拉流', () => {
     const flag = controllerSource.indexOf('store.setShuffle(shuffle)')
-    const remove = controllerSource.indexOf('await TrackPlayer.remove(removeIndices)')
+    const reorder = controllerSource.indexOf('await reorderRntpUpcoming(start, tail, queue)')
     expect(flag).toBeGreaterThan(-1)
-    expect(remove).toBeGreaterThan(-1)
-    expect(flag).toBeLessThan(remove)
+    expect(reorder).toBeGreaterThan(-1)
+    expect(flag).toBeLessThan(reorder)
+    // 随机只是重排已加载曲目：用 move 原位挪动，不再 remove 后重新生成播放地址
+    expect(controllerSource).toContain('await TrackPlayer.move(start + fromOffset, start + toOffset)')
+    expect(controllerSource).not.toContain('await TrackPlayer.remove(removeIndices)')
     // 重排是用户主动操作，失败要留日志而不是静默吞掉
     expect(controllerSource).toContain('随机播放重排失败')
   })

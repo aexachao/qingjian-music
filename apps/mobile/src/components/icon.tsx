@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react'
 import Ionicons from '@expo/vector-icons/Ionicons'
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
 import { colors } from '@/theme/tokens'
 
@@ -71,6 +72,16 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS
 
+/**
+ * Ionicons 没有「单曲循环（循环箭头里带 1）」的字形，repeat 系列只有
+ * repeat / repeat-outline，所以单曲循环借用 MaterialCommunityIcons 的
+ * repeat-once（列表循环仍是 Ionicons 的 repeat，两者形状一眼可分）。
+ */
+type MciGlyphName = ComponentProps<typeof MaterialCommunityIcons>['name']
+const MCI_GLYPHS: Partial<Record<IconName, MciGlyphName>> = {
+  repeatOne: 'repeat-once',
+}
+
 const OUTLINE_VARIANTS = {
   heart: 'heart-outline',
   play: 'play-outline',
@@ -102,6 +113,10 @@ export interface IconProps {
 }
 
 export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled = true }: IconProps) {
+  const mciGlyph = MCI_GLYPHS[name]
+  if (mciGlyph) {
+    return <MaterialCommunityIcons name={mciGlyph} size={size} color={color} />
+  }
   const outline = (OUTLINE_VARIANTS as Partial<Record<IconName, GlyphName>>)[name]
   const glyph: GlyphName = !filled && outline ? outline : ICONS[name]
   return <Ionicons name={glyph} size={size} color={color} />

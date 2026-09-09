@@ -41,6 +41,11 @@ class SystemVolumeSliderView: ExpoView {
 
 public class SystemVolumeModule: Module {
   private var observer: VolumeObserver?
+  /**
+   * 编程式设音量用的复用视图。MPVolumeView 创建后需要一点时间才能真正写入
+   * 系统音量，每次新建立刻写会被忽略；所以这里只保存一份、在主线程懒创建。
+   */
+  private var sharedVolumeView: MPVolumeView?
 
   public func definition() -> ModuleDefinition {
     Name("SystemVolume")
@@ -62,8 +67,14 @@ public class SystemVolumeModule: Module {
 
     AsyncFunction("setSystemVolume") { (volume: Double) in
       await MainActor.run {
-        let volumeView = MPVolumeView()
-        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+        // 视图只在主线程懒建一次并复用：MPVolumeView 需要一点时间初始化，
+        // 若每次设音量都新建，写入会全部落空。
+        if self.sharedVolumeView == nil {
+          let view = MPVolumeView()
+          view.showsVolumeSlider = true
+          self.sharedVolumeView = view
+        }
+        if let slider = self.sharedVolumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
           slider.value = Float(volume)
         }
       }

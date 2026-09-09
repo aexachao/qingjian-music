@@ -29,7 +29,11 @@ describe('Apple-only 本地模块跨平台隔离', () => {
     const source = readFileSync(modulePath('system-volume', 'ios/SystemVolumeModule.swift'), 'utf8')
     const moduleSource = source.slice(source.indexOf('public class SystemVolumeModule'))
 
+    // 声明期不创建 MPVolumeView（模块可能在非主线程初始化），首次设音量时才在主线程懒建
     expect(moduleSource).not.toMatch(/(?:let|lazy var)\s+sharedVolumeView\s*=\s*MPVolumeView\(\)/)
     expect(moduleSource).toContain('await MainActor.run')
+    // 视图跨调用复用：每次新建的 MPVolumeView 立刻写音量会被系统忽略
+    expect(moduleSource).toContain('if self.sharedVolumeView == nil {')
+    expect(moduleSource).toContain('self.sharedVolumeView = view')
   })
 })
