@@ -47,6 +47,34 @@ describe('转码会话切换', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('瞬时网络错误不拆会话也不告警，下个周期照常重试', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const lost = vi.fn()
+    setSessionLostHandler(lost)
+
+    let beats = 0
+    await replaceTranscodeSession('alive', {
+      ...session('alive', async () => undefined),
+      heartbeatIntervalMs: 1_000,
+      heartbeat: async () => {
+        beats += 1
+        if (beats === 1) throw new MusicError({ code: 'network', message: 'fetch failed' })
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(beats).toBe(1)
+    expect(lost).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+
+    // 会话还活着：第二个周期心跳成功，也没有被拆掉
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(beats).toBe(2)
+    expect(lost).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('先等待旧会话关闭，再激活新会话', async () => {
     const steps: string[] = []
     let release!: () => void

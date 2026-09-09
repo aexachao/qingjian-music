@@ -160,7 +160,7 @@ export function PlayerQueue({
     if (tab !== 'upcoming' || !provider || !connection) return
     const { source: src, queue: list } = usePlayerStore.getState()
     const upcoming = list.length - 1
-    if (src?.kind === 'radio') {
+    if (src?.kind === 'radio' && autoplay) {
       if (fillingRef.current) return
       fillingRef.current = true
       void fillRadio(provider, connection.id, upcoming + RADIO_FETCH_MORE)
@@ -492,7 +492,7 @@ function ModesHeader({
         />
         <ModeButton
           icon={playMode.repeat === 'one' ? 'repeatOne' : 'repeat'}
-          label={playMode.repeat === 'one' ? '单曲循环' : '列表循环'}
+          label={playMode.repeat === 'one' ? '单曲循环' : playMode.repeat === 'queue' ? '列表循环' : '顺序播放'}
           active={playMode.repeat !== 'off'}
           onPress={() => {
             if (consumeOpenAction()) return

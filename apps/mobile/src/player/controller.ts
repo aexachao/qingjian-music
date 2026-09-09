@@ -210,6 +210,8 @@ export async function startRadio(provider: MusicProvider, serverId: string): Pro
   )
   if (!playbackGeneration.isCurrent(generation) || session !== radioSession) return
   radioCursor = slice.cursor
+  // 漫游本身就是无限流：把「无限播放」标成开启，工具栏按钮如实反映。
+  usePlayerStore.getState().setAutoplay(true)
   // 不阻塞：第一首先唱着，队尾在后台一首一首往后取
   void fillRadio(provider, serverId, RADIO_ENTRY_UPCOMING).catch((error: unknown) => {
     console.warn('漫游首轮补歌失败', error)
@@ -410,9 +412,16 @@ const REPEAT_ORDER: RepeatMode[] = ['off', 'queue', 'one']
 export async function cycleRepeat(): Promise<RepeatMode> {
   const current = usePlayerStore.getState().playMode.repeat
   const next = REPEAT_ORDER[(REPEAT_ORDER.indexOf(current) + 1) % REPEAT_ORDER.length]!
-  await TrackPlayer.setRepeatMode(
-    next === 'one' ? RntpRepeatMode.Track : next === 'queue' ? RntpRepeatMode.Queue : RntpRepeatMode.Off,
-  )
+  try {
+    await ensurePlayer()
+    await TrackPlayer.setRepeatMode(
+      next === 'one' ? RntpRepeatMode.Track : next === 'queue' ? RntpRepeatMode.Queue : RntpRepeatMode.Off,
+    )
+  } catch (error) {
+    // 原生播放器没就绪等瞬时失败：保持当前模式，下次再点即可
+    console.warn('切换循环模式失败', error)
+    return current
+  }
   usePlayerStore.getState().setRepeat(next)
   return next
 }
@@ -442,11 +451,11 @@ async function setShuffledOrderMutation(shuffle: boolean): Promise<void> {
   if (store.playMode.shuffle === shuffle) return
 
   const { queue, index, baseQueue } = store
-  // 队尾只剩一首就没什么可排的了，但模式仍需同步。
-  if (index < 0 || queue.length - index < 3) {
-    store.setShuffle(shuffle)
-    return
-  }
+  // 先翻转开关：重排是尽力而为，失败也不能让按钮卡在旧状态。
+  store.setShuffle(shuffle)
+
+  // 队尾只剩一首就没什么可排的了
+  if (index < 0 || queue.length - index < 3) return
 
   const head = queue.slice(0, index + 1)
   const played = new Set(head.map((item) => item.qid))
@@ -462,13 +471,14 @@ async function setShuffledOrderMutation(shuffle: boolean): Promise<void> {
     if (!provider) return
     const rntpTracks = await Promise.all(tail.map((item) => toRntpTrack(item, provider)))
     await TrackPlayer.add(rntpTracks)
-  } catch {
+  } catch (error) {
+    // 重排是用户主动操作，失败要有日志；开关已翻转，不会卡住
+    console.warn('随机播放重排失败', error)
     return
   }
   const latest = usePlayerStore.getState()
   if (latest.queue !== queue) return
   latest.reorder([...head, ...tail], index)
-  latest.setShuffle(shuffle)
 }
 
 export function setShuffledOrder(shuffle: boolean): Promise<void> {

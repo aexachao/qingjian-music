@@ -33,10 +33,10 @@ async function beat(): Promise<void> {
     const progress = await TrackPlayer.getProgress()
     await current.session.heartbeat(progress.position * 1000)
   } catch (error) {
-    if (!isMusicError(error) || error.code !== 'notFound') {
-      console.warn('转码会话保活失败', error)
-    }
-    // 任务没了就别继续敲了，交给上层重新起一个
+    // 只有服务端明确说「任务已被回收」（notFound）才算会话死亡，交给上层重建。
+    // 网络抖动 / 超时 / 请求取消等瞬时错误：会话还活着，下个周期重试即可，
+    // 既不告警也不拆会话，避免把一次掉包放大成「保活失败 + 重建失败」两条噪声日志。
+    if (!isMusicError(error) || error.code !== 'notFound') return
     if (active === current) {
       clearInterval(current.timer)
       active = null
