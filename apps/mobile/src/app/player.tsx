@@ -12,25 +12,22 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated'
 
-import { LinearGradient } from 'expo-linear-gradient'
 import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
-import { PlayerDeck } from '@/components/player/player-deck'
+import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
-import { useLyricSheet } from '@/lib/lyric-offset'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 const LYRIC_TICK_MS = 200
-const CHROME_HIDE_IDLE_MS = 3000
 
 type PlayerMode = 'cover' | 'lyrics' | 'list'
 
@@ -40,83 +37,33 @@ export default function PlayerScreen() {
   const { width, height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
-  const lyricQuery = useLyricSheet(current?.trackId ?? '')
-  const hasLyrics = Boolean(lyricQuery.data && lyricQuery.data.lines.length > 0)
-  const { playing } = useIsPlaying()
 
   const [mode, setMode] = useState<PlayerMode>('cover')
-  const [chromeVisible, setChromeVisible] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
-  const stageHeight = useSharedValue(380)
+  const [stageMeasuredHeight, setStageMeasuredHeight] = useState(0)
+  const stageHeight = useSharedValue(440)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
-  // 动画状态
-  const chromeAnim = useSharedValue(1) // 1: 显示，0: 隐藏
   const listAnim = useSharedValue(0)
+  const lyricAnim = useSharedValue(0)
 
   useEffect(() => {
+    const timingConfig = {
+      duration: 320,
+      easing: Easing.bezier(0.25, 1, 0.5, 1),
+    }
+
     if (mode === 'list') {
-      listAnim.value = withTiming(1, {
-        duration: 320,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      })
+      listAnim.value = withTiming(1, timingConfig)
+      lyricAnim.value = withTiming(0, timingConfig)
+    } else if (mode === 'lyrics') {
+      listAnim.value = withTiming(0, timingConfig)
+      lyricAnim.value = withTiming(1, timingConfig)
     } else {
-      listAnim.value = withTiming(0, {
-        duration: 320,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      })
+      listAnim.value = withTiming(0, timingConfig)
+      lyricAnim.value = withTiming(0, timingConfig)
     }
-  }, [mode, listAnim])
-
-  // 交互防抖计时器与显隐状态引用
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const chromeVisibleRef = useRef(true)
-
-  const clearHideTimer = useCallback(() => {
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current)
-      hideTimer.current = null
-    }
-  }, [])
-
-  const revealChrome = useCallback(() => {
-    clearHideTimer()
-    if (!chromeVisibleRef.current) {
-      chromeVisibleRef.current = true
-      setChromeVisible(true)
-      chromeAnim.value = withTiming(1, { duration: 250 })
-    }
-  }, [chromeAnim, clearHideTimer])
-
-  const hideChrome = useCallback(() => {
-    clearHideTimer()
-    if (chromeVisibleRef.current) {
-      chromeVisibleRef.current = false
-      setChromeVisible(false)
-      chromeAnim.value = withTiming(0, { duration: 300 })
-    }
-  }, [chromeAnim, clearHideTimer])
-
-  const noteLyricActivity = useCallback(() => {
-    revealChrome()
-    // 只有在歌词模式下、正在播放、且存在歌词时，才启动 3 秒隐藏倒计时
-    if (mode === 'lyrics' && playing && hasLyrics) {
-      hideTimer.current = setTimeout(() => {
-        hideChrome()
-      }, CHROME_HIDE_IDLE_MS)
-    }
-  }, [mode, playing, hasLyrics, revealChrome, hideChrome])
-
-  // 每次切换模式、播放状态改变时，检查是否需要启动或取消隐藏计时器
-  useEffect(() => {
-    if (mode === 'lyrics' && playing && hasLyrics) {
-      noteLyricActivity()
-    } else {
-      // 退出歌词模式、暂停播放、或暂无歌词时，始终显示周边，并清除计时器
-      revealChrome()
-    }
-    return clearHideTimer
-  }, [mode, playing, hasLyrics, noteLyricActivity, revealChrome, clearHideTimer])
+  }, [mode, listAnim, lyricAnim])
 
   const dismiss = useCallback(() => router.back(), [router])
 
@@ -236,34 +183,51 @@ export default function PlayerScreen() {
     borderRadius: 32,
   }))
 
-  const coverSize = Math.min(width - spacing.xl * 2, 420)
-
-  const chromeStyle = useAnimatedStyle(() => ({
-    opacity: chromeAnim.value,
-    transform: [{ translateY: interpolate(chromeAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP) }],
-  }))
-
-  const bottomChromeStyle = useAnimatedStyle(() => ({
-    opacity: chromeAnim.value,
-  }))
-
-  const topHandleStyle = useAnimatedStyle(() => ({
-    opacity: mode === 'lyrics' ? 1 : chromeAnim.value,
-  }))
+  const maxCoverHeight = stageMeasuredHeight > 0 ? stageMeasuredHeight - 76 : 420
+  const coverSize = Math.max(160, Math.min(width - spacing.xl * 2, maxCoverHeight))
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(listAnim.value, [0.15, 0.9], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(listAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP),
     transform: [
-      { translateY: interpolate(listAnim.value, [0.15, 1], [16, 0], Extrapolation.CLAMP) },
+      { scale: interpolate(listAnim.value, [0, 1], [1.04, 1], Extrapolation.CLAMP) },
+      { translateY: interpolate(listAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP) },
     ],
   }))
 
   const coverAnimatedStyle = useAnimatedStyle(() => {
-    const scale = interpolate(listAnim.value, [0, 1], [1, 0.92], Extrapolation.CLAMP)
-    const opacity = interpolate(listAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
+    const scale = interpolate(listAnim.value, [0, 1], [1, 0.90], Extrapolation.CLAMP)
+    const opacity = interpolate(listAnim.value, [0, 0.85], [1, 0], Extrapolation.CLAMP)
     return {
       opacity,
       transform: [{ scale }],
+    }
+  })
+
+  const coverListContainerAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(lyricAnim.value, [0, 0.85], [1, 0], Extrapolation.CLAMP)
+    const scale = interpolate(lyricAnim.value, [0, 1], [1, 0.90], Extrapolation.CLAMP)
+    return {
+      opacity,
+      transform: [{ scale }],
+    }
+  })
+
+  const lyricsContainerAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(lyricAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP)
+    const scale = interpolate(lyricAnim.value, [0, 1], [1.04, 1], Extrapolation.CLAMP)
+    const translateY = interpolate(lyricAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP)
+    return {
+      opacity,
+      transform: [{ scale }, { translateY }],
+    }
+  })
+
+  const pinnedHeaderAnimatedStyle = useAnimatedStyle(() => {
+    const translateY = interpolate(lyricAnim.value, [0.1, 1], [-14, 0], Extrapolation.CLAMP)
+    const opacity = interpolate(lyricAnim.value, [0.15, 0.9], [0, 1], Extrapolation.CLAMP)
+    return {
+      opacity,
+      transform: [{ translateY }],
     }
   })
 
@@ -274,185 +238,144 @@ export default function PlayerScreen() {
   return (
     <AuthGate group="protected">
       <GestureDetector gesture={dismissGesture}>
-      <Animated.View style={[rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
-        <CoverBackdrop artwork={current.artwork} />
+        <Animated.View style={[rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
+          <CoverBackdrop artwork={current.artwork} />
 
-        <GestureDetector gesture={headerDismissGesture}>
-          <Animated.View style={[styles.header, topHandleStyle]}>
-            <View style={styles.dragHandle} />
-          </Animated.View>
-        </GestureDetector>
-
-        {mode === 'lyrics' ? (
           <GestureDetector gesture={headerDismissGesture}>
-            <View style={styles.pinnedHeader}>
-              <CurrentTrackCard
-                item={current}
-                consumeOpenAction={() => false}
-                onDismissWithAction={dismissWithAction}
-                onMenuOpenChange={setMenuOpen}
-              />
+            <View style={styles.header}>
+              <View style={styles.dragHandle} />
             </View>
           </GestureDetector>
-        ) : null}
 
-        {mode === 'lyrics' ? (
-          <View style={styles.lyricsStage}>
-            <LyricPage
-              trackId={current.trackId}
-              bottomSpace={220 + insets.bottom}
-              controlsVisible={chromeVisible}
-              onReveal={noteLyricActivity}
-              onHide={hideChrome}
-              onActivity={noteLyricActivity}
-              onFastScrollDown={noteLyricActivity}
-              onTopStateChange={setIsLyricAtTop}
-            />
-
+          {/* 中间舞台容器：涵盖封面/列表层与歌词层，两层绝对覆盖实现平滑深度转场 */}
+          <View style={styles.stageViewport}>
+            {/* 封面与播放列表层 */}
             <Animated.View
-              style={[styles.floatingBottomControls, bottomChromeStyle]}
-              pointerEvents={chromeVisible ? 'auto' : 'none'}
-              onTouchStart={noteLyricActivity}
+              style={[StyleSheet.absoluteFill, coverListContainerAnimatedStyle]}
+              pointerEvents={mode !== 'lyrics' ? 'auto' : 'none'}
             >
-              {/* 复制播放器大背景 + 渐变羽化蒙版，保证控制区背景与大背景无缝衔接并遮蔽歌词 */}
-              <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+              <View style={styles.page}>
                 <View
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    width: width,
-                    height: height,
+                  style={styles.stage}
+                  onLayout={(e) => {
+                    const h = e.nativeEvent.layout.height
+                    stageHeight.value = h
+                    setStageMeasuredHeight(h)
                   }}
                 >
-                  <CoverBackdrop artwork={current.artwork} />
+                  <Animated.View
+                    style={[StyleSheet.absoluteFill, queueAnimatedStyle]}
+                    pointerEvents={mode === 'list' ? 'auto' : 'none'}
+                  >
+                    <PlayerQueue
+                      bottomSpace={0}
+                      listAnim={listAnim}
+                      stageTopOffset={stageTopOffset}
+                      stageHeight={stageHeight}
+                      onTopStateChange={setIsListAtTop}
+                      onActionOpenChange={setQueueActionOpen}
+                      onDismissWithAction={dismissWithAction}
+                      onMenuOpenChange={setMenuOpen}
+                      isMenuOpen={menuOpen}
+                      createDismissPan={createDismissPan}
+                      cardDismissGesture={headerDismissGesture}
+                      translateY={translateY}
+                      onDismiss={dismiss}
+                    />
+                  </Animated.View>
+
+                  <Animated.View
+                    pointerEvents={mode === 'cover' ? 'auto' : 'none'}
+                    style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
+                  >
+                    <View style={styles.coverImageWrapper}>
+                      <CoverImage resource={current.artwork} size={coverSize} borderRadius={radius.lg} />
+                    </View>
+                    <View style={styles.titleRowWrapper}>
+                      <PlayerTitleRow
+                        current={current}
+                        onDismissWithAction={dismissWithAction}
+                        onMenuOpenChange={setMenuOpen}
+                      />
+                    </View>
+                  </Animated.View>
                 </View>
-                <LinearGradient
-                  colors={['rgba(15,15,15,0)', 'rgba(15,15,15,0.72)', 'rgba(15,15,15,0.94)']}
-                  locations={[0, 0.28, 0.72]}
-                  style={StyleSheet.absoluteFill}
-                />
-              </View>
 
-              <View style={{ paddingHorizontal: spacing.xl }}>
-                <PlayerDeck
-                  current={current}
-                  hideTitle={true}
-                  onDismissWithAction={dismissWithAction}
-                  onMenuOpenChange={setMenuOpen}
-                />
-              </View>
-              <View style={[styles.toolbar, { paddingBottom: insets.bottom + spacing.xs }]}>
-                <IconButton
-                  name="lyrics"
-                  size={iconSize.lg}
-                  color={colors.iconMid}
-                  isActive={true}
-                  onPress={() => setMode('cover')}
-                  accessibilityLabel="歌词"
-                  style={styles.bottomIcon}
-                />
-                <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-                  <AirplayRouteButton style={styles.airplayNative} />
-                </View>
-                <IconButton
-                  name="queue"
-                  size={iconSize.lg}
-                  color={colors.iconMid}
-                  isActive={false}
-                  onPress={() => setMode('list')}
-                  accessibilityLabel="播放队列"
-                  style={styles.bottomIcon}
-                />
-              </View>
-            </Animated.View>
-          </View>
-        ) : (
-          <>
-            <View style={styles.page}>
-              <View
-                style={styles.stage}
-                onLayout={(e) => {
-                  stageHeight.value = e.nativeEvent.layout.height
-                }}
-              >
-                <Animated.View
-                  style={[StyleSheet.absoluteFill, queueAnimatedStyle]}
-                  pointerEvents={mode === 'list' ? 'auto' : 'none'}
-                >
-                  <PlayerQueue
-                    bottomSpace={0}
-                    listAnim={listAnim}
-                    stageTopOffset={stageTopOffset}
-                    stageHeight={stageHeight}
-                    onTopStateChange={setIsListAtTop}
-                    onActionOpenChange={setQueueActionOpen}
-                    onDismissWithAction={dismissWithAction}
-                    onMenuOpenChange={setMenuOpen}
-                    isMenuOpen={menuOpen}
-                    createDismissPan={createDismissPan}
-                    cardDismissGesture={headerDismissGesture}
-                    translateY={translateY}
-                    onDismiss={dismiss}
-                  />
-                </Animated.View>
-
-                <Animated.View
-                  pointerEvents={mode === 'cover' ? 'auto' : 'none'}
-                  style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
-                >
-                  <CoverImage resource={current.artwork} size={coverSize} borderRadius={radius.lg} />
-                </Animated.View>
-              </View>
-
-              <Animated.View style={chromeStyle} pointerEvents={chromeVisible ? 'auto' : 'none'}>
                 <View style={{ paddingHorizontal: spacing.xl }}>
                   <PlayerDeck
                     current={current}
                     listAnim={listAnim}
+                    hideTitle={true}
                     onDismissWithAction={dismissWithAction}
                     onMenuOpenChange={setMenuOpen}
                   />
                 </View>
-              </Animated.View>
-            </View>
-
-            <Animated.View
-              style={[styles.toolbar, chromeStyle, { paddingBottom: insets.bottom + spacing.xs }]}
-              pointerEvents={chromeVisible ? 'auto' : 'none'}
-            >
-              <IconButton
-                name="lyrics"
-                size={iconSize.lg}
-                color={colors.iconMid}
-                isActive={false}
-                onPress={() => setMode('lyrics')}
-                accessibilityLabel="歌词"
-                style={styles.bottomIcon}
-              />
-              <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-                <AirplayRouteButton style={styles.airplayNative} />
               </View>
-              <IconButton
-                name="queue"
-                size={iconSize.lg}
-                color={colors.iconMid}
-                isActive={mode === 'list'}
-                onPress={() => setMode(mode === 'list' ? 'cover' : 'list')}
-                accessibilityLabel="播放队列"
-                style={styles.bottomIcon}
-              />
             </Animated.View>
-          </>
-        )}
 
-        {menuOpen ? (
-          <Pressable
-            style={[StyleSheet.absoluteFill, styles.menuScrim]}
-            onPress={() => setMenuOpen(false)}
-          />
-        ) : null}
-      </Animated.View>
+            {/* 歌词层 */}
+            <Animated.View
+              style={[StyleSheet.absoluteFill, lyricsContainerAnimatedStyle]}
+              pointerEvents={mode === 'lyrics' ? 'auto' : 'none'}
+            >
+              <Animated.View style={pinnedHeaderAnimatedStyle}>
+                <GestureDetector gesture={headerDismissGesture}>
+                  <View style={styles.pinnedHeader}>
+                    <CurrentTrackCard
+                      item={current}
+                      consumeOpenAction={() => false}
+                      onDismissWithAction={dismissWithAction}
+                      onMenuOpenChange={setMenuOpen}
+                    />
+                  </View>
+                </GestureDetector>
+              </Animated.View>
+
+              <View style={styles.lyricsStage}>
+                <LyricPage
+                  trackId={current.trackId}
+                  bottomSpace={48 + insets.bottom}
+                  onTopStateChange={setIsLyricAtTop}
+                  active={mode === 'lyrics'}
+                  translateY={translateY}
+                  onDismiss={dismiss}
+                />
+              </View>
+            </Animated.View>
+          </View>
+
+          {/* 底部工具栏常驻 */}
+          <View style={[styles.toolbar, { paddingBottom: insets.bottom + spacing.xs }]}>
+            <IconButton
+              name="lyrics"
+              size={iconSize.lg}
+              color={colors.iconMid}
+              isActive={mode === 'lyrics'}
+              onPress={() => setMode(mode === 'lyrics' ? 'cover' : 'lyrics')}
+              accessibilityLabel="歌词"
+              style={styles.bottomIcon}
+            />
+            <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
+              <AirplayRouteButton style={styles.airplayNative} />
+            </View>
+            <IconButton
+              name="queue"
+              size={iconSize.lg}
+              color={colors.iconMid}
+              isActive={mode === 'list'}
+              onPress={() => setMode(mode === 'list' ? 'cover' : 'list')}
+              accessibilityLabel="播放队列"
+              style={styles.bottomIcon}
+            />
+          </View>
+
+          {menuOpen ? (
+            <Pressable
+              style={[StyleSheet.absoluteFill, styles.menuScrim]}
+              onPress={() => setMenuOpen(false)}
+            />
+          ) : null}
+        </Animated.View>
       </GestureDetector>
     </AuthGate>
   )
@@ -476,32 +399,25 @@ function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
 function LyricPage({
   trackId,
   bottomSpace,
-  controlsVisible,
-  onReveal,
-  onHide,
-  onActivity,
-  onFastScrollDown,
   onTopStateChange,
+  active,
+  translateY,
+  onDismiss,
 }: {
   trackId: string
   bottomSpace?: number
-  controlsVisible?: boolean
-  onReveal: () => void
-  onHide?: () => void
-  onActivity: () => void
-  onFastScrollDown: () => void
   onTopStateChange?: (atTop: boolean) => void
+  active?: boolean
+  translateY?: SharedValue<number>
+  onDismiss?: () => void
 }) {
-  const progress = useProgress(LYRIC_TICK_MS)
+  const { playing } = useIsPlaying()
+  const progress = useProgress(active ? LYRIC_TICK_MS : 1000)
   const current = usePlayerStore(selectCurrent)
-  const seekAndPlay = useCallback(
-    (seconds: number) => {
-      void TrackPlayer.seekTo(seconds)
-      void TrackPlayer.play()
-      onActivity()
-    },
-    [onActivity],
-  )
+  const seekAndPlay = useCallback((seconds: number) => {
+    void TrackPlayer.seekTo(seconds)
+    void TrackPlayer.play()
+  }, [])
   return (
     <View style={styles.stageFill}>
       <LyricView
@@ -510,12 +426,11 @@ function LyricPage({
         onSeek={seekAndPlay}
         songTitle={current?.title}
         bottomSpace={bottomSpace}
-        controlsVisible={controlsVisible}
-        onFastScrollDown={onFastScrollDown}
-        onScrollUp={onHide}
         onTopStateChange={onTopStateChange}
-        onPullTop={onReveal}
-        onScrollBeginDrag={onActivity}
+        active={active}
+        translateY={translateY}
+        onDismiss={onDismiss}
+        playing={playing}
       />
     </View>
   )
@@ -537,6 +452,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.iconDim,
   },
+  stageViewport: {
+    flex: 1,
+    position: 'relative',
+  },
   pinnedHeader: {
     zIndex: 10,
   },
@@ -544,19 +463,22 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
-  floatingBottomControls: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingTop: spacing.lg,
-    backgroundColor: 'transparent',
-    zIndex: 20,
-  },
   page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },
-  coverStage: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  coverStage: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  coverImageWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  titleRowWrapper: {
+    paddingHorizontal: spacing.xl,
+  },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',

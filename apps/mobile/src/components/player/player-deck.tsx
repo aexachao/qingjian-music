@@ -37,6 +37,61 @@ interface PlayerDeckProps {
   onMenuOpenChange?: (open: boolean) => void
 }
 
+export interface PlayerTitleRowProps {
+  current: QueueItem
+  onDismissWithAction?: (action: () => void) => void
+  onMenuOpenChange?: (open: boolean) => void
+}
+
+export function PlayerTitleRow({
+  current,
+  onDismissWithAction,
+  onMenuOpenChange,
+}: PlayerTitleRowProps) {
+  const toggleFavorite = useToggleFavorite()
+  const toast = useToast()
+
+  const onToggleFavorite = useCallback(async () => {
+    const next = !current.isFavorite
+    try {
+      await toggleFavorite(current.trackId, next)
+      toast(next ? '已添加到我喜欢的音乐' : '已从我喜欢的音乐移除')
+    } catch {
+      toast('操作失败，请稍后再试')
+    }
+  }, [current, toast, toggleFavorite])
+
+  return (
+    <View style={styles.titleRow}>
+      <View style={styles.titleText}>
+        {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
+        <MarqueeText text={current.title} style={styles.title} />
+        <MarqueeText
+          text={current.artistText}
+          style={styles.artist}
+        />
+      </View>
+      <View style={styles.actions}>
+        <IconButton
+          name="heart"
+          size={iconSize.xl}
+          color={current.isFavorite ? colors.like : colors.iconMid}
+          filled={true}
+          onPress={() => void onToggleFavorite()}
+          accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
+        />
+        <View style={styles.menuWrapper}>
+          <DeckMoreButton
+            current={current}
+            onDismissWithAction={onDismissWithAction}
+            onMenuOpenChange={onMenuOpenChange}
+          />
+        </View>
+      </View>
+    </View>
+  )
+}
+
 /**
  * 播放页下半部分：歌名行（右侧「喜欢」「···」）+ 进度条 + 传输控制 + 音量条。
  * 封面页和歌词页共用它，两页只有上半部分不同。
@@ -54,30 +109,15 @@ export function PlayerDeck({
   const audioSourceInfo = useMemo(() => formatAudioSourceInfo(current), [current])
   const progress = useProgress(500)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
-  const toggleFavorite = useToggleFavorite()
-  const toast = useToast()
-
-  const onToggleFavorite = useCallback(async () => {
-    const next = !current.isFavorite
-    try {
-      await toggleFavorite(current.trackId, next)
-      toast(next ? '已添加到我喜欢的音乐' : '已从我喜欢的音乐移除')
-    } catch {
-      toast('操作失败，请稍后再试')
-    }
-  }, [current, toast, toggleFavorite])
 
   const titleAnimatedStyle = useAnimatedStyle(() => {
     if (!listAnim) return {}
     const opacity = interpolate(listAnim.value, [0, 0.35], [1, 0], Extrapolation.CLAMP)
-    const maxHeight = interpolate(listAnim.value, [0.1, 0.9], [58, 0], Extrapolation.CLAMP)
-    const marginBottom = interpolate(listAnim.value, [0.1, 0.9], [0, -spacing.lg], Extrapolation.CLAMP)
+    const translateY = interpolate(listAnim.value, [0, 0.35], [0, -10], Extrapolation.CLAMP)
 
     return {
       opacity,
-      maxHeight,
-      marginBottom,
-      overflow: 'hidden',
+      transform: [{ translateY }],
     }
   })
 
@@ -88,33 +128,11 @@ export function PlayerDeck({
     <View style={styles.container}>
       {!hideTitle ? (
         <Animated.View style={titleAnimatedStyle}>
-          <View style={styles.titleRow}>
-            <View style={styles.titleText}>
-              {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
-              <MarqueeText text={current.title} style={styles.title} />
-              <MarqueeText
-                text={current.artistText}
-                style={styles.artist}
-              />
-            </View>
-            <View style={styles.actions}>
-              <IconButton
-                name="heart"
-                size={iconSize.xl}
-                color={current.isFavorite ? colors.like : colors.iconMid}
-                filled={true}
-                onPress={() => void onToggleFavorite()}
-                accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
-              />
-              <View style={styles.menuWrapper}>
-                <DeckMoreButton
-                  current={current}
-                  onDismissWithAction={onDismissWithAction}
-                  onMenuOpenChange={onMenuOpenChange}
-                />
-              </View>
-            </View>
-          </View>
+          <PlayerTitleRow
+            current={current}
+            onDismissWithAction={onDismissWithAction}
+            onMenuOpenChange={onMenuOpenChange}
+          />
         </Animated.View>
       ) : null}
 
