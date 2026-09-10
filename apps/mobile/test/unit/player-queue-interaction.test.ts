@@ -20,9 +20,10 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).not.toContain('initialScrollIndex=')
   })
 
-  it('队列来源位于播放器顶部把手下方', () => {
+  it('播放器顶部只保留居中拖拽把手，不显示来自来源', () => {
     expect(playerSource).toContain('<View style={styles.dragHandle} />')
-    expect(playerSource).toContain('<Text style={styles.queueSource}>来自 {source.label}</Text>')
+    expect(playerSource).not.toContain('来自 {source.label}')
+    expect(playerSource).not.toContain('styles.queueSource')
   })
 
   it('历史清除靠右并经过破坏性二次确认', () => {
@@ -70,5 +71,32 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('alwaysBounceVertical={true}')
     expect(queueSource).toContain('gesture={headerOverlayDismissGesture}')
     expect(queueSource).not.toContain('ReorderableListCore')
+  })
+
+  it('播放器与播放列表中的收藏 icon 统一采用面性（实心）形态', () => {
+    const iconSource = readFileSync(resolve(__dirname, '../../src/components/icon.tsx'), 'utf8')
+    const deckSource = readFileSync(resolve(__dirname, '../../src/components/player/player-deck.tsx'), 'utf8')
+    const queueSrc = readFileSync(resolve(__dirname, '../../src/components/player/player-queue.tsx'), 'utf8')
+
+    // OUTLINE_VARIANTS 不再包含 heart，全局 heart 恒为面性 glyph
+    expect(iconSource).not.toContain("heart: 'heart-outline'")
+
+    // PlayerDeck 和 PlayerQueue 均使用 filled={true}
+    expect(deckSource).toContain('name="heart"')
+    expect(deckSource).toContain('filled={true}')
+    expect(queueSrc).toContain('name="heart"')
+    expect(queueSrc).toContain('filled={true}')
+  })
+
+  it('上一首切歌逻辑接入 restorePreviousTrack 与 pendingPreviousActivation', () => {
+    const controllerSource = readFileSync(resolve(__dirname, '../../src/player/controller.ts'), 'utf8')
+    const bridgeSource = readFileSync(resolve(__dirname, '../../src/player/bridge.tsx'), 'utf8')
+
+    expect(controllerSource).toContain('takePendingPreviousActivation')
+    expect(controllerSource).toContain('pendingPreviousActivation')
+    expect(bridgeSource).toContain('takePendingPreviousActivation')
+    expect(bridgeSource).toContain('restorePreviousTrack')
+    // 上一首恢复不能 remove([1])，保留待播队列
+    expect(bridgeSource).toContain('// 上一首恢复时，原当前曲目顺延到 index 1 作为待播曲目，保留在原生队列中，不得 remove([1])')
   })
 })

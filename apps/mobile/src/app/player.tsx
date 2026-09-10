@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 
+import { LinearGradient } from 'expo-linear-gradient'
 import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverImage } from '@/components/cover-image'
@@ -23,7 +24,8 @@ import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck } from '@/components/player/player-deck'
-import { closeOpenQueueAction, PlayerQueue } from '@/components/player/player-queue'
+import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
+import { useLyricSheet } from '@/lib/lyric-offset'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
@@ -38,7 +40,8 @@ export default function PlayerScreen() {
   const { width, height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
-  const source = usePlayerStore((state) => state.source)
+  const lyricQuery = useLyricSheet(current?.trackId ?? '')
+  const hasLyrics = Boolean(lyricQuery.data && lyricQuery.data.lines.length > 0)
   const { playing } = useIsPlaying()
 
   const [mode, setMode] = useState<PlayerMode>('cover')
@@ -65,8 +68,9 @@ export default function PlayerScreen() {
     }
   }, [mode, listAnim])
 
-  // 交互防抖计时器
+  // 交互防抖计时器与显隐状态引用
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chromeVisibleRef = useRef(true)
 
   const clearHideTimer = useCallback(() => {
     if (hideTimer.current) {
@@ -77,44 +81,56 @@ export default function PlayerScreen() {
 
   const revealChrome = useCallback(() => {
     clearHideTimer()
-    if (!chromeVisible) {
+    if (!chromeVisibleRef.current) {
+      chromeVisibleRef.current = true
       setChromeVisible(true)
       chromeAnim.value = withTiming(1, { duration: 250 })
     }
-  }, [chromeVisible, chromeAnim, clearHideTimer])
+  }, [chromeAnim, clearHideTimer])
+
+  const hideChrome = useCallback(() => {
+    clearHideTimer()
+    if (chromeVisibleRef.current) {
+      chromeVisibleRef.current = false
+      setChromeVisible(false)
+      chromeAnim.value = withTiming(0, { duration: 300 })
+    }
+  }, [chromeAnim, clearHideTimer])
 
   const noteLyricActivity = useCallback(() => {
     revealChrome()
-    // 只有在歌词模式下，且正在播放时，才会重新启动倒计时
-    if (mode === 'lyrics' && playing) {
+    // 只有在歌词模式下、正在播放、且存在歌词时，才启动 3 秒隐藏倒计时
+    if (mode === 'lyrics' && playing && hasLyrics) {
       hideTimer.current = setTimeout(() => {
-        setChromeVisible(false)
-        chromeAnim.value = withTiming(0, { duration: 300 })
+        hideChrome()
       }, CHROME_HIDE_IDLE_MS)
     }
-  }, [mode, playing, revealChrome, chromeAnim])
+  }, [mode, playing, hasLyrics, revealChrome, hideChrome])
 
   // 每次切换模式、播放状态改变时，检查是否需要启动或取消隐藏计时器
   useEffect(() => {
-    if (mode === 'lyrics' && playing) {
+    if (mode === 'lyrics' && playing && hasLyrics) {
       noteLyricActivity()
     } else {
-      // 退出歌词模式或暂停播放时，始终显示周边，并清除计时器
+      // 退出歌词模式、暂停播放、或暂无歌词时，始终显示周边，并清除计时器
       revealChrome()
     }
     return clearHideTimer
-  }, [mode, playing, noteLyricActivity, revealChrome, clearHideTimer])
+  }, [mode, playing, hasLyrics, noteLyricActivity, revealChrome, clearHideTimer])
 
   const dismiss = useCallback(() => router.back(), [router])
 
   const translateY = useSharedValue(height || 850)
   const startY = useSharedValue(0)
   const [isListAtTop, setIsListAtTop] = useState(true)
+  const [isLyricAtTop, setIsLyricAtTop] = useState(true)
   const [queueActionOpen, setQueueActionOpen] = useState(false)
 
   useEffect(() => {
     if (mode === 'list') {
       setIsListAtTop(true)
+    } else if (mode === 'lyrics') {
+      setIsLyricAtTop(true)
     }
   }, [mode])
 
@@ -199,8 +215,13 @@ export default function PlayerScreen() {
   }, [height, translateY, dismiss])
 
   const dismissGesture = useMemo(
-    () => createDismissPan(!menuOpen && (mode !== 'list' || isListAtTop)),
-    [createDismissPan, menuOpen, mode, isListAtTop]
+    () =>
+      createDismissPan(
+        !menuOpen &&
+          (mode !== 'list' || isListAtTop) &&
+          (mode !== 'lyrics' || isLyricAtTop),
+      ),
+    [createDismissPan, menuOpen, mode, isListAtTop, isLyricAtTop],
   )
   const headerDismissGesture = useMemo(
     () => createDismissPan(!menuOpen),
@@ -222,8 +243,12 @@ export default function PlayerScreen() {
     transform: [{ translateY: interpolate(chromeAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP) }],
   }))
 
-  const topHandleStyle = useAnimatedStyle(() => ({
+  const bottomChromeStyle = useAnimatedStyle(() => ({
     opacity: chromeAnim.value,
+  }))
+
+  const topHandleStyle = useAnimatedStyle(() => ({
+    opacity: mode === 'lyrics' ? 1 : chromeAnim.value,
   }))
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
@@ -255,25 +280,102 @@ export default function PlayerScreen() {
         <GestureDetector gesture={headerDismissGesture}>
           <Animated.View style={[styles.header, topHandleStyle]}>
             <View style={styles.dragHandle} />
-            {source ? <Text style={styles.queueSource}>来自 {source.label}</Text> : null}
           </Animated.View>
         </GestureDetector>
 
-        <View style={styles.page}>
-          <View
-            style={styles.stage}
-            onLayout={(e) => {
-              stageHeight.value = e.nativeEvent.layout.height
-            }}
-          >
-            {mode === 'lyrics' ? (
-              <LyricPage
-                trackId={current.trackId}
-                onReveal={revealChrome}
-                onActivity={noteLyricActivity}
+        {mode === 'lyrics' ? (
+          <GestureDetector gesture={headerDismissGesture}>
+            <View style={styles.pinnedHeader}>
+              <CurrentTrackCard
+                item={current}
+                consumeOpenAction={() => false}
+                onDismissWithAction={dismissWithAction}
+                onMenuOpenChange={setMenuOpen}
               />
-            ) : (
-              <>
+            </View>
+          </GestureDetector>
+        ) : null}
+
+        {mode === 'lyrics' ? (
+          <View style={styles.lyricsStage}>
+            <LyricPage
+              trackId={current.trackId}
+              bottomSpace={220 + insets.bottom}
+              controlsVisible={chromeVisible}
+              onReveal={noteLyricActivity}
+              onHide={hideChrome}
+              onActivity={noteLyricActivity}
+              onFastScrollDown={noteLyricActivity}
+              onTopStateChange={setIsLyricAtTop}
+            />
+
+            <Animated.View
+              style={[styles.floatingBottomControls, bottomChromeStyle]}
+              pointerEvents={chromeVisible ? 'auto' : 'none'}
+              onTouchStart={noteLyricActivity}
+            >
+              {/* 复制播放器大背景 + 渐变羽化蒙版，保证控制区背景与大背景无缝衔接并遮蔽歌词 */}
+              <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+                <View
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    width: width,
+                    height: height,
+                  }}
+                >
+                  <CoverBackdrop artwork={current.artwork} />
+                </View>
+                <LinearGradient
+                  colors={['rgba(15,15,15,0)', 'rgba(15,15,15,0.72)', 'rgba(15,15,15,0.94)']}
+                  locations={[0, 0.28, 0.72]}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+
+              <View style={{ paddingHorizontal: spacing.xl }}>
+                <PlayerDeck
+                  current={current}
+                  hideTitle={true}
+                  onDismissWithAction={dismissWithAction}
+                  onMenuOpenChange={setMenuOpen}
+                />
+              </View>
+              <View style={[styles.toolbar, { paddingBottom: insets.bottom + spacing.xs }]}>
+                <IconButton
+                  name="lyrics"
+                  size={iconSize.lg}
+                  color={colors.iconMid}
+                  isActive={true}
+                  onPress={() => setMode('cover')}
+                  accessibilityLabel="歌词"
+                  style={styles.bottomIcon}
+                />
+                <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
+                  <AirplayRouteButton style={styles.airplayNative} />
+                </View>
+                <IconButton
+                  name="queue"
+                  size={iconSize.lg}
+                  color={colors.iconMid}
+                  isActive={false}
+                  onPress={() => setMode('list')}
+                  accessibilityLabel="播放队列"
+                  style={styles.bottomIcon}
+                />
+              </View>
+            </Animated.View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.page}>
+              <View
+                style={styles.stage}
+                onLayout={(e) => {
+                  stageHeight.value = e.nativeEvent.layout.height
+                }}
+              >
                 <Animated.View
                   style={[StyleSheet.absoluteFill, queueAnimatedStyle]}
                   pointerEvents={mode === 'list' ? 'auto' : 'none'}
@@ -301,48 +403,48 @@ export default function PlayerScreen() {
                 >
                   <CoverImage resource={current.artwork} size={coverSize} borderRadius={radius.lg} />
                 </Animated.View>
-              </>
-            )}
-          </View>
+              </View>
 
-          <Animated.View style={chromeStyle} pointerEvents={chromeVisible ? 'auto' : 'none'}>
-            <View style={{ paddingHorizontal: spacing.xl }}>
-              <PlayerDeck
-                current={current}
-                listAnim={listAnim}
-                onDismissWithAction={dismissWithAction}
-                onMenuOpenChange={setMenuOpen}
-              />
+              <Animated.View style={chromeStyle} pointerEvents={chromeVisible ? 'auto' : 'none'}>
+                <View style={{ paddingHorizontal: spacing.xl }}>
+                  <PlayerDeck
+                    current={current}
+                    listAnim={listAnim}
+                    onDismissWithAction={dismissWithAction}
+                    onMenuOpenChange={setMenuOpen}
+                  />
+                </View>
+              </Animated.View>
             </View>
-          </Animated.View>
-        </View>
 
-        <Animated.View
-          style={[styles.toolbar, chromeStyle, { paddingBottom: insets.bottom + spacing.xs }]}
-          pointerEvents={chromeVisible ? 'auto' : 'none'}
-        >
-          <IconButton
-            name="lyrics"
-            size={iconSize.lg}
-            color={colors.iconMid}
-            isActive={mode === 'lyrics'}
-            onPress={() => setMode(mode === 'lyrics' ? 'cover' : 'lyrics')}
-            accessibilityLabel="歌词"
-            style={styles.bottomIcon}
-          />
-          <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-            <AirplayRouteButton style={styles.airplayNative} />
-          </View>
-          <IconButton
-            name="queue"
-            size={iconSize.lg}
-            color={colors.iconMid}
-            isActive={mode === 'list'}
-            onPress={() => setMode(mode === 'list' ? 'cover' : 'list')}
-            accessibilityLabel="播放队列"
-            style={styles.bottomIcon}
-          />
-        </Animated.View>
+            <Animated.View
+              style={[styles.toolbar, chromeStyle, { paddingBottom: insets.bottom + spacing.xs }]}
+              pointerEvents={chromeVisible ? 'auto' : 'none'}
+            >
+              <IconButton
+                name="lyrics"
+                size={iconSize.lg}
+                color={colors.iconMid}
+                isActive={false}
+                onPress={() => setMode('lyrics')}
+                accessibilityLabel="歌词"
+                style={styles.bottomIcon}
+              />
+              <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
+                <AirplayRouteButton style={styles.airplayNative} />
+              </View>
+              <IconButton
+                name="queue"
+                size={iconSize.lg}
+                color={colors.iconMid}
+                isActive={mode === 'list'}
+                onPress={() => setMode(mode === 'list' ? 'cover' : 'list')}
+                accessibilityLabel="播放队列"
+                style={styles.bottomIcon}
+              />
+            </Animated.View>
+          </>
+        )}
 
         {menuOpen ? (
           <Pressable
@@ -373,12 +475,22 @@ function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
 
 function LyricPage({
   trackId,
+  bottomSpace,
+  controlsVisible,
   onReveal,
+  onHide,
   onActivity,
+  onFastScrollDown,
+  onTopStateChange,
 }: {
   trackId: string
+  bottomSpace?: number
+  controlsVisible?: boolean
   onReveal: () => void
+  onHide?: () => void
   onActivity: () => void
+  onFastScrollDown: () => void
+  onTopStateChange?: (atTop: boolean) => void
 }) {
   const progress = useProgress(LYRIC_TICK_MS)
   const current = usePlayerStore(selectCurrent)
@@ -391,16 +503,21 @@ function LyricPage({
     [onActivity],
   )
   return (
-    <Pressable style={styles.stageFill} onPress={onReveal}>
+    <View style={styles.stageFill}>
       <LyricView
         trackId={trackId}
         positionMs={progress.position * 1000}
         onSeek={seekAndPlay}
         songTitle={current?.title}
+        bottomSpace={bottomSpace}
+        controlsVisible={controlsVisible}
+        onFastScrollDown={onFastScrollDown}
+        onScrollUp={onHide}
+        onTopStateChange={onTopStateChange}
         onPullTop={onReveal}
         onScrollBeginDrag={onActivity}
       />
-    </Pressable>
+    </View>
   )
 }
 
@@ -409,11 +526,10 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   empty: { ...typography.subhead, color: colors.textSecondary },
   header: {
-    height: 50,
+    height: 32,
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     paddingTop: spacing.xs,
-    gap: spacing.sm, // 原为 spacing.xs(4px)，增加 4px 后为 spacing.sm(8px)
   },
   dragHandle: {
     width: 36,
@@ -421,7 +537,22 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.iconDim,
   },
-  queueSource: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
+  pinnedHeader: {
+    zIndex: 10,
+  },
+  lyricsStage: {
+    flex: 1,
+    position: 'relative',
+  },
+  floatingBottomControls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: spacing.lg,
+    backgroundColor: 'transparent',
+    zIndex: 20,
+  },
   page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },

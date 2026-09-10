@@ -31,6 +31,8 @@ interface PlayerState {
   activateIndex(index: number): void
   /** 从历史点播：历史不变，新 occurrence 成为当前，原当前追加到历史。 */
   activateHistoryItem(item: QueueItem, qid: string): void
+  /** 从历史中恢复上一首：弹出历史末尾项置于队头，原当前曲目与待播列表顺延。 */
+  restorePreviousTrack(item: QueueItem): void
   setRepeat(repeat: RepeatMode): void
   setShuffle(shuffle: boolean): void
   setAutoplay(autoplay: boolean): void
@@ -48,6 +50,9 @@ interface PlayerState {
   playbackEnded: boolean
   setPlaybackEnded(ended: boolean): void
   appendHistoryItem(item: QueueItem): void
+  /** 音频是否正在加载/解码中（用于在播放/暂停按钮呈现 loading 状态） */
+  isLoadingAudio: boolean
+  setIsLoadingAudio(loading: boolean): void
 }
 
 /** 持久化恢复时用的整套状态（restore 的入参） */
@@ -77,6 +82,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   lyricOffsetMs: 0,
   playbackEnded: false,
   setPlaybackEnded: (playbackEnded) => set({ playbackEnded }),
+  isLoadingAudio: false,
+  setIsLoadingAudio: (isLoadingAudio) => set({ isLoadingAudio }),
   appendHistoryItem: (item) =>
     set((state) => ({
       history: appendHistoryOccurrence(state.history, item),
@@ -139,6 +146,19 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         playbackEnded: false,
       }
     }),
+  restorePreviousTrack: (restoredItem) =>
+    set((state) => {
+      if (state.history.length === 0) return state
+      const history = state.history.slice(0, -1)
+      const queue = [restoredItem, ...state.queue]
+      return {
+        queue,
+        baseQueue: [restoredItem, ...state.baseQueue],
+        history,
+        index: 0,
+        playbackEnded: false,
+      }
+    }),
   setRepeat: (repeat) => set((state) => ({ playMode: { ...state.playMode, repeat } })),
   setShuffle: (shuffle) => set((state) => ({ playMode: { ...state.playMode, shuffle } })),
   setAutoplay: (autoplay) => set({ autoplay }),
@@ -190,7 +210,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         lyricOffsetMs: payload.lyricOffsetMs,
       }
     }),
-  clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined }),
+  clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined, isLoadingAudio: false }),
   clearHistory: () => set({ history: [] }),
 }))
 

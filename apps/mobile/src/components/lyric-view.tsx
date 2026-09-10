@@ -1,12 +1,24 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native'
 import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
 import type { LyricLine } from '@qj/core-domain'
 import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
 import { useLyricSheet } from '@/lib/lyric-offset'
 import { usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
 
 /** 没有下一行时，假设当前行唱这么久（逐词进度的兜底） */
 const FALLBACK_LINE_MS = 4000
@@ -17,8 +29,6 @@ const PULL_REVEAL_PT = 36
 
 /** 卡拉OK行里还没唱到的字用这个灰（唱到的字是纯白） */
 const PENDING_CHAR = '#ffffff99'
-/** 其余（没轮到的）行整体压暗，突出当前行 */
-const IDLE_LINE = '#ffffff6b'
 
 interface LyricViewProps {
   trackId: string
@@ -28,9 +38,19 @@ interface LyricViewProps {
   onSeek: (seconds: number) => void
   /** 弹「全部歌词」面板时顶部显示的歌名（分享文本里也要用） */
   songTitle?: string
+  /** 底部控制区占位高度（用于空状态提示词居中与歌词底边距） */
+  bottomSpace?: number
+  /** 底部控制区当前是否可见（用于计算有效净视口高度） */
+  controlsVisible?: boolean
+  /** 快速向下滑动（快速下甩）唤起控制区 */
+  onFastScrollDown?: () => void
+  /** 向上滑动歌词时立即隐藏控制区（无需等待 3 秒） */
+  onScrollUp?: () => void
+  /** 列表是否停在顶部 */
+  onTopStateChange?: (atTop: boolean) => void
   /** 列表停在顶部还继续往下拽（overscroll）时触发：播放页用它把周边唤回来 */
   onPullTop?: () => void
-  /** 手指开始拖动列表：算一次「有操作」，播放页用它重置全屏歌词的静置计时 */
+  /** 手指开始拖动列表 */
   onScrollBeginDrag?: () => void
 }
 
@@ -74,11 +94,25 @@ function countLitChars(line: LyricLine, atMs: number, nextLineAtMs: number): num
   return lit
 }
 
-export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, onScrollBeginDrag }: LyricViewProps) {
+export function LyricView({
+  trackId,
+  positionMs,
+  onSeek,
+  songTitle,
+  bottomSpace,
+  controlsVisible = true,
+  onFastScrollDown,
+  onScrollUp,
+  onTopStateChange,
+  onPullTop,
+  onScrollBeginDrag,
+}: LyricViewProps) {
   const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
   const scrollRef = useRef<ScrollView>(null)
   const offsets = useRef<number[]>([])
   const [viewportHeight, setViewportHeight] = useState(0)
+  /** 用户手动点按选中的行（即时提供底板与锐化反馈） */
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null)
   /** 长按某一行 → 弹全部歌词面板，并把那一行滚到可见 */
   const [sheetOpenFor, setSheetOpenFor] = useState<number | null>(null)
 
@@ -90,6 +124,11 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, o
   const atMs = positionMs + offsetMs
   const activeIndex = useMemo(() => (synced ? activeIndexOf(lines, atMs) : -1), [lines, atMs, synced])
 
+  // 当自然播放推进到下一行时，重置手动选中项
+  useEffect(() => {
+    setSelectedRowIndex(null)
+  }, [activeIndex])
+
   // 当前行是卡拉OK行时，唱到第几个字（整行高亮的行用不上）
   const activeKaraoke = activeIndex >= 0 && synced && isKaraokeLine(lines[activeIndex]!)
   const litCount = useMemo(() => {
@@ -98,29 +137,156 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, o
     return countLitChars(lines[activeIndex]!, atMs, nextAt)
   }, [activeKaraoke, activeIndex, atMs, lines])
 
-  // 高亮行滚到视口中间（卡拉OK放大后也仍然居中）
+  // —— 手势防冲突与视口容差状态机 ——
+  const currentScrollY = useRef(0)
+  const isInteractingRef = useRef(false)
+  const userManualOverrideRef = useRef(false)
+  const idleResumeTimer = useRef<NodeJS.Timeout | null>(null)
+  const scrollHistory = useRef<{ y: number; time: number }[]>([])
+
+  const clearIdleResumeTimer = useCallback(() => {
+    if (idleResumeTimer.current) {
+      clearTimeout(idleResumeTimer.current)
+      idleResumeTimer.current = null
+    }
+  }, [])
+
+  // 切歌时重置手势与位移状态
   useEffect(() => {
-    if (!synced || activeIndex < 0 || viewportHeight <= 0) return
-    const target = offsets.current[activeIndex]
-    if (target === undefined) return
-    scrollRef.current?.scrollTo({ y: Math.max(target - viewportHeight / 2, 0), animated: true })
-  }, [activeIndex, synced, viewportHeight])
+    offsets.current = []
+    currentScrollY.current = 0
+    isInteractingRef.current = false
+    userManualOverrideRef.current = false
+    clearIdleResumeTimer()
+  }, [trackId, clearIdleResumeTimer])
+
+  useEffect(() => {
+    return clearIdleResumeTimer
+  }, [clearIdleResumeTimer])
+
+  const scrollToActiveIndex = useCallback(
+    (index: number, forceCenter = false) => {
+      if (!synced || index < 0 || viewportHeight <= 0) return
+      const targetY = offsets.current[index]
+      if (targetY === undefined) return
+
+      const effectiveHeight =
+        controlsVisible && bottomSpace
+          ? Math.max(viewportHeight - bottomSpace, 120)
+          : viewportHeight
+
+      // 1. 手指按住、拖拽或惯性滑动中：硬锁定，绝对不自动滚动视口
+      if (isInteractingRef.current) return
+
+      // 2. 用户松手后的宽容视口态（未超时冷却恢复前）：
+      if (userManualOverrideRef.current && !forceCenter) {
+        const scrollY = currentScrollY.current
+        // 舒适视口安全区：顶部留 40pt，底部留 64pt（避免被控制区羽化蒙版遮挡）
+        const safeTop = scrollY + 40
+        const safeBottom = scrollY + effectiveHeight - 64
+
+        // 若当前/新高亮行仍在舒适视口内，跳过滚动，仅在原地高亮，不打扰用户视线
+        if (targetY >= safeTop && targetY <= safeBottom) {
+          return
+        }
+      }
+
+      // 3. 正常自动跟随或已超出舒适安全区：平滑滚动到上黄金分割位（约 38% 视口高）
+      const targetScroll = Math.max(targetY - effectiveHeight * 0.38, 0)
+      scrollRef.current?.scrollTo({ y: targetScroll, animated: true })
+    },
+    [synced, viewportHeight, controlsVisible, bottomSpace],
+  )
+
+  const startIdleResumeTimer = useCallback(() => {
+    clearIdleResumeTimer()
+    idleResumeTimer.current = setTimeout(() => {
+      userManualOverrideRef.current = false
+      if (activeIndex >= 0) {
+        scrollToActiveIndex(activeIndex, false)
+      }
+    }, 3500)
+  }, [clearIdleResumeTimer, activeIndex, scrollToActiveIndex])
+
+  // 高亮行自然推进时的滚动判定
+  useEffect(() => {
+    scrollToActiveIndex(activeIndex)
+  }, [activeIndex, scrollToActiveIndex])
+
+  const lastFastDownTime = useRef(0)
+
+  // 快速下甩实时检测（在滑动中立即响应，零松手延迟，同时屏蔽慢速与按住拖动）
+  const checkFastScrollDownRealtime = useCallback(
+    (currentY: number, now: number) => {
+      if (now - lastFastDownTime.current < 500) return
+      const history = scrollHistory.current
+      for (let i = 0; i < history.length - 1; i++) {
+        const sample = history[i]!
+        const dt = now - sample.time
+        // 抓取 35ms ~ 90ms 滑动窗口
+        if (dt >= 35 && dt <= 90) {
+          const dy = currentY - sample.y // 快速下滑：contentOffset.y 减小，dy < 0
+          if (dy < -25) {
+            const calculatedSpeed = (dy / dt) * 1000 // pt/s
+            // 按住慢拖通常只有 -100~-300 pt/s，慢速滑动约 -400~-600 pt/s，快速下滑低于 -800 pt/s
+            if (calculatedSpeed <= -800) {
+              lastFastDownTime.current = now
+              onFastScrollDown?.()
+              return
+            }
+          }
+        }
+      }
+    },
+    [onFastScrollDown],
+  )
+
+  // 松手（onScrollEndDrag）时的原生物理速度兜底
+  const checkFastScrollDownOnDragEnd = useCallback(
+    (vy?: number) => {
+      if (vy !== undefined && vy <= -0.9) {
+        onFastScrollDown?.()
+      }
+    },
+    [onFastScrollDown],
+  )
+
+  const handleRowTap = useCallback(
+    (index: number, lineAtMs: number) => {
+      setSelectedRowIndex(index)
+      clearIdleResumeTimer()
+      isInteractingRef.current = false
+      userManualOverrideRef.current = false
+      onSeek((lineAtMs + offsetMs) / 1000)
+      scrollToActiveIndex(index, true)
+    },
+    [offsetMs, onSeek, clearIdleResumeTimer, scrollToActiveIndex],
+  )
+
+  const handleRowLongPress = useCallback((index: number) => {
+    setSelectedRowIndex(index)
+    setSheetOpenFor(index)
+  }, [])
 
   if (query.isPending) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
         <ActivityIndicator color={colors.accent} />
       </View>
     )
   }
 
   if (query.isError) {
-    return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+    return (
+      <View style={[{ flex: 1 }, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+      </View>
+    )
   }
 
   if (lines.length === 0) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
         <Text style={styles.empty}>暂无歌词</Text>
       </View>
     )
@@ -131,25 +297,74 @@ export function LyricView({ trackId, positionMs, onSeek, songTitle, onPullTop, o
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, bottomSpace ? { paddingBottom: bottomSpace + 24 } : null]}
         showsVerticalScrollIndicator={false}
         onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
         scrollEventThrottle={16}
-        onScroll={(event) => {
-          // 顶到头继续往下拽（overscroll 回弹成负偏移）：退出全屏歌词
-          if (event.nativeEvent.contentOffset.y < -PULL_REVEAL_PT) onPullTop?.()
+        onScrollBeginDrag={() => {
+          isInteractingRef.current = true
+          userManualOverrideRef.current = true
+          clearIdleResumeTimer()
+          onScrollBeginDrag?.()
         }}
-        onScrollBeginDrag={onScrollBeginDrag}
+        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          const { contentOffset } = event.nativeEvent
+          const now = Date.now()
+          const currentY = contentOffset.y
+          const lastY = currentScrollY.current
+          currentScrollY.current = currentY
+
+          // 1. 上滑立即隐藏逻辑：如果控制区当前处于显示状态，手指上滑歌词立即隐藏控制区
+          const instantDy = currentY - lastY
+          if (controlsVisible && instantDy > 8 && currentY > 10) {
+            onScrollUp?.()
+          }
+
+          // 2. 采样历史供快速下滑检测
+          scrollHistory.current.push({ y: currentY, time: now })
+          const cutoff = now - 120
+          scrollHistory.current = scrollHistory.current.filter((item) => item.time >= cutoff)
+
+          // 3. 快速下滑实时检测（零等待，滑行途中立即唤出）
+          checkFastScrollDownRealtime(currentY, now)
+
+          const isTop = contentOffset.y <= 4
+          onTopStateChange?.(isTop)
+
+          // 顶到头继续往下拽（overscroll 回弹成负偏移）：退出全屏歌词
+          if (contentOffset.y < -PULL_REVEAL_PT) {
+            onPullTop?.()
+          }
+        }}
+        onScrollEndDrag={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          const { velocity } = event.nativeEvent
+          checkFastScrollDownOnDragEnd(velocity?.y)
+
+          // 若松手时无明显惯性滑行（静止松手或慢速松手），立即结束物理交互并开启 3.5s 阅读保护
+          if (!velocity || Math.abs(velocity.y) < 0.05) {
+            isInteractingRef.current = false
+            startIdleResumeTimer()
+          }
+        }}
+        onMomentumScrollBegin={() => {
+          isInteractingRef.current = true
+          clearIdleResumeTimer()
+        }}
+        onMomentumScrollEnd={() => {
+          isInteractingRef.current = false
+          startIdleResumeTimer()
+        }}
       >
         {lines.map((line, index) => (
           <LyricRow
             key={`${line.atMs}-${index}`}
             line={line}
             active={index === activeIndex}
+            selected={index === selectedRowIndex}
             litCount={index === activeIndex ? litCount : undefined}
             synced={synced}
-            onTap={() => onSeek((line.atMs + offsetMs) / 1000)}
-            onLongPress={() => setSheetOpenFor(index)}
+            onTap={() => handleRowTap(index, line.atMs)}
+            onLongPress={() => handleRowLongPress(index)}
             onLayout={(y) => {
               offsets.current[index] = y
             }}
@@ -173,6 +388,8 @@ interface LyricRowProps {
   line: LyricLine
   /** 正在唱的这一句 */
   active: boolean
+  /** 正在被点击/选中的这一句 */
+  selected?: boolean
   /**
    * 当前唱到第几个字：
    * 卡拉OK行（文件带逐词时间）给数字 → 逐字点亮；
@@ -188,6 +405,7 @@ interface LyricRowProps {
 const LyricRow = memo(function LyricRow({
   line,
   active,
+  selected = false,
   litCount,
   synced,
   onTap,
@@ -198,17 +416,38 @@ const LyricRow = memo(function LyricRow({
   const chars = karaoke && line.text ? Array.from(line.text) : []
   const sung = Math.min(Math.max(litCount ?? 0, 0), chars.length)
 
+  const handlePress = useCallback(() => {
+    void Haptics.selectionAsync()
+    onTap()
+  }, [onTap])
+
+  const handleLongPress = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    onLongPress()
+  }, [onLongPress])
+
   return (
     <Pressable
-      onPress={synced && !active ? onTap : undefined}
-      onLongPress={onLongPress}
+      onPress={synced ? handlePress : undefined}
+      onLongPress={handleLongPress}
       delayLongPress={LONG_PRESS_MS}
       onLayout={(event) => onLayout(event.nativeEvent.layout.y)}
       accessibilityRole={synced ? 'button' : 'text'}
       accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${synced ? '，点按从这句开始播放，长按查看全部歌词' : ''}`}
+      style={[
+        styles.rowContainer,
+        selected && styles.rowSelected,
+      ]}
     >
       {line.text ? (
-        <Text style={[styles.line, active && !karaoke && styles.lineActive, karaoke && styles.lineKaraoke]}>
+        <Text
+          style={[
+            styles.line,
+            active && !karaoke && styles.lineActive,
+            karaoke && styles.lineKaraoke,
+            selected && styles.lineSelected,
+          ]}
+        >
           {karaoke
             ? chars.map((char, index) => (
                 <Text key={index} style={index < sung ? styles.charSung : styles.charPending}>
@@ -222,7 +461,9 @@ const LyricRow = memo(function LyricRow({
         <Icon name="playing" size={iconSize.lg} color={active ? colors.playing : colors.iconDim} />
       )}
       {line.translation ? (
-        <Text style={[styles.translation, active && styles.translationActive]}>{line.translation}</Text>
+        <Text style={[styles.translation, (active || selected) && styles.translationActive]}>
+          {line.translation}
+        </Text>
       ) : null}
     </Pressable>
   )
@@ -339,19 +580,60 @@ function LyricsSheetModal({
 const styles = StyleSheet.create({
   wrapper: { flex: 1 },
   scroll: { flex: 1 },
-  content: { paddingVertical: spacing.xxl * 2, gap: spacing.lg },
+  content: {
+    paddingTop: spacing.sm,
+    paddingBottom: 240,
+    gap: spacing.sm,
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { ...typography.subhead, color: colors.textTertiary },
-  // 基础：没轮到的行
-  line: { ...typography.title, color: IDLE_LINE, lineHeight: 30 },
-  // 整行高亮的当前行（普通 LRC / 信息行）：整句白色，跟之前的表现一致
-  lineActive: { color: colors.textPrimary },
-  // 卡拉OK当前行：放大一号，唱到的字逐字纯白
-  lineKaraoke: { fontSize: 27, lineHeight: 40, fontWeight: '700', color: colors.textPrimary },
+
+  // —— 歌词行容器与选中浅色矩形板 ——
+  rowContainer: {
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    marginHorizontal: -spacing.md,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+  },
+  rowSelected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+
+  // —— 歌词文字：去掉模糊，通过字号与纯度拉大对比度 ——
+  line: {
+    fontSize: 21,
+    lineHeight: 32,
+    fontFamily: fonts.bold,
+    color: 'rgba(255, 255, 255, 0.40)',
+  },
+  // 正在唱的整行：字号显著增大（28pt），纯白高亮，拉开强烈视觉对比
+  lineActive: {
+    fontSize: 28,
+    lineHeight: 40,
+    color: colors.textPrimary,
+  },
+  // 卡拉OK当前行：放大到 30pt，唱到的字逐字纯白
+  lineKaraoke: {
+    fontSize: 30,
+    lineHeight: 42,
+    color: colors.textPrimary,
+  },
+  // 选中的那一行（点击/长按反馈）：变纯白清晰
+  lineSelected: {
+    color: colors.textPrimary,
+  },
   charSung: { color: colors.textPrimary },
   charPending: { color: PENDING_CHAR },
-  translation: { ...typography.subhead, color: IDLE_LINE, marginTop: spacing.xs },
-  translationActive: { color: colors.textTertiary },
+
+  // —— 翻译 ——
+  translation: {
+    ...typography.subhead,
+    marginTop: spacing.xs,
+    color: 'rgba(255, 255, 255, 0.28)',
+  },
+  translationActive: { color: colors.textSecondary },
   // —— 全部歌词面板 ——
   sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.xl },
   sheetCard: { backgroundColor: '#1c1c21f2', borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },

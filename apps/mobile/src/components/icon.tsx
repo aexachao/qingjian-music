@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { colors } from '@/theme/tokens'
 
@@ -74,7 +74,6 @@ const ICONS = {
 export type IconName = keyof typeof ICONS
 
 const OUTLINE_VARIANTS = {
-  heart: 'heart-outline',
   play: 'play-outline',
   pause: 'pause-outline',
 } satisfies Partial<Record<IconName, GlyphName>>
@@ -152,17 +151,28 @@ export function Icon({ name, size = iconSize.md, color = colors.iconMid, filled 
   return <Ionicons name={glyph} size={size} color={color} />
 }
 
-export interface IconButtonProps extends IconProps {
+export interface IconButtonProps extends Partial<IconProps> {
+  name?: IconName
   onPress: () => void
   /** 无障碍标签必填：纯图标按钮没有可读文本 */
   accessibilityLabel: string
   disabled?: boolean
   style?: StyleProp<ViewStyle>
   isActive?: boolean
+  loading?: boolean
 }
 
-/** 纯图标按钮：命中区固定撑到 44×44（iOS HIG 最小可点面积），视觉大小不受影响 */
-export function IconButton({ onPress, accessibilityLabel, disabled = false, style, isActive, ...icon }: IconButtonProps) {
+/** 纯图标按钮：命中区固定撑到 44×44（iOS HIG 最小可点面积），视觉大小不受影响；支持 loading 状态 */
+export function IconButton({
+  onPress,
+  accessibilityLabel,
+  disabled = false,
+  style,
+  isActive,
+  loading = false,
+  ...icon
+}: IconButtonProps) {
+  const iconSizeValue = icon.size ?? iconSize.md
   return (
     <Pressable
       onPress={onPress}
@@ -175,10 +185,17 @@ export function IconButton({ onPress, accessibilityLabel, disabled = false, styl
         style,
       ]}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ disabled, selected: isActive }}
+      accessibilityLabel={loading ? '正在加载' : accessibilityLabel}
+      accessibilityState={{ disabled, selected: isActive, busy: loading }}
     >
-      <Icon {...icon} />
+      {loading ? (
+        <ActivityIndicator
+          size={iconSizeValue >= 36 ? 'large' : 'small'}
+          color={icon.color || colors.iconBright}
+        />
+      ) : icon.name ? (
+        <Icon name={icon.name} {...icon} />
+      ) : null}
     </Pressable>
   )
 }

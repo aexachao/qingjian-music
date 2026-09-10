@@ -17,6 +17,7 @@ const queue = ['a', 'b', 'c', 'd'].map((id) => item(id))
 
 beforeEach(() => {
   usePlayerStore.getState().clear()
+  usePlayerStore.getState().setRepeat('off')
 })
 
 describe('独立当前、待播和历史语义', () => {
@@ -185,5 +186,39 @@ describe('收藏、恢复和设置', () => {
     // 切歌时复位
     usePlayerStore.getState().activateIndex(1)
     expect(usePlayerStore.getState().playbackEnded).toBe(false)
+  })
+
+  it('restorePreviousTrack 从历史弹出上一首置于队头，原当前曲目与待播向后顺延', () => {
+    usePlayerStore.getState().setQueue(queue, 0) // [a, b, c, d]
+    usePlayerStore.getState().activateIndex(1) // 播放 b，a 进历史
+    usePlayerStore.getState().activateIndex(1) // 播放 c，b 进历史，历史为 [a, b]
+
+    let state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['c', 'd'])
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a', 'b'])
+
+    // 执行「上一首」恢复：b 从历史弹出，成为队头当前曲目，c 和 d 顺延
+    const prevB = item('b', 'restored-b')
+    usePlayerStore.getState().restorePreviousTrack(prevB)
+
+    state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['b', 'c', 'd'])
+    expect(state.queue[0]?.qid).toBe(prevB.qid)
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a'])
+    expect(state.index).toBe(0)
+
+    // 再次执行「上一首」恢复：a 从历史弹出，成为队头，b/c/d 顺延
+    const prevA = item('a', 'restored-a')
+    usePlayerStore.getState().restorePreviousTrack(prevA)
+
+    state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
+    expect(state.queue[0]?.qid).toBe(prevA.qid)
+    expect(state.history).toEqual([])
+    expect(state.index).toBe(0)
+
+    // 历史为空时调用 restorePreviousTrack 不产生任何副作用
+    usePlayerStore.getState().restorePreviousTrack(item('x'))
+    expect(usePlayerStore.getState().queue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
   })
 })

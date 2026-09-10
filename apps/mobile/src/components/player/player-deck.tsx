@@ -22,14 +22,17 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useDetailHref } from '@/lib/detail-href'
 import { useToast } from '@/components/toast'
+import { formatAudioSourceInfo } from '@/lib/audio-info'
 import { useToggleFavorite } from '@/lib/favorites'
 import { skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
+import { useIsAudioLoading } from '@/player/use-audio-loading'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 interface PlayerDeckProps {
   current: QueueItem
   listAnim?: SharedValue<number>
+  hideTitle?: boolean
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
 }
@@ -39,8 +42,16 @@ interface PlayerDeckProps {
  * 封面页和歌词页共用它，两页只有上半部分不同。
  * 「···」的快捷菜单在这个按钮上方浮现（对齐 iOS 上下文菜单的位置）。
  */
-export function PlayerDeck({ current, listAnim, onDismissWithAction, onMenuOpenChange }: PlayerDeckProps) {
+export function PlayerDeck({
+  current,
+  listAnim,
+  hideTitle = false,
+  onDismissWithAction,
+  onMenuOpenChange,
+}: PlayerDeckProps) {
   const { playing } = useIsPlaying()
+  const isAudioLoading = useIsAudioLoading()
+  const audioSourceInfo = useMemo(() => formatAudioSourceInfo(current), [current])
   const progress = useProgress(500)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
   const toggleFavorite = useToggleFavorite()
@@ -75,46 +86,47 @@ export function PlayerDeck({ current, listAnim, onDismissWithAction, onMenuOpenC
 
   return (
     <View style={styles.container}>
-      <Animated.View style={titleAnimatedStyle}>
-        <View style={styles.titleRow}>
-          <View style={styles.titleText}>
-            {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
-            <MarqueeText text={current.title} style={styles.title} />
-            <MarqueeText
-              text={current.artistText}
-              style={styles.artist}
-            />
-          </View>
-          <View style={styles.actions}>
-            <IconButton
-              name="heart"
-              size={iconSize.xl}
-              color={current.isFavorite ? colors.like : colors.iconMid}
-              filled={current.isFavorite}
-              onPress={() => void onToggleFavorite()}
-              accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
-            />
-            <View style={styles.menuWrapper}>
-              <DeckMoreButton
-                current={current}
-                onDismissWithAction={onDismissWithAction}
-                onMenuOpenChange={onMenuOpenChange}
+      {!hideTitle ? (
+        <Animated.View style={titleAnimatedStyle}>
+          <View style={styles.titleRow}>
+            <View style={styles.titleText}>
+              {/* 长歌名装不下就来回滚动，别用省略号把名字截掉 */}
+              <MarqueeText text={current.title} style={styles.title} />
+              <MarqueeText
+                text={current.artistText}
+                style={styles.artist}
               />
             </View>
+            <View style={styles.actions}>
+              <IconButton
+                name="heart"
+                size={iconSize.xl}
+                color={current.isFavorite ? colors.like : colors.iconMid}
+                filled={true}
+                onPress={() => void onToggleFavorite()}
+                accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
+              />
+              <View style={styles.menuWrapper}>
+                <DeckMoreButton
+                  current={current}
+                  onDismissWithAction={onDismissWithAction}
+                  onMenuOpenChange={onMenuOpenChange}
+                />
+              </View>
+            </View>
           </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      ) : null}
 
       <ProgressBar
         position={position}
         duration={duration}
+        centerLabel={audioSourceInfo}
         onSeek={(seconds) => {
           usePlayerStore.getState().setPlaybackEnded(false)
           void TrackPlayer.seekTo(seconds)
         }}
       />
-
-
 
       {/* 传输控制：大字形、无圆形底，对齐 Apple Music */}
       <View style={styles.controls}>
@@ -130,6 +142,7 @@ export function PlayerDeck({ current, listAnim, onDismissWithAction, onMenuOpenC
           name={playing ? 'pause' : 'play'}
           size={iconSize.hero}
           color={colors.textPrimary}
+          loading={isAudioLoading}
           onPress={() => void togglePlay()}
           accessibilityLabel={playing ? '暂停' : '播放'}
           style={styles.playControlHit}

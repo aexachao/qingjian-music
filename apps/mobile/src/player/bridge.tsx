@@ -15,6 +15,7 @@ import {
   restoreQueuedPlayback,
   schedulePrefetch,
   takePendingHistoryActivation,
+  takePendingPreviousActivation,
 } from './controller'
 import { readPlaybackSnapshot, startPlaybackPersistence } from './persist'
 import { ensurePlayer, setLikeState } from './setup'
@@ -118,10 +119,16 @@ export function PlayerBridge() {
           void TrackPlayer.remove([0]).catch(() => undefined)
         }
       } else if (index === 0 && previousIndex === 0 && qid && queue[0]?.qid !== qid) {
-        // 历史点播会先把新 occurrence 插到 RNTP 队头；事件到达时再原子同步 store。
-        const historyItem = takePendingHistoryActivation(qid)
-        if (historyItem) usePlayerStore.getState().activateHistoryItem(historyItem, qid)
-        void TrackPlayer.remove([1]).catch(() => undefined)
+        const previousItem = takePendingPreviousActivation(qid)
+        if (previousItem) {
+          usePlayerStore.getState().restorePreviousTrack(previousItem)
+          // 上一首恢复时，原当前曲目顺延到 index 1 作为待播曲目，保留在原生队列中，不得 remove([1])
+        } else {
+          // 历史点播会先把新 occurrence 插到 RNTP 队头；事件到达时再原子同步 store。
+          const historyItem = takePendingHistoryActivation(qid)
+          if (historyItem) usePlayerStore.getState().activateHistoryItem(historyItem, qid)
+          void TrackPlayer.remove([1]).catch(() => undefined)
+        }
       } else {
         usePlayerStore.getState().setIndex(index)
       }

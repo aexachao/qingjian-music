@@ -597,15 +597,15 @@ export function PlayerQueue({
   )
 }
 
-function CurrentTrackCard({
+export function CurrentTrackCard({
   item,
-  consumeOpenAction,
+  consumeOpenAction = () => false,
   onDismissWithAction,
   onMenuOpenChange,
 }: {
   item: QueueItem
   listAnim?: SharedValue<number>
-  consumeOpenAction: () => boolean
+  consumeOpenAction?: () => boolean
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
 }) {
@@ -623,7 +623,7 @@ function CurrentTrackCard({
           name="heart"
           size={iconSize.lg}
           color={item.isFavorite ? colors.like : colors.iconMid}
-          filled={item.isFavorite}
+          filled={true}
           onPress={() => {
             if (consumeOpenAction()) return
             void toggleFavorite(item.trackId, !item.isFavorite)

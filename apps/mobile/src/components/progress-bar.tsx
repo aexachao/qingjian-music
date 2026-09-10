@@ -27,6 +27,8 @@ interface ProgressBarProps {
   /** 总时长（秒） */
   duration: number
   onSeek: (seconds: number) => void
+  /** 位于开始时间与结束时间正中间的音源规格信息（如：原文件 · FLAC · 716 kbps） */
+  centerLabel?: string
 }
 
 function formatTime(seconds: number): string {
@@ -39,7 +41,7 @@ function formatTime(seconds: number): string {
  * 自绘进度条：拖动时用手势值，松手才 seek，避免与播放回调打架。
  * 按住时整条轨道放大、已播部分从半透明白变纯白，松手还原。
  */
-export function ProgressBar({ position, duration, onSeek }: ProgressBarProps) {
+export function ProgressBar({ position, duration, onSeek, centerLabel }: ProgressBarProps) {
   const width = useSharedValue(0)
   const dragRatio = useSharedValue(-1)
   const initialRatio = useSharedValue(0)
@@ -123,8 +125,13 @@ export function ProgressBar({ position, duration, onSeek }: ProgressBarProps) {
         </View>
       </GestureDetector>
       <View style={styles.labels}>
-        <Text style={styles.time}>{formatTime(shown)}</Text>
-        <Text style={styles.time}>-{formatTime(Math.max(duration - shown, 0))}</Text>
+        <Text style={[styles.time, styles.timeLeft]}>{formatTime(shown)}</Text>
+        {centerLabel ? (
+          <Text style={styles.centerInfo} numberOfLines={1}>
+            {centerLabel}
+          </Text>
+        ) : null}
+        <Text style={[styles.time, styles.timeRight]}>-{formatTime(Math.max(duration - shown, 0))}</Text>
       </View>
     </View>
   )
@@ -140,6 +147,28 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   fill: {},
-  labels: { flexDirection: 'row', justifyContent: 'space-between' },
-  time: { ...typography.caption, color: colors.textTertiary, fontVariant: ['tabular-nums'] },
+  labels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  time: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    fontVariant: ['tabular-nums'],
+    minWidth: 48,
+  },
+  timeLeft: {
+    textAlign: 'left',
+  },
+  timeRight: {
+    textAlign: 'right',
+  },
+  centerInfo: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    textAlign: 'center',
+    flexShrink: 1,
+    paddingHorizontal: spacing.xs,
+  },
 })

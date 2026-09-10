@@ -29,6 +29,14 @@ export interface QueueItem {
   format?: string
   /** 源文件字节数，播放缓存用它算配额 */
   sizeBytes?: number
+  /** 音频比特率（bps），如 716000 */
+  bitrateBps?: number
+  /** 采样率（Hz），如 44100、96000 */
+  sampleRateHz?: number
+  /** 位深，如 16、24 */
+  bitDepth?: number
+  /** 声道数，如 2 */
+  channels?: number
 }
 
 /** 队列的来源，用于展示「正在播放来自…」并支持跳回去 */

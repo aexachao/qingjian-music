@@ -38,19 +38,27 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
     expect(colors.badgeBg).toBe('#ffffff14')
   })
 
-  it('三等分功能瓷片采用原生 Pressable 实体背景色，并与上方漫游卡片紧凑组合', () => {
+  it('三等分功能瓷片采用原生 Pressable 实体背景色，去除副标题纯净呈现，并与上方漫游卡片紧凑组合', () => {
     const quickAsset = source('screens/home/QuickAssetRow.tsx')
     expect(quickAsset).not.toContain('<Link')
     expect(quickAsset).toContain('router.push')
     expect(quickAsset).toContain("backgroundColor: '#1f1f23'")
     expect(quickAsset).toContain("key: 'downloaded'")
-    expect(quickAsset).toContain("subtitle: '本地音乐'")
+    expect(quickAsset).not.toContain('私房金曲')
+    expect(quickAsset).not.toContain('听歌足迹')
+    expect(quickAsset).not.toContain('本地音乐')
     expect(quickAsset).toContain("width: '100%'")
     expect(quickAsset).not.toContain('cachedFilesCount')
 
     const home = source('screens/home.tsx')
     expect(home).toContain('heroGroup')
     expect(home).toContain('gap: 12')
+  })
+
+  it('页签根页大标题收起时为导航栏配置实体背景，防止滚动内容穿透重叠', () => {
+    const stackOptions = source('lib/stack-options.ts')
+    expect(stackOptions).toContain('headerLargeStyle: { backgroundColor: \'transparent\' }')
+    expect(stackOptions).toContain('headerStyle: { backgroundColor: colors.bgPrimary }')
   })
 
   it('分区标题右侧箭头与标题保持 8pt 吸附间距，且字号为精致 18pt', () => {

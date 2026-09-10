@@ -32,6 +32,7 @@ export const navigationTheme = {
 export const stackScreenOptions = {
   headerTintColor: colors.textPrimary,
   headerTitleStyle: { color: colors.textPrimary },
+  headerStyle: { backgroundColor: colors.bgPrimary },
   // 导航栏不要那条分隔线：内容和导航栏同底色，划线只会显得脏
   headerShadowVisible: false,
   headerBackTitle: '返回',
@@ -43,6 +44,8 @@ export const stackScreenOptions = {
 
 /**
  * 页签根页专用：iOS 大标题（左对齐、滚动后收起成小标题）。
+ * - 顶部展开状态（scrollEdgeAppearance）：headerLargeStyle 显式设为透明，与页面背景无缝融合，并彻底消除 iOS 26 大标题文字缺失；
+ * - 向上滚动收起状态（standardAppearance）：headerStyle 赋予 bgPrimary 实体背景，彻底避免滚动内容上滑时与小标题穿透重叠。
  * 用它的屏必须把滚动容器设成 contentInsetAdjustmentBehavior="automatic"，
  * 否则大标题不会跟着滚动收起。
  */
@@ -50,4 +53,6 @@ export const tabRootOptions = {
   headerLargeTitle: true,
   headerLargeTitleShadowVisible: false,
   headerLargeTitleStyle: { color: colors.textPrimary },
+  headerLargeStyle: { backgroundColor: 'transparent' },
+  headerStyle: { backgroundColor: colors.bgPrimary },
 } satisfies ScreenOptions

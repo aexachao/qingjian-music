@@ -17,6 +17,7 @@ import { IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { skipToNextSafe, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
+import { useIsAudioLoading } from '@/player/use-audio-loading'
 import { colors, radius, spacing, typography } from '@/theme/tokens'
 
 /** 往左滑多远算下一首（pt） */
@@ -42,6 +43,7 @@ export function MiniPlayer() {
   const current = usePlayerStore(selectCurrent)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
   const { playing } = useIsPlaying()
+  const isAudioLoading = useIsAudioLoading()
   const progress = useProgress(500)
 
   const translateY = useSharedValue(0)
@@ -110,6 +112,7 @@ export function MiniPlayer() {
             name={playing ? 'pause' : 'play'}
             size={iconSize.lg}
             color={colors.iconBright}
+            loading={isAudioLoading}
             onPress={togglePlayWithHaptics}
             accessibilityLabel={playing ? '暂停' : '播放'}
           />
