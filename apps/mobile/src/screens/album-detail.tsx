@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/compon
 import { StackBackButton } from '@/components/stack-back-button'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
+import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
@@ -45,84 +46,85 @@ export function AlbumDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
-  // 标题与返回按钮要在早退之前就挂上，否则加载时导航栏是空的，加载完标题才蹦出来
-  const title = <Stack.Screen options={{ title: album?.name ?? '专辑', headerLeft: () => <StackBackButton /> }} />
+  const artistText = album?.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'
+  const isMenuOpen = useIsMenuOpen()
 
-  if (albumQuery.isPending || query.isPending) return <>{title}<LoadingState /></>
-  if (albumQuery.isError)
-    return (
-      <>
-        {title}
-        <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
-      </>
-    )
-  if (query.isLoadingError)
-    return (
-      <>
-        {title}
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-      </>
-    )
+  if (albumQuery.isPending) return <LoadingState />
+  if (albumQuery.isLoadingError) return <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
+  if (!album) return <EmptyState text="专辑不存在" />
 
   return (
-    <>
-      {title}
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
-      ListEmptyComponent={<EmptyState text="这张专辑还没有曲目" />}
-      ListHeaderComponent={
-        <View style={styles.header}>
-          <CoverImage coverId={album?.coverId} size={200} />
-          <Text style={styles.name}>{album?.name ?? '专辑'}</Text>
-          <Text style={styles.meta}>
-            {album?.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'}
-            {album?.releaseDate ? ` · ${album.releaseDate.slice(0, 4)}` : ''}
-            {items.length ? ` · ${items.length} 首` : ''}
-          </Text>
-          <View style={styles.actions}>
-            {/* 一屏只留一个主操作：播放用强调色实心（对应 web --ds-action-primary-bg） */}
-            <Pressable
-              style={[styles.button, styles.buttonPrimary]}
-              onPress={() => void play(0)}
-              accessibilityRole="button"
-              accessibilityLabel="播放专辑"
-            >
-              <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-              <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
-            </Pressable>
-            <Pressable
-              style={styles.button}
-              onPress={() => void play(0, true)}
-              accessibilityRole="button"
-              accessibilityLabel="随机播放专辑"
-            >
-              <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-              <Text style={styles.buttonLabel}>随机播放</Text>
-            </Pressable>
+    <View style={{ flex: 1 }}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: album.name,
+          headerBackTitle: '返回',
+          headerLeft: () => <StackBackButton />,
+        }}
+      />
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <CoverImage coverId={album.coverId} size={220} borderRadius={radius.lg} />
+            <Text style={styles.name}>{album.name}</Text>
+            <Text style={styles.meta}>
+              {artistText}
+              {album.releaseDate ? ` · ${album.releaseDate.slice(0, 4)}` : ''}
+              {items.length > 0 ? ` · ${items.length} 首歌曲` : ''}
+            </Text>
+
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.button, styles.buttonPrimary]}
+                onPress={() => void play(0)}
+                accessibilityRole="button"
+                accessibilityLabel="播放专辑"
+              >
+                <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
+                <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
+              </Pressable>
+              <Pressable
+                style={styles.button}
+                onPress={() => void play(0, true)}
+                accessibilityRole="button"
+                accessibilityLabel="随机播放专辑"
+              >
+                <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+                <Text style={styles.buttonLabel}>随机播放</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-      }
-      renderItem={({ item, index }) => (
-        <TrackRow
-          track={item}
-          index={index}
-          leading="index"
-          playing={current?.serverId === connection?.id && current?.trackId === item.id}
-          onPress={() => void play(index)}
+        }
+        renderItem={({ item, index }) => (
+          <TrackRow
+            track={item}
+            index={index}
+            leading="index"
+            playing={current?.serverId === connection?.id && current?.trackId === item.id}
+            onPress={() => void play(index)}
+          />
+        )}
+        onEndReached={loadMore}
+        ListFooterComponent={
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
+        }
+      />
+
+      {isMenuOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {}}
         />
-      )}
-      onEndReached={loadMore}
-      ListFooterComponent={
-        <PaginationFooter
-          loading={query.isFetchingNextPage}
-          error={query.isFetchNextPageError ? query.error : undefined}
-          onRetry={() => void query.fetchNextPage()}
-        />
-      }
-    />
-    </>
+      ) : null}
+    </View>
   )
 }
 

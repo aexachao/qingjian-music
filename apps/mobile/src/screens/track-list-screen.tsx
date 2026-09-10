@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { FlatList, StyleSheet, View } from 'react-native'
+import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
 import type { Page, PlaySource, Track } from '@qj/core-domain'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
+import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
@@ -42,43 +43,55 @@ export function TrackListScreen({
     fetchPage,
   })
 
+  const isMenuOpen = useIsMenuOpen()
+
   if (query.isPending) return <LoadingState />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
-      ListHeaderComponent={header ?? null}
-      ListEmptyComponent={<EmptyState text={emptyText} />}
-      renderItem={({ item, index }) => (
-        <TrackRow
-          track={item}
-          index={index}
-          leading={leading}
-          playing={current?.serverId === connection?.id && current?.trackId === item.id}
-          onPress={() => {
-            if (!provider || !connection) return
-            void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, source })
-          }}
+    <View style={styles.root}>
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        ListHeaderComponent={header ?? null}
+        ListEmptyComponent={<EmptyState text={emptyText} />}
+        renderItem={({ item, index }) => (
+          <TrackRow
+            track={item}
+            index={index}
+            leading={leading}
+            playing={current?.serverId === connection?.id && current?.trackId === item.id}
+            onPress={() => {
+              if (!provider || !connection) return
+              void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, source })
+            }}
+          />
+        )}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
+        }
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+      />
+
+      {isMenuOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {}}
         />
-      )}
-      onEndReached={loadMore}
-      onEndReachedThreshold={0.4}
-      ListFooterComponent={
-        <PaginationFooter
-          loading={query.isFetchingNextPage}
-          error={query.isFetchNextPageError ? query.error : undefined}
-          onRetry={() => void query.fetchNextPage()}
-        />
-      }
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
-    />
+      ) : null}
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   separator: { height: 1, marginLeft: 60, backgroundColor: colors.borderSubtle },
 })

@@ -1,82 +1,101 @@
-import { useCallback, useMemo, useState } from 'react'
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { Link, useRouter } from 'expo-router'
+import { useCallback, useRef, useState } from 'react'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
-import type { Album, Track } from '@qj/core-domain'
-import { CoverImage } from '@/components/cover-image'
-import { Icon, iconSize, type IconName } from '@/components/icon'
+import type { Album, Playlist, Track } from '@qj/core-domain'
 import { useToast } from '@/components/toast'
-import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
-import { useDetailHref } from '@/lib/detail-href'
+import { isGlobalMenuInteracting, useIsMenuOpen } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, startRadio } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { spacing } from '@/theme/tokens'
+import { AlbumShelf } from './home/AlbumShelf'
+import { HeroStationCard } from './home/HeroStationCard'
+import { PagedTrackCarousel } from './home/PagedTrackCarousel'
+import { PlaylistShelf } from './home/PlaylistShelf'
+import { QuickAssetRow } from './home/QuickAssetRow'
 
-/** 首页展示条数：够一屏扫一眼就行，要全部再点进二级页 */
-const RECENT_TRACKS = 5
-const RECENT_ALBUMS = 12
-const ALBUM_TILE = 132
+const TRACKS_CAROUSEL_SIZE = 9
+const RECENT_ALBUMS_COUNT = 12
 
-/** 入口卡片：要么跳页面（href），要么直接触发播放（action） */
-interface EntryCard {
-  key: string
-  label: string
-  icon: IconName
-  /** 写成字面量联合，才能过 expo-router 的类型化路由检查 */
-  href?: '/home/history' | '/home/favorites' | '/home/playlists' | '/home/tracks'
-  action?: 'radio'
-  /** 需要后端支持哪项能力才显示 */
-  requires?: 'favorites' | 'playHistory' | 'playlists' | 'radio'
-}
-
-const CARDS: readonly EntryCard[] = [
-  { key: 'radio', label: '漫游', icon: 'radio', action: 'radio', requires: 'radio' },
-  { key: 'favorites', label: '我喜欢的', icon: 'heart', href: '/home/favorites', requires: 'favorites' },
-  { key: 'history', label: '最近播放', icon: 'recentlyPlayed', href: '/home/history', requires: 'playHistory' },
-  { key: 'playlists', label: '歌单', icon: 'playlists', href: '/home/playlists', requires: 'playlists' },
-]
-
-/** 首页：四个入口卡片 + 最近添加歌曲 + 最近添加专辑，对齐飞牛音乐 web 端首页 */
+/**
+ * 首页：对齐 Apple Music「现在就听」的克制美学。
+ * 顶部焦点区：随心漫游卡片与三等分瓷片紧凑组合（间距 12pt）；
+ * 随后展开：歌单、最近添加歌曲、最近添加专辑、岁月拾遗。
+ */
 export function HomeScreen() {
   const { provider, connection } = useServerSession()
   const bottom = useBottomSpace()
-  const href = useDetailHref()
-  const router = useRouter()
   const toast = useToast()
   const current = usePlayerStore(selectCurrent)
   const [startingRadio, setStartingRadio] = useState(false)
+  const isMenuOpen = useIsMenuOpen()
 
-  const cards = useMemo(() => {
-    const capabilities = provider?.capabilities
-    return CARDS.filter((card) => {
-      if (!card.requires) return true
-      if (!capabilities) return false
-      if (card.requires === 'favorites') return capabilities.favorites
-      if (card.requires === 'playHistory') return capabilities.playHistory
-      if (card.requires === 'radio') return capabilities.radio
-      return capabilities.playlists !== 'none'
-    })
-  }, [provider])
+  // 1. 曲目总数（随心漫游卡片上的曲库规模感知）
+  const totalTracksQuery = useQuery({
+    queryKey: ['home', 'total-tracks-count', connection?.id],
+    enabled: Boolean(provider),
+    queryFn: () => provider!.tracks({ page: 1, size: 1 }),
+  })
 
-  const recentTracks = useQuery({
+  // 2. 收藏总数（功能卡片区）
+  const favoritesQuery = useQuery({
+    queryKey: ['home', 'favorites-count', connection?.id],
+    enabled: Boolean(provider?.capabilities.favorites),
+    queryFn: () => provider!.favorites!({ page: 1, size: 1 }),
+  })
+
+  // 3. 歌单（有则展示，无则隐藏）
+  const playlistsQuery = useQuery({
+    queryKey: ['home', 'playlists', connection?.id],
+    enabled: Boolean(provider && provider.capabilities.playlists !== 'none'),
+    queryFn: () => provider!.playlists({ page: 1, size: 8 }),
+  })
+
+  // 4. 最近添加歌曲（9首，用于 3首/屏 × 3屏 轮播）
+  const recentTracksQuery = useQuery({
     queryKey: ['home', 'recent-tracks', connection?.id],
     enabled: Boolean(provider),
-    queryFn: () => provider!.tracks({ page: 1, size: RECENT_TRACKS, sort: { field: 'createdAt', order: 'desc' } }),
+    queryFn: () =>
+      provider!.tracks({
+        page: 1,
+        size: TRACKS_CAROUSEL_SIZE,
+        sort: { field: 'createdAt', order: 'desc' },
+      }),
   })
 
-  const recentAlbums = useQuery({
+  // 5. 最近添加专辑（12张）
+  const recentAlbumsQuery = useQuery({
     queryKey: ['home', 'recent-albums', connection?.id],
     enabled: Boolean(provider),
-    queryFn: () => provider!.albums({ page: 1, size: RECENT_ALBUMS, sort: { field: 'createdAt', order: 'desc' } }),
+    queryFn: () =>
+      provider!.albums({
+        page: 1,
+        size: RECENT_ALBUMS_COUNT,
+        sort: { field: 'createdAt', order: 'desc' },
+      }),
   })
 
-  const tracks: Track[] = recentTracks.data?.items ?? []
-  const albums: Album[] = recentAlbums.data?.items ?? []
+  // 6. 岁月拾遗：抽选 NAS 中入库较早或经典沉睡的单曲（9首）
+  const rediscoverTracksQuery = useQuery({
+    queryKey: ['home', 'rediscover-tracks', connection?.id],
+    enabled: Boolean(provider),
+    queryFn: () =>
+      provider!.tracks({
+        page: 1,
+        size: TRACKS_CAROUSEL_SIZE,
+        sort: { field: 'createdAt', order: 'asc' },
+      }),
+  })
 
-  /** 漫游：服务端按口味推歌，边听边续，不跳页面，用迷你条 + 提示告诉用户已经开始 */
+  const playlists: Playlist[] = playlistsQuery.data?.items ?? []
+  const recentTracks: Track[] = recentTracksQuery.data?.items ?? []
+  const recentAlbums: Album[] = recentAlbumsQuery.data?.items ?? []
+  const rediscoverTracks: Track[] = rediscoverTracksQuery.data?.items ?? []
+
+  /** 随心漫游：一键随机漫步全库无限流 */
   const onRadio = useCallback(async () => {
+    if (isGlobalMenuInteracting()) return
     if (!provider || !connection || startingRadio) return
     setStartingRadio(true)
     try {
@@ -89,134 +108,118 @@ export function HomeScreen() {
     }
   }, [connection, provider, startingRadio, toast])
 
-  return (
-    <ScrollView
-      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
-      contentInsetAdjustmentBehavior="automatic"
-    >
-      <View style={styles.cards}>
-        {cards.map((card) => {
-          const primary = card.action === 'radio'
-          const inner = (
-            <>
-              <Icon
-                name={card.icon}
-                size={iconSize.lg}
-                color={primary ? colors.textOnAccent : colors.accent}
-              />
-              <Text style={[styles.cardLabel, primary && styles.cardLabelPrimary]}>{card.label}</Text>
-            </>
-          )
-          // 漫游是这一屏唯一的主操作，用强调色实心；其余是普通入口
-          if (card.href) {
-            return (
-              <Link key={card.key} href={card.href} asChild>
-                <Pressable style={styles.card} accessibilityRole="button" accessibilityLabel={card.label}>
-                  {inner}
-                </Pressable>
-              </Link>
-            )
-          }
-          return (
-            <Pressable
-              key={card.key}
-              style={[styles.card, styles.cardPrimary, startingRadio && styles.cardBusy]}
-              onPress={() => void onRadio()}
-              accessibilityRole="button"
-              accessibilityLabel="开始漫游，随机播放整个音乐库"
-              accessibilityState={{ busy: startingRadio }}
-            >
-              {inner}
-            </Pressable>
-          )
-        })}
-      </View>
+  /** 播放「最近添加歌曲」队列 */
+  const onPlayRecentTrack = useCallback(
+    (_track: Track, index: number) => {
+      if (isGlobalMenuInteracting()) return
+      if (!provider || !connection) return
+      void playTrackList({
+        provider,
+        serverId: connection.id,
+        tracks: recentTracks,
+        startIndex: index,
+        source: { kind: 'tracks', label: '最近添加歌曲' },
+      })
+    },
+    [connection, provider, recentTracks],
+  )
 
-      <SectionHeader title="最近添加歌曲" onPress={() => router.push('/home/recent-tracks')} />
-      {tracks.map((track, index) => (
-        <TrackRow
-          key={track.id}
-          track={track}
-          index={index}
-          leading="cover"
-          playing={current?.serverId === connection?.id && current?.trackId === track.id}
+  /** 播放「岁月拾遗」队列 */
+  const onPlayRediscoverTrack = useCallback(
+    (_track: Track, index: number) => {
+      if (isGlobalMenuInteracting()) return
+      if (!provider || !connection) return
+      void playTrackList({
+        provider,
+        serverId: connection.id,
+        tracks: rediscoverTracks,
+        startIndex: index,
+        source: { kind: 'tracks', label: '岁月拾遗' },
+      })
+    },
+    [connection, provider, rediscoverTracks],
+  )
+
+  return (
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottom + 24 }]}
+        contentInsetAdjustmentBehavior="automatic"
+      >
+        {/* 顶部焦点区域：随心漫游与三个快捷瓷片紧密组合（间距 12pt） */}
+        <View style={styles.heroGroup}>
+          <HeroStationCard
+            onStartRadio={onRadio}
+            startingRadio={startingRadio}
+            totalTracks={totalTracksQuery.data?.total}
+            isInteracting={isGlobalMenuInteracting}
+          />
+
+          <QuickAssetRow
+            favoritesCount={favoritesQuery.data?.total}
+            isInteracting={isGlobalMenuInteracting}
+          />
+        </View>
+
+        {/* 3. 歌单（如果有就展示，如果没有歌单就隐藏） */}
+        {playlists.length > 0 ? (
+          <PlaylistShelf playlists={playlists} isInteracting={isGlobalMenuInteracting} />
+        ) : null}
+
+        {/* 4. 最近添加歌曲（3首/屏 × 3屏 横滑单曲轮播） */}
+        <PagedTrackCarousel
+          title="最近添加歌曲"
+          tracks={recentTracks}
+          seeAllHref="/home/recent-tracks"
+          currentTrackId={current?.trackId}
+          currentServerId={current?.serverId}
+          serverId={connection?.id}
+          onPlayTrack={onPlayRecentTrack}
+        />
+
+        {/* 5. 最近添加专辑（140pt 纯净大唱片横滑架） */}
+        <AlbumShelf
+          title="最近添加专辑"
+          albums={recentAlbums}
+          seeAllHref="/home/albums"
+          isInteracting={isGlobalMenuInteracting}
+        />
+
+        {/* 6. 岁月拾遗（3首/屏 × 3屏 经典单曲轮播） */}
+        <PagedTrackCarousel
+          title="岁月拾遗"
+          tracks={rediscoverTracks}
+          seeAllHref="/home/tracks"
+          currentTrackId={current?.trackId}
+          currentServerId={current?.serverId}
+          serverId={connection?.id}
+          onPlayTrack={onPlayRediscoverTrack}
+        />
+      </ScrollView>
+
+      {/* 快捷菜单打开时的全屏透明拦截遮罩：点击只用于退出菜单，绝不触发底层任何操作 */}
+      {isMenuOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
           onPress={() => {
-            if (!provider || !connection) return
-            void playTrackList({
-              provider,
-              serverId: connection.id,
-              tracks,
-              startIndex: index,
-              source: { kind: 'tracks', label: '最近添加' },
-            })
+            // 消费点击，完全阻断
           }}
         />
-      ))}
-
-      <SectionHeader title="最近添加专辑" onPress={() => router.push('/home/albums')} />
-      <FlatList
-        horizontal
-        data={albums}
-        keyExtractor={(item) => item.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.albumRow}
-        renderItem={({ item }) => (
-          <Link href={href.album(item.id)} asChild>
-            <Pressable style={styles.albumTile} accessibilityRole="button" accessibilityLabel={item.name}>
-              <CoverImage coverId={item.coverId} size={ALBUM_TILE} borderRadius={radius.md} />
-              <Text numberOfLines={1} style={styles.albumName}>
-                {item.name}
-              </Text>
-              <Text numberOfLines={1} style={styles.albumArtist}>
-                {item.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'}
-              </Text>
-            </Pressable>
-          </Link>
-        )}
-      />
-    </ScrollView>
-  )
-}
-
-/** 分区标题：整行可点，右侧箭头是「还有更多」的信号 */
-function SectionHeader({ title, onPress }: { title: string; onPress: () => void }) {
-  return (
-    <Pressable style={styles.sectionHeader} onPress={onPress} accessibilityRole="button" accessibilityLabel={`查看全部${title}`}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <Icon name="chevronRight" size={iconSize.md} color={colors.textQuaternary} />
-    </Pressable>
+      ) : null}
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.sm },
-  // 两列卡片：靠 flexWrap + 48% 宽度自适应屏宽，不写死像素
-  cards: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.sm },
-  card: {
-    width: '48%',
-    flexGrow: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgCard,
+  root: {
+    flex: 1,
   },
-  cardPrimary: { backgroundColor: colors.accent },
-  cardBusy: { opacity: 0.6 },
-  cardLabel: { ...typography.callout, color: colors.textPrimary },
-  cardLabelPrimary: { color: colors.textOnAccent },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    marginTop: spacing.sm,
+  content: {
+    paddingHorizontal: spacing.pageMargin,
+    paddingTop: spacing.xs,
+    gap: spacing.sectionGap,
   },
-  sectionTitle: { ...typography.headline, color: colors.textPrimary },
-  albumRow: { gap: spacing.md, paddingVertical: spacing.xs },
-  albumTile: { width: ALBUM_TILE, gap: spacing.xs },
-  albumName: { ...typography.subhead, color: colors.textPrimary },
-  albumArtist: { ...typography.caption, color: colors.textTertiary },
+  heroGroup: {
+    gap: 12,
+  },
 })

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { Track } from '@qj/core-domain'
+import { getTrackFormatTag } from '../../src/lib/format-tag'
 import { needsTranscode } from '../../src/player/format-support'
 
 describe('是否需要服务端转码', () => {
@@ -17,5 +19,33 @@ describe('是否需要服务端转码', () => {
   it('格式未知时先按原生播，播失败再强制转码', () => {
     expect(needsTranscode(undefined)).toBe(false)
     expect(needsTranscode('')).toBe(false)
+  })
+})
+
+describe('音频格式 Tag 提取', () => {
+  const baseTrack: Track = {
+    id: 't1',
+    title: 'Song',
+    durationMs: 180000,
+    artists: [],
+    genres: [],
+    isCue: false,
+  }
+
+  it('优先从 audio.format 提取标准大写格式标签', () => {
+    expect(getTrackFormatTag({ ...baseTrack, audio: { format: 'flac' } })).toBe('FLAC')
+    expect(getTrackFormatTag({ ...baseTrack, audio: { format: 'mp3' } })).toBe('MP3')
+    expect(getTrackFormatTag({ ...baseTrack, audio: { format: 'wav' } })).toBe('WAV')
+    expect(getTrackFormatTag({ ...baseTrack, audio: { format: 'alac' } })).toBe('ALAC')
+  })
+
+  it('支持从 path 后缀或 container 兜底提取', () => {
+    expect(getTrackFormatTag({ ...baseTrack, audio: { path: '/music/song.flac' } })).toBe('FLAC')
+    expect(getTrackFormatTag({ ...baseTrack, audio: { container: 'dsf' } })).toBe('DSF')
+  })
+
+  it('无格式或过长格式时优雅返回 undefined', () => {
+    expect(getTrackFormatTag(baseTrack)).toBeUndefined()
+    expect(getTrackFormatTag({ ...baseTrack, audio: { format: 'somethingtoolong' } })).toBeUndefined()
   })
 })

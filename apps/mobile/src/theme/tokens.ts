@@ -101,6 +101,14 @@ const darkPalette = {
   skeleton1: '#ffffff0a',
   skeleton2: '#ffffff1a',
   skeleton3: '#ffffff29',
+  // --- Apple Music 设计规范表面与材质 ---
+  surfaceGrouped: '#121214',
+  surfaceCard: '#ffffff0d',
+  surfaceCardHover: '#ffffff1a',
+  hairlineBorder: '#ffffff14',
+  badgeBg: '#ffffff14',
+  badgeBorder: '#ffffff1f',
+  badgeText: '#ffffffa6',
 } as const
 
 export type PaletteKey = keyof typeof darkPalette
@@ -160,6 +168,13 @@ const lightPalette: Palette = {
   skeleton1: '#0000000a',
   skeleton2: '#00000014',
   skeleton3: '#00000029',
+  surfaceGrouped: '#f2f2f7',
+  surfaceCard: '#0000000a',
+  surfaceCardHover: '#00000014',
+  hairlineBorder: '#00000012',
+  badgeBg: '#0000000d',
+  badgeBorder: '#0000001a',
+  badgeText: '#0000008c',
 }
 
 export const palette: { dark: Palette; light: Palette } = { dark: darkPalette, light: lightPalette }
@@ -200,11 +215,17 @@ export const spacing = {
   lg: 16,
   xl: 24,
   xxl: 32,
+  pageMargin: 20,
+  sectionGap: 24,
+  titleGap: 10,
+  shelfGap: 16,
 } as const
 
-/** 圆角对齐 web 端（--semi-border-radius-small: 10px，卡片/弹层更大） */
+/** 圆角对齐 Apple Music / iOS HIG 规范 */
 export const radius = {
+  xs: 4,
   sm: 6,
+  album: 8,
   md: 10,
   lg: 14,
   xl: 20,
@@ -214,10 +235,13 @@ export const radius = {
 export const typography = {
   largeTitle: { fontSize: 34, fontFamily: fonts.bold, letterSpacing: -0.5 },
   title: { fontSize: 22, fontFamily: fonts.bold, letterSpacing: -0.3 },
-  headline: { fontSize: 17, fontFamily: fonts.semibold },
-  body: { fontSize: 17, fontFamily: fonts.regular },
+  sectionTitle: { fontSize: 18, fontFamily: fonts.bold, letterSpacing: -0.3 },
+  title3: { fontSize: 20, fontFamily: fonts.semibold, letterSpacing: -0.2 },
+  headline: { fontSize: 17, fontFamily: fonts.semibold, letterSpacing: -0.4 },
+  body: { fontSize: 17, fontFamily: fonts.regular, letterSpacing: -0.4 },
   callout: { fontSize: 16, fontFamily: fonts.regular },
-  subhead: { fontSize: 15, fontFamily: fonts.regular },
-  footnote: { fontSize: 13, fontFamily: fonts.medium, letterSpacing: 0.2 },
-  caption: { fontSize: 12, fontFamily: fonts.regular, letterSpacing: 0.3 },
+  subhead: { fontSize: 15, fontFamily: fonts.regular, letterSpacing: -0.2 },
+  footnote: { fontSize: 13, fontFamily: fonts.medium, letterSpacing: 0 },
+  caption: { fontSize: 12, fontFamily: fonts.regular, letterSpacing: 0.2 },
+  badge: { fontSize: 10, fontFamily: fonts.bold, letterSpacing: 0.5 },
 } as const

@@ -1,9 +1,11 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
-import { iconSize } from '@/components/icon'
+import { FormatBadge } from '@/components/format-badge'
 import { LivePlayingBars } from '@/components/playing-bars'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { TrackMoreButton } from '@/components/track-more-button'
+import { isGlobalMenuInteracting } from '@/lib/menu-guard'
+import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
 
 interface TrackRowProps {
   track: Track
@@ -14,54 +16,139 @@ interface TrackRowProps {
   onPress: () => void
 }
 
-export function formatDuration(ms: number): string {
-  const total = Math.round(ms / 1000)
-  return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, '0')}`
-}
 
+/**
+ * 全局单曲列表行组件 (TrackRow):
+ * - 右侧不显示时间，统一显示「···」快捷操作按钮；
+ * - 物理隔离主触控区与快捷操作区，并在退出菜单时防误触；
+ * - 正在播放时，音符动效位于歌曲标题左侧（11pt 小巧律动）；
+ * - 歌曲名称下方仅展示歌手名称，并在歌手名称前显示音频格式 Tag（如 FLAC、MP3 等）。
+ */
 export function TrackRow({ track, leading, index, playing = false, onPress }: TrackRowProps) {
   const artistText = track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'
+
+  const handlePress = () => {
+    if (isGlobalMenuInteracting()) return
+    onPress()
+  }
+
   return (
-    <Pressable
-      style={styles.row}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`}
-      accessibilityState={{ selected: playing }}
-    >
-      {leading === 'index' ? (
-        // 正在播放的那首用跳动的律动条顶掉序号
-        playing ? (
+    <View style={styles.row}>
+      {/* 主触控区：点击播放曲目 */}
+      <Pressable
+        style={({ pressed }) => [styles.trackMain, pressed && styles.trackMainPressed]}
+        onPress={handlePress}
+        accessibilityRole="button"
+        accessibilityLabel={`${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`}
+        accessibilityState={{ selected: playing }}
+      >
+        {leading === 'index' ? (
           <View style={styles.trackNoSlot}>
-            <LivePlayingBars size={iconSize.md} />
+            <Text style={[styles.trackNo, playing && styles.trackNoPlaying]}>
+              {track.trackNo ?? index + 1}
+            </Text>
           </View>
         ) : (
-          <Text style={styles.trackNo}>{track.trackNo ?? index + 1}</Text>
-        )
-      ) : (
-        <CoverImage coverId={track.coverId ?? track.album?.coverId} size={48} borderRadius={radius.sm} />
-      )}
-      <View style={styles.text}>
-        <Text numberOfLines={1} style={[styles.title, playing && styles.playing]}>
-          {track.title}
-        </Text>
-        <Text numberOfLines={1} style={styles.subtitle}>
-          {artistText}
-          {leading === 'cover' && track.album?.name ? ` — ${track.album.name}` : ''}
-        </Text>
-      </View>
-      <Text style={styles.duration}>{formatDuration(track.durationMs)}</Text>
-    </Pressable>
+          <CoverImage
+            coverId={track.coverId ?? track.album?.coverId}
+            size={48}
+            borderRadius={radius.sm}
+          />
+        )}
+
+        <View style={styles.metaCol}>
+          {/* 标题行：正在播放时音符律动动画位于标题左侧 */}
+          <View style={styles.titleRow}>
+            {playing ? (
+              <View style={styles.playingSlot}>
+                <LivePlayingBars size={11} />
+              </View>
+            ) : null}
+            <Text numberOfLines={1} style={[styles.title, playing && styles.playing]}>
+              {track.title}
+            </Text>
+          </View>
+
+          {/* 副标题行：格式 Tag + 歌手名称 */}
+          <View style={styles.subtitleRow}>
+            <FormatBadge track={track} />
+            <Text numberOfLines={1} style={styles.subtitle}>
+              {artistText}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+
+      {/* 右侧：显示「···」快捷菜单按钮，物理隔离防冒泡 */}
+      <TrackMoreButton track={track} />
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm + 2 },
-  trackNo: { ...typography.footnote, color: colors.textTertiary, width: 28, textAlign: 'center' },
-  trackNoSlot: { width: 28, alignItems: 'center' },
-  text: { flex: 1, gap: 2 },
-  title: { ...typography.callout, color: colors.textPrimary },
-  subtitle: { ...typography.caption, color: colors.textSecondary },
-  duration: { ...typography.caption, color: colors.textTertiary, fontVariant: ['tabular-nums'] },
-  playing: { color: colors.playing },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  trackMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 48,
+  },
+  trackMainPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.99 }],
+  },
+  trackNoSlot: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackNo: {
+    ...typography.footnote,
+    color: colors.textTertiary,
+    fontVariant: ['tabular-nums'],
+  },
+  trackNoPlaying: {
+    color: colors.playing,
+    fontFamily: fonts.semibold,
+  },
+  metaCol: {
+    flex: 1,
+    gap: 3,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  playingSlot: {
+    marginRight: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    ...typography.headline,
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  playing: {
+    color: colors.playing,
+  },
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  subtitle: {
+    ...typography.caption,
+    fontSize: 13,
+    color: colors.textSecondary,
+    flexShrink: 1,
+  },
 })

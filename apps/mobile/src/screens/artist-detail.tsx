@@ -8,6 +8,7 @@ import { StackBackButton } from '@/components/stack-back-button'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
+import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
@@ -56,6 +57,8 @@ export function ArtistDetailScreen() {
     if (shuffle) await toggleShuffle()
   }
 
+  const isMenuOpen = useIsMenuOpen()
+
   // 标题与返回按钮要在早退之前就挂上，否则加载时导航栏是空的
   const title = <Stack.Screen options={{ title: artistName ?? '艺术家', headerLeft: () => <StackBackButton /> }} />
 
@@ -69,87 +72,106 @@ export function ArtistDetailScreen() {
     )
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       {title}
-    <FlatList
-      data={albums.items}
-      key={columns}
-      numColumns={columns}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
-      columnWrapperStyle={{ gap }}
-      ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
-      ListHeaderComponent={
-        <View style={styles.header}>
-          <CoverImage coverId={tracks[0]?.artists[0]?.coverId} size={120} borderRadius={60} />
-          <Text style={styles.name}>{artistName ?? '艺术家'}</Text>
-          <Text style={styles.meta}>
-            {albums.total ? `${albums.total} 张专辑` : ''}
-            {topTracks.data?.total ? ` · ${topTracks.data.total} 首` : ''}
-          </Text>
-          <View style={styles.actions}>
-            {/* 一屏只留一个主操作：播放用强调色实心（对应 web --ds-action-primary-bg） */}
-            <Pressable
-              style={[styles.button, styles.buttonPrimary]}
-              onPress={() => void playTop(0)}
-              accessibilityRole="button"
-              accessibilityLabel="播放热门歌曲"
-            >
-              <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-              <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
-            </Pressable>
-            <Pressable
-              style={styles.button}
-              onPress={() => void playTop(0, true)}
-              accessibilityRole="button"
-              accessibilityLabel="随机播放"
-            >
-              <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-              <Text style={styles.buttonLabel}>随机播放</Text>
-            </Pressable>
-          </View>
-
-          {tracks.length > 0 ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>热门歌曲</Text>
-              {tracks.slice(0, TOP_TRACK_COUNT).map((track, index) => (
-                <TrackRow
-                  key={track.id}
-                  track={track}
-                  index={index}
-                  leading="cover"
-                  playing={current?.serverId === connection?.id && current?.trackId === track.id}
-                  onPress={() => void playTop(index)}
-                />
-              ))}
-            </View>
-          ) : null}
-
-          {albums.items.length > 0 ? <Text style={styles.sectionTitle}>专辑</Text> : null}
-        </View>
-      }
-      renderItem={({ item }) => (
-        <Link href={href.album(item.id)} asChild>
-          <Pressable style={{ width: itemWidth }} accessibilityRole="button" accessibilityLabel={`专辑 ${item.name}`}>
-            <CoverImage coverId={item.coverId} size={itemWidth} />
-            <Text numberOfLines={1} style={styles.albumName}>
-              {item.name}
+      <FlatList
+        data={albums.items}
+        key={columns}
+        numColumns={columns}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        columnWrapperStyle={{ gap }}
+        ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <CoverImage coverId={tracks[0]?.artists[0]?.coverId} size={160} borderRadius={80} />
+            <Text style={styles.name}>{artistName ?? '艺术家'}</Text>
+            <Text style={styles.meta}>
+              {[
+                tracks.length ? `${tracks.length} 首热门歌曲` : undefined,
+                albums.items.length ? `${albums.items.length} 张专辑` : undefined,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
-            {item.releaseDate ? <Text style={styles.albumYear}>{item.releaseDate.slice(0, 4)}</Text> : null}
-          </Pressable>
-        </Link>
-      )}
-      onEndReached={albums.loadMore}
-      ListFooterComponent={
-        <PaginationFooter
-          loading={albums.query.isFetchingNextPage}
-          error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
-          onRetry={() => void albums.query.fetchNextPage()}
+
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.button, styles.buttonPrimary]}
+                onPress={() => void playTop(0)}
+                accessibilityRole="button"
+                accessibilityLabel="播放热门歌曲"
+              >
+                <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
+                <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
+              </Pressable>
+              <Pressable
+                style={styles.button}
+                onPress={() => void playTop(0, true)}
+                accessibilityRole="button"
+                accessibilityLabel="随机播放"
+              >
+                <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+                <Text style={styles.buttonLabel}>随机播放</Text>
+              </Pressable>
+            </View>
+
+            {tracks.length > 0 ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>热门歌曲</Text>
+                {tracks.slice(0, TOP_TRACK_COUNT).map((track, index) => (
+                  <TrackRow
+                    key={track.id}
+                    track={track}
+                    index={index}
+                    leading="cover"
+                    playing={current?.serverId === connection?.id && current?.trackId === track.id}
+                    onPress={() => void playTop(index)}
+                  />
+                ))}
+              </View>
+            ) : null}
+
+            {albums.items.length > 0 ? <Text style={styles.sectionTitle}>专辑</Text> : null}
+          </View>
+        }
+        renderItem={({ item }) => (
+          <Link href={href.album(item.id)} asChild>
+            <Pressable
+              style={{ width: itemWidth }}
+              accessibilityRole="button"
+              accessibilityLabel={`专辑 ${item.name}`}
+            >
+              <CoverImage coverId={item.coverId} size={itemWidth} borderRadius={radius.md} />
+              <Text numberOfLines={1} style={styles.albumName}>
+                {item.name}
+              </Text>
+              {item.releaseDate ? (
+                <Text numberOfLines={1} style={styles.albumYear}>
+                  {item.releaseDate.slice(0, 4)}
+                </Text>
+              ) : null}
+            </Pressable>
+          </Link>
+        )}
+        onEndReached={albums.loadMore}
+        ListFooterComponent={
+          <PaginationFooter
+            loading={albums.query.isFetchingNextPage}
+            error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
+            onRetry={() => void albums.query.fetchNextPage()}
+          />
+        }
+        ItemSeparatorComponent={() => <View style={{ height: spacing.lg }} />}
+      />
+
+      {isMenuOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {}}
         />
-      }
-      ItemSeparatorComponent={() => <View style={{ height: spacing.lg }} />}
-    />
-    </>
+      ) : null}
+    </View>
   )
 }
 

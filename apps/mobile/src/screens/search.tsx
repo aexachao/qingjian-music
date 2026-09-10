@@ -11,6 +11,7 @@ import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDebounced } from '@/lib/use-debounced'
 import { useDetailHref } from '@/lib/detail-href'
+import { useIsMenuOpen } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
@@ -100,13 +101,16 @@ export function SearchScreen() {
     [connection, provider, toast],
   )
 
+  const isMenuOpen = useIsMenuOpen()
+
   return (
-    <ScrollView
-      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={styles.searchBox}>
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.searchBox}>
         <Icon name="search" size={iconSize.md} color={colors.iconDim} />
         <TextInput
           value={input}
@@ -220,7 +224,15 @@ export function SearchScreen() {
           )}
         </View>
       )}
-    </ScrollView>
+      </ScrollView>
+
+      {isMenuOpen ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {}}
+        />
+      ) : null}
+    </View>
   )
 }
 
