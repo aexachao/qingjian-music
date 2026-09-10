@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -109,12 +109,12 @@ export default function PlayerScreen() {
 
   const translateY = useSharedValue(height || 850)
   const startY = useSharedValue(0)
-  const [isListAtTop, setIsListAtTop] = useState(false)
+  const [isListAtTop, setIsListAtTop] = useState(true)
   const [queueActionOpen, setQueueActionOpen] = useState(false)
 
   useEffect(() => {
     if (mode === 'list') {
-      setIsListAtTop(false)
+      setIsListAtTop(true)
     }
   }, [mode])
 
@@ -130,23 +130,28 @@ export default function PlayerScreen() {
       .enabled(enabled)
       .activeOffsetY(8)
       .failOffsetY(-15)
-      .onTouchesDown(() => {
+      .onTouchesDown((event) => {
+        console.log(`[DISMISS-PAN] onTouchesDown: enabled=${enabled}, isListAtTop=${isListAtTop}, mode=${mode}, touches=${event.allTouches.length}`)
         if (!queueActionOpen) return
         runOnJS(closeOpenQueueAction)()
         runOnJS(setQueueActionOpen)(false)
       })
-      .onBegin(() => {
+      .onBegin((event) => {
+        console.log(`[DISMISS-PAN] onBegin: y=${event.y}, enabled=${enabled}`)
         // 若在进场动画期间触摸，立即中止当前动画并锚定当前位置
         translateY.value = translateY.value
       })
-      .onStart(() => {
+      .onStart((event) => {
+        console.log(`[DISMISS-PAN] onStart ACTIVE: y=${event.y}, transY=${event.translationY}`)
         startY.value = translateY.value
       })
       .onUpdate((event) => {
+        console.log(`[DISMISS-PAN] onUpdate: transY=${event.translationY.toFixed(1)}`)
         const next = startY.value + event.translationY
         translateY.value = Math.max(0, next)
       })
       .onEnd((event) => {
+        console.log(`[DISMISS-PAN] onEnd: transY=${event.translationY.toFixed(1)}, vy=${event.velocityY.toFixed(1)}`)
         const pageHeight = height || 850
         // 动量投射：结合当前位移与松手瞬时速度（Apple Music / iOS 原生交互物理法则）
         const projectedY = translateY.value + event.velocityY * 0.15
@@ -155,7 +160,7 @@ export default function PlayerScreen() {
           (translateY.value > pageHeight * 0.5)
 
         if (shouldDismiss && event.velocityY > -200) {
-          translateY.value = withTiming(pageHeight, {
+          translateY.value = withTiming(pageHeight + 100, {
             duration: 450,
             easing: Easing.bezier(0.25, 1, 0.5, 1),
           }, () => {
@@ -167,7 +172,10 @@ export default function PlayerScreen() {
             easing: Easing.bezier(0.25, 1, 0.5, 1),
           })
         }
-      }), [height, translateY, startY, dismiss])
+      })
+      .onFinalize((event, success) => {
+        console.log(`[DISMISS-PAN] onFinalize: success=${success}, transY=${event.translationY.toFixed(1)}`)
+      }), [height, translateY, startY, dismiss, queueActionOpen, isListAtTop, mode])
 
   const triggerDismiss = useCallback(() => {
     const pageHeight = height || 850
@@ -190,8 +198,14 @@ export default function PlayerScreen() {
     })
   }, [height, translateY, dismiss])
 
-  const dismissGesture = createDismissPan(!menuOpen && (mode !== 'list' || isListAtTop))
-  const headerDismissGesture = createDismissPan(!menuOpen)
+  const dismissGesture = useMemo(
+    () => createDismissPan(!menuOpen && (mode !== 'list' || isListAtTop)),
+    [createDismissPan, menuOpen, mode, isListAtTop]
+  )
+  const headerDismissGesture = useMemo(
+    () => createDismissPan(!menuOpen),
+    [createDismissPan, menuOpen]
+  )
 
   const rootAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -273,6 +287,11 @@ export default function PlayerScreen() {
                     onActionOpenChange={setQueueActionOpen}
                     onDismissWithAction={dismissWithAction}
                     onMenuOpenChange={setMenuOpen}
+                    isMenuOpen={menuOpen}
+                    createDismissPan={createDismissPan}
+                    cardDismissGesture={headerDismissGesture}
+                    translateY={translateY}
+                    onDismiss={dismiss}
                   />
                 </Animated.View>
 

@@ -60,4 +60,15 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('styles.pagerTrack')
     expect(queueSource).not.toContain('slideOpacity')
   })
+
+  it('列表在顶部允许下拉退出，采用 ScrollHandler 联动退场机制与橡皮筋反向补偿', () => {
+    expect(playerSource).toContain('const [isListAtTop, setIsListAtTop] = useState(true)')
+    expect(playerSource).toContain("if (mode === 'list') {\n      setIsListAtTop(true)")
+    expect(playerSource).toContain('createDismissPan={createDismissPan}')
+    expect(playerSource).toContain("mode !== 'list' || isListAtTop")
+    expect(queueSource).toContain('bounces={true}')
+    expect(queueSource).toContain('alwaysBounceVertical={true}')
+    expect(queueSource).toContain('gesture={headerOverlayDismissGesture}')
+    expect(queueSource).not.toContain('ReorderableListCore')
+  })
 })

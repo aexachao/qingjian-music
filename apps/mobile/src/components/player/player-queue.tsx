@@ -13,6 +13,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
+import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
 import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -93,6 +94,11 @@ export function PlayerQueue({
   onActionOpenChange,
   onDismissWithAction,
   onMenuOpenChange,
+  isMenuOpen = false,
+  createDismissPan,
+  cardDismissGesture,
+  translateY,
+  onDismiss,
 }: {
   bottomSpace: number
   listAnim?: SharedValue<number>
@@ -102,6 +108,11 @@ export function PlayerQueue({
   onActionOpenChange?: (open: boolean) => void
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
+  isMenuOpen?: boolean
+  createDismissPan?: (enabled: boolean) => PanGesture
+  cardDismissGesture?: PanGesture
+  translateY?: SharedValue<number>
+  onDismiss?: () => void
 }) {
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
@@ -154,16 +165,89 @@ export function PlayerQueue({
   const headerHeight = currentItem ? 194 : 106
   const scrollY = useSharedValue(0)
   const isAtTopRef = useSharedValue(true)
+  const [isAtTop, setIsAtTop] = useState(true)
+  const isDismissing = useSharedValue(false)
+  const isDraggingRef = useSharedValue(false)
+  const dragStartedAtTopRef = useSharedValue(false)
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y
-      const isTop = event.contentOffset.y <= 2
-      if (isTop !== isAtTopRef.value) {
-        isAtTopRef.value = isTop
-        if (onTopStateChange) {
-          runOnJS(onTopStateChange)(isTop)
+      if (!isDismissing.value) {
+        const isTop = event.contentOffset.y <= 2
+        if (isTop !== isAtTopRef.value) {
+          isAtTopRef.value = isTop
+          runOnJS(setIsAtTop)(isTop)
+          if (onTopStateChange) {
+            runOnJS(onTopStateChange)(isTop)
+          }
         }
+      }
+
+      // 仅当手势是在列表最顶部（正在播放内容块已吸顶）时发起，才联动全屏模态框下移
+      // 若在列表下方（循环工具栏吸顶时）向下拉，播放器页面不动，专心执行列表内部滚动与回弹
+      if (translateY && !isDismissing.value && !isDraggingRef.value && dragStartedAtTopRef.value) {
+        if (event.contentOffset.y < 0) {
+          translateY.value = -event.contentOffset.y
+        } else if (translateY.value > 0) {
+          translateY.value = 0
+        }
+      }
+    },
+    onBeginDrag: (event) => {
+      isDismissing.value = false
+      // 记录手势起点：只有在最顶部（offset <= 1）开始拉动才算全屏下拉退场手势
+      dragStartedAtTopRef.value = event.contentOffset.y <= 1
+    },
+    onEndDrag: (event) => {
+      // 若非顶部发起的手势、拖拽中、菜单打开，绝不触发退场，确保列表自然回弹吸顶
+      if (!translateY || isDismissing.value || isDraggingRef.value || isMenuOpen || !dragStartedAtTopRef.value) {
+        return
+      }
+
+      const pullDistance = -event.contentOffset.y
+      if (pullDistance > 0) {
+        // 退场终点必须使用全屏幕高度（使模态框完全滑出屏幕下方），不可使用 stage 容器高度（~380pt）
+        const exitTargetY = (screenHeight || 850) + 100
+        // 将 iOS UIScrollView 速度（pt/ms，向下拉为负）转换为 pt/s，完全对齐播放页 PanGesture 的 velocityY
+        const downwardVelocity = -(event.velocity?.y ?? 0) * 1000
+        // 动量投射：结合当前位移与松手瞬时速度（与播放页完全一致的 Apple 物理法则）
+        const projectedY = pullDistance + downwardVelocity * 0.15
+        const dismissThreshold = 150
+        const shouldDismiss =
+          (projectedY > dismissThreshold && pullDistance > 60) ||
+          (pullDistance > 180)
+
+        if (shouldDismiss && downwardVelocity > -200) {
+          isDismissing.value = true
+          translateY.value = withTiming(
+            exitTargetY,
+            {
+              duration: 450,
+              easing: Easing.bezier(0.25, 1, 0.5, 1),
+            },
+            (finished) => {
+              if (finished) {
+                if (onDismiss) {
+                  runOnJS(onDismiss)()
+                }
+              } else {
+                isDismissing.value = false
+              }
+            }
+          )
+        } else {
+          // 未达退场阈值：与播放页完全一致的 420ms 贝塞尔弹性回弹曲线
+          translateY.value = withTiming(0, {
+            duration: 420,
+            easing: Easing.bezier(0.25, 1, 0.5, 1),
+          })
+        }
+      }
+    },
+    onMomentumEnd: () => {
+      if (translateY && !isDismissing.value && translateY.value > 0) {
+        translateY.value = withTiming(0, { duration: 200 })
       }
     },
   })
@@ -233,20 +317,25 @@ export function PlayerQueue({
   const [dragging, setDragging] = useState(false)
   const onDragStart = useCallback(() => {
     'worklet'
+    isDraggingRef.value = true
     runOnJS(setDragging)(true)
     runOnJS(closeOpenQueueAction)()
     runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy)
-  }, [])
+  }, [isDraggingRef])
 
   const onDragEnd = useCallback(() => {
     'worklet'
+    isDraggingRef.value = false
     runOnJS(setDragging)(false)
-  }, [])
+  }, [isDraggingRef])
 
-  useEffect(() => () => {
-    closeOpenQueueAction()
-    onActionOpenChange?.(false)
-  }, [onActionOpenChange])
+  useEffect(() => {
+    onTopStateChange?.(true)
+    return () => {
+      closeOpenQueueAction()
+      onActionOpenChange?.(false)
+    }
+  }, [onActionOpenChange, onTopStateChange])
 
   const consumeOpenAction = useCallback(() => {
     const consumed = closeOpenQueueAction()
@@ -267,12 +356,16 @@ export function PlayerQueue({
       upcomingListRef.current?.scrollToOffset({ offset: targetScrollY, animated: false })
     }
     scrollY.value = targetScrollY
+    const isTop = targetScrollY <= 2
+    isAtTopRef.value = isTop
+    setIsAtTop(isTop)
+    onTopStateChange?.(isTop)
 
     pagerX.value = withTiming(nextTab === 'history' ? -screenWidth : 0, {
       duration: 320,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
     })
-  }, [consumeOpenAction, pagerX, screenWidth, scrollY, tab])
+  }, [consumeOpenAction, onTopStateChange, pagerX, screenWidth, scrollY, tab])
 
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
@@ -282,56 +375,85 @@ export function PlayerQueue({
     ])
   }, [consumeOpenAction])
 
+  const rowAnimatedStyle = useAnimatedStyle(() => {
+    // 仅当手势是在列表最顶部（已吸顶）发起全屏下拉退场时，反向补偿列表项 translateY，
+    // 抵消 iOS UIScrollView 原生橡皮筋内部下移，让列表与顶底周边在模态框内纹丝不动，作为一整块刚体同步下滑；
+    // 而若手势是从列表下方向上滑到顶部（dragStartedAtTopRef 为 false），不进行补偿，保留自然原生的到顶回弹吸顶动画。
+    if (dragStartedAtTopRef.value && scrollY.value < 0) {
+      return {
+        transform: [{ translateY: scrollY.value }],
+      }
+    }
+    return {
+      transform: [{ translateY: 0 }],
+    }
+  })
+
   const renderUpcomingItem = useCallback(({ item }: { item: UpcomingRowData; index: number }) => {
     if (item.type === 'emptyState') {
       return (
-        <QueueEmptyState
-          title="队列已播完"
-          description="可在资料库中点播歌曲，或开启上方无限播放"
-          action={!autoplay && provider ? { label: '开启无限播放', onPress: onToggleAutoplay } : undefined}
-          minHeight={minContentHeight}
-          scrollY={scrollY}
-        />
+        <Animated.View style={rowAnimatedStyle}>
+          <QueueEmptyState
+            title="队列已播完"
+            description="可在资料库中点播歌曲，或开启上方无限播放"
+            action={!autoplay && provider ? { label: '开启无限播放', onPress: onToggleAutoplay } : undefined}
+            minHeight={minContentHeight}
+            scrollY={scrollY}
+          />
+        </Animated.View>
       )
     }
 
     return (
-      <QueueRow 
-        item={item.item} 
-        queueIndex={item.index} 
-        playing={false} 
-        isGloballyPlaying={!!isGloballyPlaying}
-        isHistory={false}
-        onSelect={() => void skipToIndex(item.index)}
-        swipeEnabled={!dragging}
-        onActionOpenChange={setQueueActionOpen}
-      />
+      <Animated.View style={rowAnimatedStyle}>
+        <QueueRow 
+          item={item.item} 
+          queueIndex={item.index} 
+          playing={false} 
+          isGloballyPlaying={!!isGloballyPlaying}
+          isHistory={false}
+          onSelect={() => void skipToIndex(item.index)}
+          swipeEnabled={!dragging}
+          onActionOpenChange={setQueueActionOpen}
+        />
+      </Animated.View>
     )
-  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, scrollY, setQueueActionOpen])
+  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen])
 
-  const renderHistoryItem = useCallback(({ item }: { item: HistoryRowData; index: number }) => {
+  const renderHistoryItem = useCallback(({ item }: { item: HistoryRowData }) => {
     if (item.type === 'emptyState') {
       return (
-        <QueueEmptyState
-          title="暂无播放历史"
-          description="在此播放过的歌曲将显示在这里"
-          minHeight={minContentHeight}
-          scrollY={scrollY}
-        />
+        <Animated.View style={rowAnimatedStyle}>
+          <QueueEmptyState
+            title="暂无播放历史"
+            description="在此播放过的歌曲将显示在这里"
+            minHeight={minContentHeight}
+            scrollY={scrollY}
+          />
+        </Animated.View>
       )
     }
 
     return (
-      <HistoryRow 
-        item={item.item} 
-        onSelect={() => void playHistoryItem(item.item)}
-      />
+      <Animated.View style={rowAnimatedStyle}>
+        <HistoryRow 
+          item={item.item} 
+          onSelect={() => void playHistoryItem(item.item)}
+        />
+      </Animated.View>
     )
-  }, [minContentHeight, scrollY])
+  }, [minContentHeight, playHistoryItem, rowAnimatedStyle, scrollY])
+
+  const isDismissEnabled = !isMenuOpen && !dragging && isAtTop
+
+  const headerOverlayDismissGesture = useMemo(
+    () => (createDismissPan ? createDismissPan(isDismissEnabled) : cardDismissGesture),
+    [createDismissPan, isDismissEnabled, cardDismissGesture]
+  )
 
   const headerAnimatedStyle = useAnimatedStyle(() => {
     const maxShift = currentItem ? 88 : 0
-    const translateY = scrollY.value < 0 ? -scrollY.value : -Math.min(maxShift, scrollY.value)
+    const translateY = scrollY.value < 0 ? 0 : -Math.min(maxShift, scrollY.value)
     return {
       transform: [{ translateY }],
     }
@@ -349,32 +471,67 @@ export function PlayerQueue({
       onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}
     >
       <Animated.View style={[styles.headerOverlay, headerAnimatedStyle]} pointerEvents="box-none">
-        {currentItem ? (
-          <CurrentTrackCard
-            item={currentItem}
-            listAnim={listAnim}
-            consumeOpenAction={consumeOpenAction}
-            onDismissWithAction={onDismissWithAction}
-            onMenuOpenChange={onMenuOpenChange}
-          />
-        ) : null}
-        <ModesHeader
-          artwork={queue[index]?.artwork}
-          stageTopOffset={stageTopOffset}
-          modesContentOffset={modesContentOffset}
-          scrollY={scrollY}
-          screenWidth={screenWidth}
-          screenHeight={screenHeight}
-          playMode={playMode}
-          autoplay={autoplay}
-          tab={tab}
-          historyCount={history.length}
-          provider={provider}
-          onTabChange={onTabChange}
-          consumeOpenAction={consumeOpenAction}
-          onClearHistory={confirmClearHistory}
-          onToggleAutoplay={onToggleAutoplay}
-        />
+        {headerOverlayDismissGesture ? (
+          <GestureDetector gesture={headerOverlayDismissGesture}>
+            <View>
+              {currentItem ? (
+                <CurrentTrackCard
+                  item={currentItem}
+                  listAnim={listAnim}
+                  consumeOpenAction={consumeOpenAction}
+                  onDismissWithAction={onDismissWithAction}
+                  onMenuOpenChange={onMenuOpenChange}
+                />
+              ) : null}
+              <ModesHeader
+                artwork={queue[index]?.artwork}
+                stageTopOffset={stageTopOffset}
+                modesContentOffset={modesContentOffset}
+                scrollY={scrollY}
+                screenWidth={screenWidth}
+                screenHeight={screenHeight}
+                playMode={playMode}
+                autoplay={autoplay}
+                tab={tab}
+                historyCount={history.length}
+                provider={provider}
+                onTabChange={onTabChange}
+                consumeOpenAction={consumeOpenAction}
+                onClearHistory={confirmClearHistory}
+                onToggleAutoplay={onToggleAutoplay}
+              />
+            </View>
+          </GestureDetector>
+        ) : (
+          <View>
+            {currentItem ? (
+              <CurrentTrackCard
+                item={currentItem}
+                listAnim={listAnim}
+                consumeOpenAction={consumeOpenAction}
+                onDismissWithAction={onDismissWithAction}
+                onMenuOpenChange={onMenuOpenChange}
+              />
+            ) : null}
+            <ModesHeader
+              artwork={queue[index]?.artwork}
+              stageTopOffset={stageTopOffset}
+              modesContentOffset={modesContentOffset}
+              scrollY={scrollY}
+              screenWidth={screenWidth}
+              screenHeight={screenHeight}
+              playMode={playMode}
+              autoplay={autoplay}
+              tab={tab}
+              historyCount={history.length}
+              provider={provider}
+              onTabChange={onTabChange}
+              consumeOpenAction={consumeOpenAction}
+              onClearHistory={confirmClearHistory}
+              onToggleAutoplay={onToggleAutoplay}
+            />
+          </View>
+        )}
       </Animated.View>
 
       <View style={styles.pagerViewport}>
@@ -405,7 +562,8 @@ export function PlayerQueue({
               onIndexChange={onIndexChange}
               cellAnimations={{ transform: [] }}
               renderItem={renderUpcomingItem}
-              bounces
+              bounces={true}
+              alwaysBounceVertical={true}
               decelerationRate="normal"
               showsVerticalScrollIndicator={false}
             />
@@ -427,7 +585,8 @@ export function PlayerQueue({
                 if (closeOpenQueueAction()) setQueueActionOpen(false)
               }}
               renderItem={renderHistoryItem}
-              bounces
+              bounces={true}
+              alwaysBounceVertical={true}
               decelerationRate="normal"
               showsVerticalScrollIndicator={false}
             />
@@ -975,7 +1134,6 @@ const styles = StyleSheet.create({
   },
   pagerViewport: {
     flex: 1,
-    overflow: 'hidden',
   },
   pagerTrack: {
     flex: 1,
@@ -985,7 +1143,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
   },
-  list: { paddingBottom: spacing.xxl },
+  list: { paddingBottom: spacing.xxl + spacing.md },
   empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   
   modesHeader: {
