@@ -11,9 +11,11 @@ import {
 } from 'react-native'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
 import type { Playlist } from '@qj/core-domain'
+import type { MusicProvider } from '@qj/provider-api'
 import { CoverImage } from '@/components/cover-image'
 import { Icon } from '@/components/icon'
 import { useToast } from '@/components/toast'
+import { judgePlaylistAdd, playlistAddMessage, type PlaylistAddEvidence } from '@/lib/playlist-add-policy'
 import { useServerSession } from '@/lib/server-session'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
@@ -22,6 +24,27 @@ interface PlaylistPickerSheetProps {
   visible: boolean
   trackId: string
   onClose: () => void
+}
+
+/**
+ * 回读歌单当前的曲目总数，作为「写入到底生效没有」的证据。
+ *
+ * 只取 `Page.total`，所以 `size: 1` 就够 —— 翻页找曲目 id 在几千首的歌单上既慢、
+ * 又可能因分页边界给出假结论（新曲目按 `trackAddedAt` 排在末尾）。
+ * 回读失败**不抛**：v1 实测本机 `playlistTracks` 一律返回 100002，那不是异常路径，
+ * 是常态，必须让它落到 `unavailable` 而不是变成「添加失败」。
+ */
+async function readBackPlaylistTotal(
+  provider: MusicProvider,
+  playlistId: string,
+  before: number,
+): Promise<PlaylistAddEvidence> {
+  try {
+    const page = await provider.playlistTracks(playlistId, { page: 1, size: 1 })
+    return { kind: 'total', before, after: page.total }
+  } catch (e) {
+    return { kind: 'unavailable', reason: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 export function PlaylistPickerSheet({ visible, trackId, onClose }: PlaylistPickerSheetProps) {
@@ -85,11 +108,21 @@ export function PlaylistPickerSheet({ visible, trackId, onClose }: PlaylistPicke
   })
 
   const handleSelect = async (playlist: Playlist) => {
+    // 写之前先记下曲目数，写完回读比对。**不能只看返回码**：飞牛服务端对
+    // POST /playlist/add-track 返回成功码却不落地（见 packages/provider-fnos 的
+    // 「歌单写操作」注释），原来的实现写完直接 toast「已添加到…」，等于把未经
+    // 验证的假设当事实告诉用户。
+    const before = playlist.trackCount ?? 0
     try {
       await provider!.addTracksToPlaylist!(playlist.id, [trackId])
-      toast(`已添加到「${playlist.name}」`)
-      // 刷新该歌单的曲目缓存，下次进入详情页能看到新曲目
-      await queryClient.invalidateQueries({ queryKey: ['playlist-tracks', connection?.id, playlist.id] })
+      const evidence = await readBackPlaylistTotal(provider!, playlist.id, before)
+      const verdict = judgePlaylistAdd(evidence)
+      toast(playlistAddMessage(verdict, playlist.name))
+      // 只有确认写进去了才刷新缓存 —— 没确认就刷新，下次进详情页看到没变化，
+      // 反而会让用户以为「刚才那次是缓存没刷出来」。
+      if (verdict === 'confirmed') {
+        await queryClient.invalidateQueries({ queryKey: ['playlist-tracks', connection?.id, playlist.id] })
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : '添加失败')
     }

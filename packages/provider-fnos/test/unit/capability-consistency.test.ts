@@ -29,7 +29,9 @@ describe('能力声明与实现一致性', () => {
     // stream 是必填方法，不放在 optional 检查里
     if (cap.searchSuggest) set.add('suggest')
     if (cap.genres) set.add('genres')
-    // ratings / multiLibrary / playHistory 在飞牛实现里尚缺，暂不加入断言
+    // `ratings` / `multiLibrary` 已在 FNOS_CAPABILITIES 里如实声明为 **false** ——
+    // 契约层没有对应方法、UI 也零消费方。声明 false 本身就是「四层一致」的正确形态，
+    // 所以这里不该为它们补方法断言（那会反过来逼出一个没人用的实现）。
     if (cap.audioSpec) set.add('audioSpec')
     return set
   }

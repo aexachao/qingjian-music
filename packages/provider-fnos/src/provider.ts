@@ -89,7 +89,10 @@ export const FNOS_CAPABILITIES: Capabilities = {
   searchSuggest: true,
   genres: true,
   ratings: false,
-  multiLibrary: true,
+  // 诚实声明：契约层**没有** `libraries` 方法、UI 也**零消费方**，声明 true 只会制造
+  // 「这个能力已经就绪」的假象 —— 正是 capability-consistency 测试想防住的那类四层漂移。
+  // 共享库端点 `/shared-library/list` 已登记，实施排在四期 4.3。
+  multiLibrary: false,
   audioSpec: true,
   // 实测确认：转码恒输出无损 FLAC，服务端**忽略** output.bitrate（128 与 320 的分片字节数完全一致），
   // 即飞牛只有一档输出。所以「标准音质省流量」在这里不成立，UI 不该提供该选项。
