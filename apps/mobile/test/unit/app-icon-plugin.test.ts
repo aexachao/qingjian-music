@@ -44,12 +44,12 @@ describe('运行时应用图标原生接入', () => {
     expect(android).toContain('PackageManager.DONT_KILL_APP')
   })
 
-  it('四款图标与默认经典绯红在 JS 和原生层一致', () => {
+  it('三款图标与默认绯红声谱在 JS 和原生层一致', () => {
     const entry = read('modules/app-icon/index.ts')
     const ios = read('modules/app-icon/ios/AppIconModule.swift')
     const android = read('modules/app-icon/android/src/main/java/expo/modules/appicon/AppIconModule.kt')
 
-    for (const id of ['dark-bars', 'crimson-glass', 'gold-glow', 'crimson-bars']) {
+    for (const id of ['dark-bars', 'gold-glow', 'crimson-bars']) {
       expect(entry).toContain(`'${id}'`)
       expect(ios).toContain(`"${id}"`)
       expect(android).toContain(`"${id}"`)
@@ -91,7 +91,7 @@ describe('自适应图标 XML 能被 AAPT2 链接', () => {
     expect(refs.size).toBe(icons.length)
   })
 
-  it('四款图标的背景色都声明了，且绯红系用品牌色', () => {
+  it('三款图标的背景色都声明了，且绯红系用品牌色', () => {
     const values = plugin.buildIconColorResourcesXml(icons)
 
     expect(colorDecls(values)).toHaveLength(icons.length)
@@ -99,7 +99,6 @@ describe('自适应图标 XML 能被 AAPT2 链接', () => {
       expect(values).toContain(`<color name="${icon.resource}_background">`)
     }
     expect(values).toContain('<color name="app_icon_crimson_bars_background">#F62C55</color>')
-    expect(values).toContain('<color name="app_icon_crimson_glass_background">#F62C55</color>')
     expect(values).toContain('<color name="app_icon_dark_bars_background">#000000</color>')
     expect(values).toContain('<color name="app_icon_gold_glow_background">#000000</color>')
   })

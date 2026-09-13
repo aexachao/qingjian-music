@@ -6,12 +6,11 @@ import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
-private const val defaultIconId = "crimson-glass"
+private const val defaultIconId = "crimson-bars"
 private val aliasSuffixes = linkedMapOf(
   "dark-bars" to "AppIconDarkBars",
-  defaultIconId to "AppIconCrimsonGlass",
   "gold-glow" to "AppIconGoldGlow",
-  "crimson-bars" to "AppIconCrimsonBars"
+  defaultIconId to "AppIconCrimsonBars"
 )
 
 class AppIconModule : Module() {

@@ -2,7 +2,6 @@ import { requireNativeModule } from 'expo'
 
 export const APP_ICON_IDS = [
   'dark-bars',
-  'crimson-glass',
   'gold-glow',
   'crimson-bars',
 ] as const

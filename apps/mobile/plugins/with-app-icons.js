@@ -10,9 +10,8 @@ const {
 
 const ICONS = [
   { id: 'dark-bars', nativeName: 'AppIconDarkBars', resource: 'app_icon_dark_bars' },
-  { id: 'crimson-glass', nativeName: 'AppIconCrimsonGlass', resource: 'app_icon_crimson_glass', default: true },
   { id: 'gold-glow', nativeName: 'AppIconGoldGlow', resource: 'app_icon_gold_glow' },
-  { id: 'crimson-bars', nativeName: 'AppIconCrimsonBars', resource: 'app_icon_crimson_bars' },
+  { id: 'crimson-bars', nativeName: 'AppIconCrimsonBars', resource: 'app_icon_crimson_bars', default: true },
 ]
 
 const launcherIntentFilter = {

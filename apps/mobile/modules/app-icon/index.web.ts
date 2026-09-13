@@ -1,6 +1,5 @@
 export const APP_ICON_IDS = [
   'dark-bars',
-  'crimson-glass',
   'gold-glow',
   'crimson-bars',
 ] as const
@@ -8,7 +7,7 @@ export const APP_ICON_IDS = [
 export type AppIconId = (typeof APP_ICON_IDS)[number]
 
 export async function getAppIcon(): Promise<AppIconId> {
-  return 'crimson-glass'
+  return 'crimson-bars'
 }
 
 export async function setAppIcon(_iconId: AppIconId): Promise<void> {

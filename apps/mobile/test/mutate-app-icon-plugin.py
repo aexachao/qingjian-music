@@ -26,7 +26,7 @@ MUTATIONS = [
         '  void valuesRoot',
     ),
     (
-        '背景色资源名退化成常量（四款图标抢同一个资源）',
+        '背景色资源名退化成常量（三款图标抢同一个资源）',
         "return `${icon.resource}_background`",
         "return 'app_icon_background'",
     ),

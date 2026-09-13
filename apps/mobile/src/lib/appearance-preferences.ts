@@ -40,8 +40,8 @@ export interface AppLogoOption {
 }
 
 /**
- * 4 款官方精心设计的应用图标：
- * 默认选中第 2 款「经典绯红」（即用户指定的主视觉 Logo）。
+ * 3 款官方精心设计的应用图标：
+ * 默认选中「绯红声谱」（即用户指定的主视觉 Logo）。
  */
 export const APP_LOGOS: readonly AppLogoOption[] = [
   {
@@ -49,13 +49,6 @@ export const APP_LOGOS: readonly AppLogoOption[] = [
     name: '暗夜声律',
     description: '深邃暗调 · 律动声谱',
     source: require('../../assets/images/logos/logo-dark-bars.png'),
-  },
-  {
-    id: 'crimson-glass',
-    name: '经典绯红',
-    description: '珊瑚绯红 · 晶莹音符',
-    source: require('../../assets/images/logos/logo-crimson-glass.png'),
-    isDefault: true,
   },
   {
     id: 'gold-glow',
@@ -68,10 +61,11 @@ export const APP_LOGOS: readonly AppLogoOption[] = [
     name: '绯红声谱',
     description: '品牌绯红 · 动感声浪',
     source: require('../../assets/images/logos/logo-crimson-bars.png'),
+    isDefault: true,
   },
 ] as const
 
-export const DEFAULT_LOGO_ID = 'crimson-glass'
+export const DEFAULT_LOGO_ID = 'crimson-bars'
 
 export interface AppearancePreferencesData {
   themeMode: ThemeMode

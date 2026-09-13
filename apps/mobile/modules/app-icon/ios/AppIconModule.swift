@@ -1,11 +1,10 @@
 import ExpoModulesCore
 import UIKit
 
-private let defaultIconId = "crimson-glass"
+private let defaultIconId = "crimson-bars"
 private let alternateIconNames = [
   "dark-bars": "AppIconDarkBars",
-  "gold-glow": "AppIconGoldGlow",
-  "crimson-bars": "AppIconCrimsonBars"
+  "gold-glow": "AppIconGoldGlow"
 ]
 
 public class AppIconModule: Module {

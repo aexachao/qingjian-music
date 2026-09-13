@@ -15,18 +15,18 @@ describe('外观主题与 Logo 自定义选择规范', () => {
   const loginSource = source('app/login.tsx')
   const aboutSource = source('screens/about.tsx')
 
-  it('外观配置中心：默认主题为跟随系统，默认 Logo 为第 2 张经典绯红', () => {
+  it('外观配置中心：默认主题为跟随系统，默认 Logo 为绯红声谱', () => {
     expect(appearancePrefsSource).toContain("themeMode: 'system'")
     expect(appearancePrefsSource).toContain("activeLogoId: DEFAULT_LOGO_ID")
-    expect(appearancePrefsSource).toContain("export const DEFAULT_LOGO_ID = 'crimson-glass'")
+    expect(appearancePrefsSource).toContain("export const DEFAULT_LOGO_ID = 'crimson-bars'")
     expect(appearancePrefsSource).toContain("KEY_APPEARANCE_PREFS = 'qj.prefs.appearance'")
   })
 
-  it('官方提供 4 款高质量 Logo 选项，第 2 款标为 isDefault', () => {
+  it('官方提供 3 款高质量 Logo 选项，绯红声谱标为 isDefault', () => {
     expect(appearancePrefsSource).toContain("id: 'dark-bars'")
     expect(appearancePrefsSource).toContain("name: '暗夜声律'")
-    expect(appearancePrefsSource).toContain("id: 'crimson-glass'")
-    expect(appearancePrefsSource).toContain("name: '经典绯红'")
+    expect(appearancePrefsSource).not.toContain("id: 'crimson-glass'")
+    expect(appearancePrefsSource).not.toContain("name: '经典绯红'")
     expect(appearancePrefsSource).toContain('isDefault: true')
     expect(appearancePrefsSource).toContain("id: 'gold-glow'")
     expect(appearancePrefsSource).toContain("name: '流光金弦'")
