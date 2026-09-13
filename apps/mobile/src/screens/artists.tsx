@@ -1,4 +1,4 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, Text, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Artist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'

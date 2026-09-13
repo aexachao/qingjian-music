@@ -44,7 +44,7 @@ export function parseLyricCacheFileName(name: string): { key: string; tier: Lyri
 
 /** 按「最久未用先删」挑出超过首数上限的键；countLimit <= 0 表示不限制 */
 export function pickLyricEvictions(
-  entries: Array<{ key: string; lastUsedAt: number }>,
+  entries: { key: string; lastUsedAt: number }[],
   countLimit: number,
 ): string[] {
   if (countLimit <= 0 || entries.length <= countLimit) return []

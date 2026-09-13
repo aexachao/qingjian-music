@@ -20,7 +20,7 @@ import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
-import { Icon, IconButton, iconSize } from '@/components/icon'
+import { IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
@@ -150,16 +150,6 @@ export default function PlayerScreen() {
           })
         }
       }), [height, translateY, startY, dismiss, queueActionOpen])
-
-  const triggerDismiss = useCallback(() => {
-    const pageHeight = height || 850
-    translateY.value = withTiming(pageHeight, {
-      duration: 400,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
-    }, () => {
-      runOnJS(dismiss)()
-    })
-  }, [height, translateY, dismiss])
 
   const dismissWithAction = useCallback((action: () => void) => {
     const pageHeight = height || 850

@@ -1,7 +1,39 @@
 packages:
   - apps/*
   - packages/*
+
+# ⚠️ 下面这些设置**必须写在本文件里**。
+#
+# pnpm 10+ 起，pnpm 专有配置不再从 .npmrc 读取 —— 写在那里会**静默失效**：
+# 安装照常跑完、不报任何错，但设置根本没生效。实测 pnpm 11.8.0：
+# `pnpm config get store-dir` 返回 undefined，而 .npmrc 里明明写着。
+#
+# 2026-09-13 之前，本仓库 .npmrc 里这四项全是死配置，后果是：
+#   · store 落在 ~/Library/pnpm 而不是工作区内 → 污染 HOME，
+#     且 pnpm 会在全局 store 注册项目符号链接，撞上已存在条目就报
+#     `EEXIST symlink`（这就是「不能用 pnpm -r」那个坑的真正根因）；
+#   · cache / state 同样落到 HOME 下。
+# 迁移到本文件后，`pnpm -r` 与 `pnpm add` 都能正常跑。
+storeDir: .pnpm-store
+cacheDir: .cache/pnpm
+stateDir: .cache/pnpm-state
+strictPeerDependencies: false
+
 allowBuilds:
   unrs-resolver: false
+
 patchedDependencies:
   react-native-track-player@4.1.2: patches/react-native-track-player@4.1.2.patch
+
+# ── 待决策，先不要打开 ──────────────────────────────────────────────────────
+# .npmrc 里原本声明了 node-linker=hoisted（理由：RN / Metro 对符号链接的
+# node_modules 支持不完整），但和上面几项一样**从未生效**，所以 node_modules
+# 实际是 pnpm 默认的**符号链接布局**（存在 node_modules/.pnpm，依赖是 symlink）。
+#
+# Expo 官方确实建议 RN 项目用 hoisted。但当前应用在该布局下是**验证过可用**的
+# （378 单测全绿、iOS 真机构建通过），所以不在发布前动它。
+#
+# 切换布局会全量重建 node_modules，属独立改动：打开下面这行 → `pnpm install`
+# → 重新跑 node scripts/verify.mjs + 触发一次 GitHub 构建确认原生侧没坏。
+#
+# nodeLinker: hoisted

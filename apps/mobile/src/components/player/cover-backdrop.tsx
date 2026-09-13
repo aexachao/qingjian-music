@@ -1,6 +1,6 @@
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 

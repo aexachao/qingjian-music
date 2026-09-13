@@ -1,4 +1,4 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'

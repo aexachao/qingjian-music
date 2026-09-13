@@ -1,25 +1,29 @@
 #!/usr/bin/env node
 /**
- * 一条命令跑完所有本地校验：架构守卫 → 四个包的类型检查 → 三个包的单元测试。
+ * 一条命令跑完所有本地校验：架构守卫 → ESLint → 四个包的类型检查 → 四个包的单元测试。
  *
  * ── 为什么不用 `pnpm -r` ────────────────────────────────────────────────────
  * 在这台机器上 `pnpm -r typecheck` / `pnpm -r test` 会触发 pnpm 的依赖状态检查，
  * 报 `EEXIST symlink` 直接失败。结果就是「本地跑不了 → 大家干脆不跑」——
  * 校验一旦需要四段手打命令，就必然被跳过。
  *
- * 所以这里绕开 pnpm，直接调用**各包自带的** tsc / vitest 二进制：
+ * 所以这里绕开 pnpm，直接调用**各包自带的** tsc / vitest / eslint 二进制：
  *   · 本地和 CI 跑的是同一条命令、同一份逻辑；
  *   · 不依赖 pnpm 的 workspace 解析，也就不会踩那个 symlink 坑。
  *
  * 用法：
  *   node scripts/verify.mjs                 # 全部
+ *   node scripts/verify.mjs --only lint
  *   node scripts/verify.mjs --only typecheck
  *   node scripts/verify.mjs --only test
  *   node scripts/verify.mjs --skip-guard
+ *
+ * 只想看某个文件的 lint 结果时，直接跑 eslint（不要用本脚本）：
+ *   node node_modules/eslint/bin/eslint.js apps/mobile/src/screens/home.tsx
  */
 
 import { existsSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -78,7 +82,40 @@ if (!only && !skipGuard) {
   run('架构守卫', process.execPath, [join(ROOT, 'scripts', 'guard-architecture.mjs')], ROOT)
 }
 
-// ── 2. 类型检查 ──────────────────────────────────────────────────────────────
+// ── 2. ESLint ────────────────────────────────────────────────────────────────
+/**
+ * 警告预算 —— **只能往下调**，和 scripts/guard-baseline.json 是同一个契约。
+ *
+ * 现存 94 条警告全部是「要改就得动交互时序、必须真机验证」的类型
+ * （React Compiler 时代的 ref/immutability 规则 + exhaustive-deps），
+ * 本机没有 Android SDK / iOS 真机环境，所以先不拿它们卡 CI，
+ * 但**不允许再涨**。改小这个数字是唯一的正确方向。
+ *
+ * 新增警告 → CI 失败。修掉一些之后，请把这里的数字一并改小。
+ */
+const LINT_WARNING_BUDGET = 94
+
+if (!only || only === 'lint') {
+  const missing = missingBinary('.', 'node_modules/eslint/bin/eslint.js')
+  if (missing) {
+    results.push({ label: 'lint', ok: false, seconds: '0.0' })
+    console.log(c.red(`✗ ${missing}`))
+  } else {
+    run(
+      'lint · ESLint',
+      process.execPath,
+      [
+        join(ROOT, 'node_modules/eslint/bin/eslint.js'),
+        '.',
+        '--max-warnings',
+        String(LINT_WARNING_BUDGET),
+      ],
+      ROOT,
+    )
+  }
+}
+
+// ── 3. 类型检查 ──────────────────────────────────────────────────────────────
 if (!only || only === 'typecheck') {
   for (const dir of TYPE_TARGETS) {
     const missing = missingBinary(dir, 'node_modules/typescript/bin/tsc')
@@ -96,7 +133,7 @@ if (!only || only === 'typecheck') {
   }
 }
 
-// ── 3. 单元测试 ──────────────────────────────────────────────────────────────
+// ── 4. 单元测试 ──────────────────────────────────────────────────────────────
 if (!only || only === 'test') {
   for (const target of TEST_TARGETS) {
     const missing = missingBinary(target.dir, 'node_modules/vitest/vitest.mjs')

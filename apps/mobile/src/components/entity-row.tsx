@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Album, Artist, Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'

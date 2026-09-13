@@ -1,10 +1,9 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, Text, View } from 'react-native'
 import { Link } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
-import { useConfirm } from '@/components/confirm-modal'
 import { usePrompt } from '@/components/prompt-modal'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -20,7 +19,6 @@ export function PlaylistsScreen() {
   const bottom = useBottomSpace()
   const href = useDetailHref()
   const prompt = usePrompt()
-  const confirm = useConfirm()
   const toast = useToast()
   const queryClient = useQueryClient()
   const canWrite = provider?.capabilities.playlists === 'write'

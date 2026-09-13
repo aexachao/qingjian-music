@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.8.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "guard": "node scripts/guard-architecture.mjs",
     "verify": "node scripts/verify.mjs",
     "typecheck": "node scripts/verify.mjs --only typecheck",
     "test": "node scripts/verify.mjs --only test",
+    "lint": "node scripts/verify.mjs --only lint",
     "test:contract": "pnpm --filter @qj/provider-fnos test:contract",
     "start": "pnpm --filter @qj/mobile start",
     "ios": "pnpm --filter @qj/mobile ios",
@@ -16,6 +19,9 @@
     "prebuild:ios": "pnpm --filter @qj/mobile prebuild:ios"
   },
   "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^57.0.2",
+    "eslint-import-resolver-typescript": "^3.10.1",
     "typescript": "~6.0.3"
   }
 }

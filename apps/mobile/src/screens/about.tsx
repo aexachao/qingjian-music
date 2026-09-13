@@ -15,7 +15,7 @@ import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useAppLogo } from '@/lib/appearance-preferences'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { radius, spacing, typography } from '@/theme/tokens'
+import { spacing, typography } from '@/theme/tokens'
 
 const APP_VERSION = '0.1.0'
 /** iOS 上架后回填数字 ID（App Store Connect → App 信息）。留空则「五星好评」只展示说明弹窗，不会点了报错 */

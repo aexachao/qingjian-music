@@ -15,8 +15,7 @@ import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 /** 底部进度线的高度 */
 const PROGRESS_HEIGHT = 2
 
-/** iOS 有真毛玻璃（UIVisualEffectView），Android 上 BlurView 不可靠，直接用实心底 */
-const USE_BLUR = Platform.OS === 'ios'
+/** iOS 有真毛玻璃（UIVisualEffectView），Android 上 BlurView 不可靠 —— 所以两端一律用实心底，不引入 BlurView */
 
 /**
  * 迷你播放条：固定贴在页签上方，点击进入正在播放页。

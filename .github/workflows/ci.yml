@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   verify:
-    name: 类型检查与单元测试
+    name: 静态检查、类型检查与单元测试
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +37,10 @@ jobs:
 
       - name: 架构守卫（把文档里的硬规则变成检查）
         run: pnpm guard
+
+      # 0 error 是硬要求；警告受 scripts/verify.mjs 里的预算约束，只减不增
+      - name: ESLint
+        run: pnpm lint
 
       - name: 类型检查（core-domain / provider-api / provider-fnos / mobile）
         run: pnpm typecheck

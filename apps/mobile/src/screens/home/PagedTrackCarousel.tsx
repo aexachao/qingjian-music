@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { FlatList, Pressable, Text, useWindowDimensions, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { FormatBadge } from '@/components/format-badge'

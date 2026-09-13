@@ -1,6 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { Icon, iconSize } from '@/components/icon'
+import { Icon } from '@/components/icon'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { typography } from '@/theme/tokens'
 

@@ -1,4 +1,4 @@
-import { FlatList, StyleSheet, View } from 'react-native'
+import { FlatList, View } from 'react-native'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import type { Album, Artist, Playlist } from '@qj/core-domain'
 import { AlbumRow, ArtistRow, PlaylistRow } from '@/components/entity-row'

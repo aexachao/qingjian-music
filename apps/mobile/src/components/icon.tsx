@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { ActivityIndicator, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { ActivityIndicator, Pressable, View, type StyleProp, type ViewStyle } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 

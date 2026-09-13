@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo } from 'react'
+import { StyleSheet, View } from 'react-native'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'

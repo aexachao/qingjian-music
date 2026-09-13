@@ -1,4 +1,4 @@
-import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { FlatList, Pressable, Text, useWindowDimensions, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Album } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'

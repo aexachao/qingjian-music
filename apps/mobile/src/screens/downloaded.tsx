@@ -5,7 +5,7 @@ import { Icon, iconSize } from '@/components/icon'
 import { audioCacheStats } from '@/player/audio-cache'
 import { formatBytes } from '@/player/audio-cache-policy'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 /**
  * 已下载与本地缓存音乐页面

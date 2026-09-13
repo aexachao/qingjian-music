@@ -37,7 +37,7 @@ jobs:
   # 1. 先把校验跑绿，坏提交不给出包
   # ───────────────────────────────────────────────────────────────────────────
   verify:
-    name: 校验（守卫 / 类型 / 单测）
+    name: 校验（守卫 / ESLint / 类型 / 单测）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +54,9 @@ jobs:
 
       - name: 架构守卫
         run: pnpm guard
+
+      - name: ESLint
+        run: pnpm lint
 
       - name: 类型检查
         run: pnpm typecheck

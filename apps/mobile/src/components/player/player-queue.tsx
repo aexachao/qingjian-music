@@ -17,7 +17,6 @@ import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
 import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import * as Haptics from 'expo-haptics'
 import Animated, {
-  cancelAnimation,
   Easing,
   Extrapolation,
   interpolate,
@@ -31,7 +30,6 @@ import Animated, {
 
 import type { QueueItem, PlayMode } from '@qj/core-domain'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
-import { LivePlayingBars } from '@/components/playing-bars'
 import { TrackMenuButton } from '@/components/track-menu-button'
 import { isGlobalMenuInteracting } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
@@ -54,7 +52,7 @@ import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from './cover-backdrop'
 import { usePlayerStore } from '@/player/store'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
-import { createThemedStyles, useAppTheme, useThemeColors } from '@/theme/theme-provider'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { useToggleFavorite } from '@/lib/favorites'
 import { DeckMoreButton } from '@/components/player/player-deck'
 
@@ -82,12 +80,6 @@ type HistoryRowData =
   | { id: string; type: 'historyTrack'; item: QueueItem; index: number }
   | { id: string; type: 'emptyState'; tab: QueueTab }
 
-type QueueRowData =
-  | { id: string; type: 'currentInfo'; item: QueueItem }
-  | { id: string; type: 'modesHeader' }
-  | { id: string; type: 'historyTrack'; item: QueueItem; index: number }
-  | { id: string; type: 'upcomingTrack'; item: QueueItem; index: number }
-  | { id: string; type: 'emptyState'; tab: QueueTab }
 
 export function PlayerQueue({
   bottomSpace,
@@ -118,7 +110,6 @@ export function PlayerQueue({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
-  const colors = useThemeColors()
   const styles = useStyles()
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()

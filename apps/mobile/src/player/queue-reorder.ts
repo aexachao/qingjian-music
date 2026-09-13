@@ -11,9 +11,9 @@
  * 每个 move 是 [from, to]（均为数组下标）；按列表顺序依次应用即可收敛。
  * 元素以 key 识别（同一队列里 key 唯一）。
  */
-export function planTailReorder<T>(current: readonly T[], desired: readonly T[], key: (item: T) => string): Array<[number, number]> {
+export function planTailReorder<T>(current: readonly T[], desired: readonly T[], key: (item: T) => string): [number, number][] {
   const order = current.map(key)
-  const moves: Array<[number, number]> = []
+  const moves: [number, number][] = []
   for (let offset = 0; offset < desired.length; offset += 1) {
     const targetKey = key(desired[offset]!)
     const currentOffset = order.indexOf(targetKey)

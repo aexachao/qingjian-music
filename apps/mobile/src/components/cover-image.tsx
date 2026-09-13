@@ -1,5 +1,5 @@
 import { Image } from 'expo-image'
-import { StyleSheet, View } from 'react-native'
+import { View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
 import { Icon } from '@/components/icon'
 import { radius } from '@/theme/tokens'

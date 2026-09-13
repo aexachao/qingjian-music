@@ -2,7 +2,6 @@ import { useLocalSearchParams, Stack } from 'expo-router'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
 import { useServerSession } from '@/lib/server-session'
-import { useToast } from '@/components/toast'
 import { CoverImage } from '@/components/cover-image'
 import { createThemedStyles } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
@@ -36,7 +35,6 @@ export default function TrackInfoScreen() {
     duration?: string
   }>()
   const { provider, connection } = useServerSession()
-  const toast = useToast()
   const styles = useStyles()
 
   const { data: spec, isPending } = useQuery({

@@ -36,8 +36,6 @@ import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 const FALLBACK_LINE_MS = 4000
 /** 长按多久弹出全部歌词面板 */
 const LONG_PRESS_MS = 320
-/** 列表已停在顶部还继续往下拽超过多少 pt，算「要退出全屏」 */
-const PULL_REVEAL_PT = 36
 
 /** 跨组件与切页持久缓存的行坐标与视口高度，避免切回歌词页重新排版导致的滚动跳跃 */
 const trackOffsetsCache = new Map<string, number[]>()

@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
-import { Pressable, StyleSheet } from 'react-native'
+import { Pressable } from 'react-native'
 import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/icon'
 import { useConfirm } from '@/components/confirm-modal'

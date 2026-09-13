@@ -7,7 +7,7 @@ const id = (value: string) => value
  * 纯 JS 模拟 RNTP 的 move 语义，用来验证 planTailReorder 产出的 moves
  * 能真正把 current 变成 desired。只在测试里需要，所以放在测试文件里。
  */
-function applyMoves<T>(current: T[], moves: Array<[number, number]>): T[] {
+function applyMoves<T>(current: T[], moves: [number, number][]): T[] {
   const result = [...current]
   for (const [from, to] of moves) {
     const [moved] = result.splice(from, 1)

@@ -11,7 +11,7 @@ import {
   type ThemeMode,
 } from '@/lib/appearance-preferences'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { radius, spacing, typography } from '@/theme/tokens'
+import { spacing, typography } from '@/theme/tokens'
 import { supportsAlternateIcons } from '../../modules/app-icon'
 
 /**
