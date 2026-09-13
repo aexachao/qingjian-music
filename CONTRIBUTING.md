@@ -33,14 +33,16 @@
 改代码前先读 [`docs/build-and-ci.md`](docs/build-and-ci.md)，里面除了构建方式，
 还记了一批「不这么写就会坏」的坑。
 
-提交前跑一次：
+每次修改完成后跑一次完整验证：
 
 ```bash
-node scripts/verify.mjs
+node scripts/verify-full.mjs
 ```
 
-**10 项全绿才算过**：架构守卫 + ESLint + 4 包类型检查 + 4 包单测（约 40 秒）。
-本地和 CI 跑的是同一条命令。
+它先执行原有的 **JS / TS 校验**（架构守卫 + 文档事实守卫 + ESLint + 4 包类型检查 + 4 包单测；步骤清单见 [`docs/现状基线.md`](docs/现状基线.md)，**本文档不复述项数** —— 那个数字每次加校验步骤都会过期），
+然后执行 **SwiftLint 严格检查（必须 0 warning）+ iOS Release 设备版无签名编译 + 产物真实性校验**。
+本地 macOS 与 push / PR CI 使用同一套 iOS 验证入口；没有 Xcode 的机器可以先跑
+`node scripts/verify.mjs`，但不能据此宣称改动已完成。
 
 几个容易被 CI 拦下的点：
 
@@ -63,4 +65,4 @@ node scripts/verify.mjs
 shasum -a 256 patches/*.patch
 ```
 
-具体原因见 [`docs/build-and-ci.md`](docs/build-and-ci.md) 第四节第 7 条。
+具体原因见 [`docs/build-and-ci.md`](docs/build-and-ci.md) 第四节的第三方补丁条目。

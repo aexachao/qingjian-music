@@ -1,0 +1,14 @@
+strict: true
+check_for_updates: false
+
+included:
+  - .
+
+excluded:
+  - apps/mobile/ios
+  - apps/mobile/android
+  - node_modules
+  - reference
+  - .cache
+  - .pnpm-store
+  - .workbuddy-ai

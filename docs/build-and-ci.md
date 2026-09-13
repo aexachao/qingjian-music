@@ -11,13 +11,13 @@
 | --- | --- | --- |
 | 手动 | Actions → **Build** → Run workflow | 出一版包（artifact） |
 | 打 tag | `git tag v0.1.0 && git push origin v0.1.0` | 出包并自动挂到 GitHub Release |
-| 日常推送 | `git push` | 只跑 **CI**（守卫 / ESLint / 类型 / 单测），不出包 |
+| 日常推送 | `git push` | 跑 **CI**：完整 JS/TS 校验 + SwiftLint 0 warning + iOS Release 编译与产物校验；不出包 |
 
 两个工作流分工：
 
 | 文件 | 触发 | 内容 |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | push / PR / 手动 | 架构守卫、ESLint、类型检查、单测；（可选）契约测试 |
+| `.github/workflows/ci.yml` | push / PR / 手动 | 架构守卫、ESLint、类型检查、单测、SwiftLint、iOS Release 编译与产物校验；（可选）契约测试 |
 | `.github/workflows/build.yml` | 手动 / tag | 校验 → JS 打包检查 → Android APK → iOS 未签名 IPA |
 
 ---
@@ -110,10 +110,10 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
 
 这些都是踩过的坑，改工作流时不要动：
 
-1. **`expo prebuild --platform ios` 不能加 `--no-install`。**
-   它会清空并重写整个 `ios/` 目录却跳过 `pod install`，
-   导致 `.xcworkspace` 不存在，`xcodebuild` 直接报 workspace 找不到。
-   （Android 侧加 `--no-install` 没问题，因为没有 pod 这一步。）
+1. **iOS 的 `expo prebuild --no-install` 后面必须显式执行 `pod install`。**
+   它会清空并重写整个 `ios/` 目录并跳过 Pods；若没有紧跟 `pod install`，
+   `.xcworkspace` 不存在，`xcodebuild` 会直接失败。`scripts/verify-ios.mjs` 刻意拆成这两步，
+   便于固定 CocoaPods 参数并输出清晰的失败阶段。（Android 没有 Pods。）
 
 2. **`android/` 和 `ios/` 都被 `.gitignore` 排除**，CI 上必须现生成，
    所以工作流里一定有 prebuild 步骤，不能假设原生目录存在。
@@ -130,7 +130,13 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
    IPA 就是根目录含 `Payload/` 的 zip；`--sequesterRsrc` 会产生 `__MACOSX`，
    部分自签工具会挑刺。
 
-7. **Android 构建会被 `react-native-track-player@4.1.2` 卡住 —— `patches/` 里的补丁不能删。**
+7. **iOS 的 `expo-crypto@57.0.2` 在 Xcode 26.6 / Swift 6.3 下需要补丁。**
+   官方包用预编译的 `@OptimizedFunction` 宏实现 `randomUUID`；该宏二进制在当前工具链下会
+   `produced malformed response`，导致 iOS Release 编译失败。`patches/expo-crypto@57.0.2.patch`
+   保持 JS API 不变，只把 `randomUUID` 改走普通 Expo Modules closure 路径。升级 Expo / Xcode 时
+   应先撤掉补丁验证官方是否已修；补丁哈希必须与 `pnpm-lock.yaml` 一致。
+
+8. **Android 构建会被 `react-native-track-player@4.1.2` 卡住 —— `patches/` 里的补丁不能删。**
    4.1.2 把可空的 `Track.originalItem: Bundle?` 直接传给 `Arguments.fromBundle(Bundle)`，
    RN 0.81+ 的 Kotlin 2.x 把这条提升成**编译错误**，`:react-native-track-player:compileReleaseKotlin`
    直接失败（第一次真正跑 Android 构建时才暴露，之前从没构建过）：
@@ -211,7 +217,7 @@ npx eas-cli build --platform all --profile preview
 
 ## 七、开发校验
 
-一条命令跑完守卫 + ESLint + 类型检查 + 单测（约 40 秒）：
+快速校验仍可用一条命令跑完守卫 + ESLint + 类型检查 + 单测：
 
 ```bash
 node scripts/verify.mjs
@@ -219,8 +225,16 @@ node scripts/verify.mjs --only lint        # 只跑某一类
 node scripts/verify.mjs --skip-guard       # 跳过架构守卫
 ```
 
-> **不要用 `pnpm -r` 跑类型检查/测试**，会触发 pnpm 的 deps status check 并报
-> `EEXIST symlink`。`verify.mjs` 已经绕开 pnpm，本地和 CI 跑的是同一条命令。
+但每次修改完成后的验收入口是：
+
+```bash
+node scripts/verify-full.mjs
+```
+
+`verify-full.mjs` 会先跑上一节列出的全部 JS/TS 校验步骤（**清单以 [`现状基线.md`](现状基线.md) 为准，本文档不复述项数**），再执行 `scripts/verify-ios.mjs`：固定版本 SwiftLint
+严格检查（任何 warning 都失败）→ `expo prebuild --platform ios --clean --no-install` → `pod install`
+→ Release 设备版无签名编译 → 校验 `.app` 中的 `main.jsbundle`、版本号、Bundle ID、arm64、IOS 平台和无描述文件。它需要 macOS、
+Xcode 与 CocoaPods。push / PR 的 macOS CI 使用同一个 `verify:ios` 入口，避免“配置看着对但产物不可用”。
 
 ### 架构守卫
 
@@ -230,6 +244,36 @@ node scripts/verify.mjs --skip-guard       # 跳过架构守卫
 
 > **加新规则时必须先造一个违规样本验证它会失败** —— 守卫自己踩过
 > 「规则永远为真」的坑：一条永远通过的规则比没有规则更糟，因为它给人一种被保护了的错觉。
+
+### 文档事实守卫
+
+```bash
+pnpm check:docs                              # 检查
+node scripts/check-docs.mjs --update         # 重写 docs/现状基线.md 的生成块
+node scripts/check-docs.mjs --self-test      # 自检：注入假值确认每条事实真的会失败
+```
+
+文档曾经长时间与代码脱节：同一份仓库里同时存在「4 个 Expo Module」和「3 个」、
+「378 测试」和「459 测试」、「9 项校验」和「10 项校验」，而 README 让人去跑的
+`verify-full.mjs` 当时**根本没提交** —— 本地存在，别人 clone 下来没有。
+
+它检查四类事实：
+
+| 检查 | 抓什么 |
+| --- | --- |
+| 文档引用可解析且已纳入版本库 | 相对链接/图片指向的文件存在**且已被 git 跟踪**。错误文案区分「不存在」与「存在但未提交」—— 后者是这台机器上最容易骗过 `existsSync` 的形态 |
+| 反引号里的仓库路径 | 文档里以反引号写出的仓库路径是否真的存在。曾出现过把 `apps/mobile/scripts/device-build.sh` 当成仓库根目录下的文件来写的情况 —— 只要那个错路径以反引号形式出现就会被抓 |
+| 文档索引 / 文档地图 | `docs/README.md` 索引是否覆盖全部受管理的文档；`docs/现状基线.md` 的文档地图是否恰好划分它们（新文档不归类就失败，防止范围悄悄缩小） |
+| 现状基线生成块 | `docs/现状基线.md` 里那张事实表是否与实际一致（跑 `--update` 重写） |
+
+**核心纪律：事实只从 `git ls-files` / 文件系统 / 代码常量推导，永不读 `.md`。**
+文档只出现在断言侧，所以「文档说 X、守卫也从文档读 X」在结构上不可能发生。
+
+> **判断「这个东西别人 clone 得到吗」一律用 `git ls-files`，不要用 `fs.existsSync`。**
+> 未提交的文件在本地存在、在干净检出和 CI 里不存在 —— 这条是守卫存在的首要理由。
+
+**数字只写在 `docs/现状基线.md`。** 其它文档一律不复述计数（项数、测试条数、模块数），
+需要时指向那里。测试条数、行数、耗时这类**每次提交都会变**的数字，基线和文档都不写。
 
 ### ESLint
 
@@ -340,7 +384,7 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 
 ## 八、上线检查清单
 
-- [ ] 本地 `node scripts/verify.mjs` 10 项全绿（守卫 / ESLint / 类型 / 单测）
+- [ ] 本地 `node scripts/verify-full.mjs` 全绿（全部 JS/TS 校验步骤 + SwiftLint 0 warning + iOS Release 编译与产物校验）
 - [ ] Actions 页面能看到 `CI` 与 `Build` 两个工作流
 - [ ] 手动跑一次 `Build`，两个平台都出包：`android-apk`、`ios-unsigned-ipa`
 - [ ] 下载 APK 装到真机，按真机清单逐条验证

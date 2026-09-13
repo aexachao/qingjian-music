@@ -23,6 +23,7 @@ allowBuilds:
   unrs-resolver: false
 
 patchedDependencies:
+  expo-crypto@57.0.2: patches/expo-crypto@57.0.2.patch
   react-native-track-player@4.1.2: patches/react-native-track-player@4.1.2.patch
 
 # ── 待决策，先不要打开 ──────────────────────────────────────────────────────

@@ -19,7 +19,8 @@ import Foundation
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    FileHandle.standardError.write("用法: verify-avfoundation.swift <文件> [期望时长秒]\n".data(using: .utf8)!)
+    let usage = Data("用法: verify-avfoundation.swift <文件> [期望时长秒]\n".utf8)
+    FileHandle.standardError.write(usage)
     exit(2)
 }
 
@@ -48,9 +49,9 @@ if !duration.isFinite || duration <= 0 {
 }
 if let expected = expectedDuration {
     let delta = abs(duration - expected)
-    let ok = delta <= 0.5
-    print("期望时长              : \(expected) 秒（偏差 \(String(format: "%.3f", delta))）\(ok ? "✓" : "✗")")
-    if !ok { failures.append("时长与播放列表不符：期望 \(expected)，实际 \(duration)") }
+    let durationMatches = delta <= 0.5
+    print("期望时长              : \(expected) 秒（偏差 \(String(format: "%.3f", delta))）\(durationMatches ? "✓" : "✗")")
+    if !durationMatches { failures.append("时长与播放列表不符：期望 \(expected)，实际 \(duration)") }
 }
 
 let audioTracks = asset.tracks(withMediaType: .audio)
@@ -61,14 +62,14 @@ if audioTracks.isEmpty { failures.append("没有任何音频轨道") }
 func fourCC(_ code: FourCharCode) -> String {
     let bytes = [
         UInt8((code >> 24) & 0xFF), UInt8((code >> 16) & 0xFF),
-        UInt8((code >> 8) & 0xFF), UInt8(code & 0xFF),
+        UInt8((code >> 8) & 0xFF), UInt8(code & 0xFF)
     ]
     return String(bytes: bytes, encoding: .ascii) ?? String(code)
 }
 
 for track in audioTracks {
     for description in track.formatDescriptions {
-        let format = description as! CMFormatDescription
+        guard let format = description as? CMFormatDescription else { continue }
         let subtype = fourCC(CMFormatDescriptionGetMediaSubType(format))
         let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
         let rate = asbd.map { "\(Int($0.mSampleRate))Hz" } ?? "?"

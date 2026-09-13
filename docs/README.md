@@ -1,7 +1,11 @@
 # 文档索引
 
+> **数字（版本、模块数、CI job、校验步骤清单等）只写在 [`现状基线.md`](./现状基线.md)，不要在别处复述。**
+> 由 `node scripts/check-docs.mjs` 机械校验。
+
 | 文档 | 内容 |
 | --- | --- |
+| [`现状基线.md`](./现状基线.md) | **唯一事实源**：版本 / 模块数 / CI job / 校验入口清单 / 文档地图。写文档前先看这里 |
 | [`build-and-ci.md`](./build-and-ci.md) | 在 GitHub Actions 上出 Android APK / iOS 未签名 IPA、用户自签说明、`community` / `store` 发行版切换、开发校验（守卫 / ESLint / vitest） |
 | [`fnos-music-api.md`](./fnos-music-api.md) | 飞牛音乐（fnOS Mediasrv）HTTP API 端点参考 |
 | [`fnos-transcode.md`](./fnos-transcode.md) | 飞牛转码 HLS 机制：会话、播放列表、分片命名、已知行为 |

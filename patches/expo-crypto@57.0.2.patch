@@ -1,0 +1,23 @@
+diff --git a/ios/CryptoModule.swift b/ios/CryptoModule.swift
+index cbf756a..30bc17d 100644
+--- a/ios/CryptoModule.swift
++++ b/ios/CryptoModule.swift
+@@ -15,12 +15,12 @@ public class CryptoModule: Module {
+ 
+     Function("digest", digest)
+ 
+-    Function("randomUUID", randomUUID())
+-  }
+-
+-  @OptimizedFunction
+-  private func randomUUID() -> String {
+-    return UUID().uuidString.lowercased()
++    // Xcode 26.6 / Swift 6.3 cannot load the precompiled @OptimizedFunction macro
++    // shipped by expo-modules-core 57.0.x. Keep the public API identical while
++    // using the regular Expo Modules closure path, which does not need a macro.
++    Function("randomUUID") { () -> String in
++      UUID().uuidString.lowercased()
++    }
+   }
+ }
+ 

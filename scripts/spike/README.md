@@ -1,8 +1,8 @@
 # scripts/spike —— 转码产物缓存方案的验证工具
 
-验证目标见 `docs/方案评估-本地解码-vs-服务端转码-2026-09-13.md` §8。
-一句话：**把服务端转码的 HLS 产物拼接成单文件缓存下来**，用纯 JS 解决
+验证目标：证实「把服务端转码的 HLS 产物拼接成单文件缓存下来」这条路可行 —— 用纯 JS 解决
 「NAS 每次播放都重复转码」与「不可播格式没有离线」两个问题，不引入 FFmpeg。
+协议细节（会话、播放列表、分片命名、已知行为）见 [`docs/fnos-transcode.md`](../../docs/fnos-transcode.md)。
 
 | 文件 | 作用 |
 | --- | --- |
@@ -66,7 +66,7 @@ dsf            3    0.3%   是      ...
 FNOS_BASE=$FNOS_BASE FNOS_TOKEN=$FNOS_TOKEN node scripts/spike/transcode-concat.ts remote <guid> /tmp/qj-spike/real-wma.mp4
 ```
 
-它同时回答了两个问题：**你库里有哪些格式**（这也补上了评估文档 §7 待确认项 #4「真实格式分布」），以及**该拿哪几首测**。
+它同时回答了两个问题：**你库里有哪些格式**（这也补上了「真实格式分布」这个待确认项），以及**该拿哪几首测**。
 
 ---
 

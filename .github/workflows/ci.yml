@@ -38,6 +38,11 @@ jobs:
       - name: 架构守卫（把文档里的硬规则变成检查）
         run: pnpm guard
 
+      # 校验文档里的事实：引用的脚本/文档是否真的在版本库里、文档索引是否完整、
+      # docs/现状基线.md 的生成块是否与代码一致。判「公开可达」一律以 git 跟踪集为准。
+      - name: 文档事实守卫
+        run: pnpm check:docs
+
       # 0 error 是硬要求；警告受 scripts/verify.mjs 里的预算约束，只减不增
       - name: ESLint
         run: pnpm lint
@@ -47,6 +52,32 @@ jobs:
 
       - name: 单元测试（core-domain / provider-api / provider-fnos / mobile）
         run: pnpm test
+
+  ios:
+    name: iOS Release 编译 + SwiftLint 0 warning
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 每次 push / PR 都从 app.json 和 config plugins 重建 iOS 工程，随后做真实的
+      # Release 设备版无签名编译与产物校验；不是只跑 swiftc 或检查配置文本。
+      - name: SwiftLint + iOS Release 编译 + 产物校验
+        env:
+          QJ_IOS_DERIVED_DATA: ${{ runner.temp }}/ios-build
+          QJ_IOS_BUILD_LOG: ${{ runner.temp }}/xcodebuild.log
+        run: pnpm verify:ios
 
   contract:
     name: 契约测试（真实 NAS）

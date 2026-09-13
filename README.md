@@ -99,11 +99,13 @@ docs/                  构建与 CI、飞牛 API、转码机制、设计令牌�
 
 ```bash
 pnpm install
-node scripts/verify.mjs     # 架构守卫 + ESLint + 类型检查 + 单测（约 40 秒）
+node scripts/verify.mjs          # 快速校验：架构守卫 + 文档事实守卫 + ESLint + 类型检查 + 单测
+node scripts/verify-full.mjs     # 每次修改后必跑：快速校验 + SwiftLint + iOS Release 编译与产物校验
 ```
 
-> 不要用 `pnpm -r` 跑类型检查 / 测试（会触发 pnpm 的 deps status check 并报 `EEXIST symlink`）。
-> `verify.mjs` 已经绕开 pnpm，本地和 CI 跑的是同一条命令。
+> `verify-full.mjs` 需要 macOS、Xcode 与 CocoaPods。它会从配置重新生成 iOS 工程，
+> 做无签名的 Release 设备版编译，并验证 `main.jsbundle`、版本号、arm64、IOS 平台及无描述文件。
+> SwiftLint 固定版本并启用严格模式，任何 warning 都会让验证失败。push / PR 的 CI 也执行同一套 iOS 校验。
 
 ```bash
 pnpm start          # 起 Metro
@@ -118,6 +120,7 @@ pnpm android        # 本机跑 Android
 - **纯逻辑一律放 `*-policy.ts`**，且不许 import `react-native` / `expo` —— 单测能直接跑
 - **触感统一走 `src/lib/haptics.ts`**，不要在调用点手写 `Haptics.*`
 - **存量债务棘轮**：守卫违规数与 ESLint 警告数都记了基线，**只减不增**
+- **SwiftLint 必须 0 warning**，并且每次修改后必须通过 iOS Release 设备版编译与产物校验
 - **加校验规则时必须先造一个违规样本验证它会失败** —— 一条永远通过的规则比没有规则更糟
 
 完整的代码约定与 PR 要求见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

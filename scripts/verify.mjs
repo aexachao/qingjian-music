@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 一条命令跑完所有本地校验：架构守卫 → ESLint → 四个包的类型检查 → 四个包的单元测试。
+ * 一条命令跑完所有本地校验：架构守卫 → 文档事实守卫 → ESLint → 四个包的类型检查 → 四个包的单元测试。
  *
  * ── 为什么不用 `pnpm -r` ────────────────────────────────────────────────────
  * 在这台机器上 `pnpm -r typecheck` / `pnpm -r test` 会触发 pnpm 的依赖状态检查，
@@ -13,10 +13,15 @@
  *
  * 用法：
  *   node scripts/verify.mjs                 # 全部
+ *   node scripts/verify.mjs --only guard
+ *   node scripts/verify.mjs --only docs
  *   node scripts/verify.mjs --only lint
  *   node scripts/verify.mjs --only typecheck
  *   node scripts/verify.mjs --only test
  *   node scripts/verify.mjs --skip-guard
+ *
+ * 完整验收（含 SwiftLint + iOS 编译）用 node scripts/verify-full.mjs；
+ * 各步骤清单与计数见 docs/现状基线.md —— 不要在别处复述项数。
  *
  * 只想看某个文件的 lint 结果时，直接跑 eslint（不要用本脚本）：
  *   node node_modules/eslint/bin/eslint.js apps/mobile/src/screens/home.tsx
@@ -55,6 +60,27 @@ const argv = process.argv.slice(2)
 const onlyIndex = argv.indexOf('--only')
 const only = onlyIndex >= 0 ? argv[onlyIndex + 1] : null
 const skipGuard = argv.includes('--skip-guard')
+const validOnlyValues = new Set(['guard', 'docs', 'lint', 'typecheck', 'test'])
+
+if (onlyIndex >= 0 && (!only || only.startsWith('--') || !validOnlyValues.has(only))) {
+  console.error(`--only 必须是以下值之一：${[...validOnlyValues].join(', ')}`)
+  process.exit(2)
+}
+const consumedArgs = new Set(['--skip-guard'])
+if (onlyIndex >= 0) {
+  consumedArgs.add('--only')
+  consumedArgs.add(only)
+}
+const unknownArgs = argv.filter((arg) => !consumedArgs.has(arg))
+const expectedArgCount = (onlyIndex >= 0 ? 2 : 0) + (skipGuard ? 1 : 0)
+if (unknownArgs.length > 0 || argv.length !== expectedArgCount) {
+  console.error(`不支持或重复的参数：${argv.join(' ')}`)
+  process.exit(2)
+}
+if (only === 'guard' && skipGuard) {
+  console.error('--only guard 不能与 --skip-guard 同时使用')
+  process.exit(2)
+}
 
 const results = []
 
@@ -78,11 +104,17 @@ function missingBinary(dir, relPath) {
 }
 
 // ── 1. 架构守卫 ──────────────────────────────────────────────────────────────
-if (!only && !skipGuard) {
+if ((!only && !skipGuard) || only === 'guard') {
   run('架构守卫', process.execPath, [join(ROOT, 'scripts', 'guard-architecture.mjs')], ROOT)
 }
 
-// ── 2. ESLint ────────────────────────────────────────────────────────────────
+// ── 2. 文档事实守卫 ──────────────────────────────────────────────────────────
+// 放在 ESLint 前面：它只读 git 跟踪集与文件系统，不到 1 秒，文档错了没必要等 lint。
+if ((!only && !skipGuard) || only === 'docs') {
+  run('文档事实守卫', process.execPath, [join(ROOT, 'scripts', 'check-docs.mjs')], ROOT)
+}
+
+// ── 3. ESLint ────────────────────────────────────────────────────────────────
 /**
  * 警告预算 —— **只能往下调**，和 scripts/guard-baseline.json 是同一个契约。
  *
@@ -115,7 +147,7 @@ if (!only || only === 'lint') {
   }
 }
 
-// ── 3. 类型检查 ──────────────────────────────────────────────────────────────
+// ── 4. 类型检查 ──────────────────────────────────────────────────────────────
 if (!only || only === 'typecheck') {
   for (const dir of TYPE_TARGETS) {
     const missing = missingBinary(dir, 'node_modules/typescript/bin/tsc')
@@ -133,7 +165,7 @@ if (!only || only === 'typecheck') {
   }
 }
 
-// ── 4. 单元测试 ──────────────────────────────────────────────────────────────
+// ── 5. 单元测试 ──────────────────────────────────────────────────────────────
 if (!only || only === 'test') {
   for (const target of TEST_TARGETS) {
     const missing = missingBinary(target.dir, 'node_modules/vitest/vitest.mjs')

@@ -234,15 +234,6 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      # ⚠️ 不要加 --no-install：那会清空 ios/ 却不跑 pod install，
-      # 结果 .xcworkspace 不存在，xcodebuild 直接报 workspace 找不到。
-      - name: 生成原生工程 + pod install
-        working-directory: apps/mobile
-        run: pnpm exec expo prebuild --platform ios
-
-      - name: 确认 workspace 存在
-        run: test -d apps/mobile/ios/app.xcworkspace
-
       # 与 android job 同一条约束：GitHub 分发的包必须是完整版，不带会员购买。
       - name: 断言发行版（GitHub 分发的包必须是完整版）
         run: |
@@ -252,35 +243,13 @@ jobs:
           fi
           echo "发行版：$EXPO_PUBLIC_EDITION ✓"
 
-      # 设备版（iphoneos），不是模拟器版 —— 模拟器产物自签工具认不了。
-      # Release 配置会真正跑 JS 打包，所以这一步同时验证了原生编译与 bundle。
-      # 日志可能上万行，重定向到文件，失败时只打错误摘要 + 末尾片段。
-      - name: 构建（Release / 设备 / 不签名）
-        working-directory: apps/mobile
-        run: |
-          set -o pipefail
-          LOG="$RUNNER_TEMP/xcodebuild.log"
-          if ! xcodebuild \
-              -workspace ios/app.xcworkspace \
-              -scheme app \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination 'generic/platform=iOS' \
-              -derivedDataPath "$RUNNER_TEMP/ios-build" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              build > "$LOG" 2>&1; then
-            echo "::group::错误摘要"
-            grep -nE "error:|BUILD FAILED|The following build commands failed|No profiles for" "$LOG" | head -60 || true
-            echo "::endgroup::"
-            echo "::group::日志末尾 150 行"
-            tail -150 "$LOG"
-            echo "::endgroup::"
-            exit 1
-          fi
-          echo "iOS 构建成功"
-          tail -5 "$LOG"
+      # 与常规 CI / 本地验收共用同一入口：SwiftLint 严格检查、干净 prebuild、
+      # Release 设备版无签名编译，以及 bundle / 版本 / 架构 / 平台真实性校验。
+      - name: SwiftLint + iOS Release 编译 + 产物校验
+        env:
+          QJ_IOS_DERIVED_DATA: ${{ runner.temp }}/ios-build
+          QJ_IOS_BUILD_LOG: ${{ runner.temp }}/xcodebuild.log
+        run: pnpm verify:ios
 
       # 三条断言都是「不报错但会坑用户」的静默失败：
       #   · 没有 main.jsbundle  → 装得上、打开白屏
@@ -294,8 +263,8 @@ jobs:
           test -n "$APP" || { echo "::error::在 $PRODUCTS 下没找到 .app"; exit 1; }
           echo "产物：$APP"
 
-          test -f "$APP/main.jsbundle" \
-            || { echo "::error::缺 main.jsbundle —— JS 没被打进产物，装到手机上会白屏"; exit 1; }
+          test -s "$APP/main.jsbundle" \
+            || { echo "::error::缺少有效的 main.jsbundle —— JS 没被打进产物，装到手机上会白屏"; exit 1; }
 
           BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
           PLATFORM=$(vtool -show-build "$BIN" | awk '/platform/{print $NF; exit}')
@@ -312,7 +281,8 @@ jobs:
           rm -rf "$RUNNER_TEMP/ipa"
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qry "$IPA" Payload)
+          (cd "$RUNNER_TEMP/ipa" && zip -qry -y "$IPA" Payload)
+          unzip -tq "$IPA"
           unzip -l "$IPA" | head -5
           ls -lh "$IPA"
 
