@@ -20,11 +20,19 @@ import type { MusicProvider } from '@qj/provider-api'
 
 // ── 平台替身 ────────────────────────────────────────────────────────────────
 
+// 参数签名显式写出来：部分用例要读 `mock.calls` 里的实参（如 move 的 from/to），
+// 无参的 `vi.fn(async () => ...)` 会把 calls 推成空元组，读出来是 never。
 const rntp = vi.hoisted(() => ({
-  move: vi.fn(async () => undefined),
-  remove: vi.fn(async () => undefined),
-  reset: vi.fn(async () => undefined),
-  setRepeatMode: vi.fn(async () => undefined),
+  move: vi.fn<(from: number, to: number) => Promise<void>>(async () => undefined),
+  remove: vi.fn<(indexes: number[]) => Promise<void>>(async () => undefined),
+  reset: vi.fn<() => Promise<void>>(async () => undefined),
+  setRepeatMode: vi.fn<(mode: number) => Promise<void>>(async () => undefined),
+  add: vi.fn<(track: { id: string }, position?: number) => Promise<void>>(async () => undefined),
+  skip: vi.fn<(index: number) => Promise<void>>(async () => undefined),
+  skipToNext: vi.fn<() => Promise<void>>(async () => undefined),
+  play: vi.fn<() => Promise<void>>(async () => undefined),
+  seekTo: vi.fn<(seconds: number) => Promise<void>>(async () => undefined),
+  getActiveTrackIndex: vi.fn<() => Promise<number>>(async () => 0),
 }))
 
 const setup = vi.hoisted(() => ({ ensurePlayer: vi.fn(async () => undefined) }))
@@ -71,9 +79,16 @@ const {
   cycleRepeat,
   markForcedTranscode,
   moveInQueue,
+  rememberProvider,
   removeFromQueue,
+  setShuffledOrder,
   shouldTranscode,
+  skipToIndex,
+  skipToNextSafe,
+  skipToPreviousSmart,
+  takePendingPreviousActivation,
   toQueueItem,
+  toggleShuffle,
 } = await import('../../src/player/controller')
 const { usePlayerStore } = await import('../../src/player/store')
 
@@ -114,15 +129,69 @@ function queueIds(): string[] {
   return usePlayerStore.getState().queue.map((entry) => entry.trackId)
 }
 
+/** 只装给定的几首，用于「队列只剩一首」这类边界 */
+function loadQueueOf(trackIds: string[], index: number): void {
+  usePlayerStore.getState().setQueue(trackIds.map((id) => item(id)), index, {
+    kind: 'tracks',
+    label: '全部歌曲',
+  })
+}
+
+/**
+ * 播放地址由 provider 现场生成，测试里给个最小可用实现。
+ *
+ * `capabilities.qualityTiers: false` 是刻意给的：`getStreamQuality()` 里读的是
+ * `activeProvider?.capabilities.qualityTiers ?? false` —— 少了 capabilities 这一层
+ * 会直接抛 TypeError（可选链只兜住 activeProvider 为 null，兜不住它下面缺字段），
+ * 而不是安静地回退到 original。所以这个字段是「provider 形状」的一部分。
+ */
+function fakeProvider(): MusicProvider {
+  return {
+    capabilities: { qualityTiers: false },
+    stream: async (trackId: string) => ({ url: `stream://${trackId}` }),
+  } as unknown as MusicProvider
+}
+
+/**
+ * 把 move 的调用序列在本地重放一遍，得到「原生队列的最终顺序」。
+ *
+ * 用来交叉核对 store 的展示顺序与下发给播放器的指令是否一致：这两端一旦错位
+ * 不会报错，只会静默放错歌 —— 正是这个模块历史上最容易出的那类问题。
+ * RNTP 的 move 每执行一次，被跨过的项会整体平移，所以要边挪边跟踪。
+ */
+function applyMoves(startTail: string[], start: number, calls: [number, number][]): string[] {
+  const order = [...startTail]
+  for (const [from, to] of calls) {
+    const moved = order.splice(from - start, 1)[0]
+    if (moved === undefined) continue
+    order.splice(to - start, 0, moved)
+  }
+  return order
+}
+
 beforeEach(() => {
   usePlayerStore.getState().clear()
   usePlayerStore.getState().setRepeat('off')
+  // provider 是模块级状态：不归零的话，「上一个用例装过的 provider」会让本用例
+  // 悄悄走上网址生成分支（顺带清掉 forcedTranscode 标记）
+  rememberProvider(null)
   vi.clearAllMocks()
   // ensurePlayer 的默认实现被 clearAllMocks 清掉了，补回来
   setup.ensurePlayer.mockResolvedValue(undefined)
-  for (const fn of [rntp.move, rntp.remove, rntp.reset, rntp.setRepeatMode]) {
+  for (const fn of [
+    rntp.move,
+    rntp.remove,
+    rntp.reset,
+    rntp.setRepeatMode,
+    rntp.add,
+    rntp.skip,
+    rntp.skipToNext,
+    rntp.play,
+    rntp.seekTo,
+  ]) {
     fn.mockResolvedValue(undefined)
   }
+  rntp.getActiveTrackIndex.mockResolvedValue(0)
 })
 
 // ── 转码判定 ────────────────────────────────────────────────────────────────
@@ -426,5 +495,269 @@ describe('toQueueItem 映射领域曲目', () => {
 
     expect(first.qid).not.toBe(second.qid)
     expect(first.trackId).toBe(second.trackId)
+  })
+})
+
+// ── 切歌：下一首 ────────────────────────────────────────────────────────────
+
+describe('skipToNextSafe 切下一首', () => {
+  it('队列只有一首时什么都不做', async () => {
+    loadQueueOf(['a'], 0)
+
+    await skipToNextSafe()
+
+    expect(rntp.skipToNext).not.toHaveBeenCalled()
+    expect(rntp.play).not.toHaveBeenCalled()
+  })
+
+  it('正常切歌：交给原生 skipToNext，再显式 play 兜住暂停态', async () => {
+    loadQueue(0)
+
+    await skipToNextSafe()
+
+    expect(rntp.skipToNext).toHaveBeenCalled()
+    expect(rntp.skip).not.toHaveBeenCalled()
+    expect(rntp.play).toHaveBeenCalled()
+  })
+
+  it('skipToNext 失败（队尾）时回退到 skip(1)', async () => {
+    loadQueue(0)
+    rntp.skipToNext.mockRejectedValueOnce(new Error('已经在队尾'))
+
+    await skipToNextSafe()
+
+    expect(rntp.skip).toHaveBeenCalledWith(1)
+    expect(rntp.play).toHaveBeenCalled()
+  })
+
+  it('回退也失败时不抛错，避免按钮点了没反应还崩', async () => {
+    loadQueue(0)
+    rntp.skipToNext.mockRejectedValueOnce(new Error('boom'))
+    rntp.skip.mockRejectedValueOnce(new Error('boom'))
+
+    await expect(skipToNextSafe()).resolves.toBeUndefined()
+  })
+
+  it('切歌后按播放器的实际下标回写 store', async () => {
+    loadQueue(0)
+    rntp.getActiveTrackIndex.mockResolvedValueOnce(2)
+
+    await skipToNextSafe()
+
+    expect(usePlayerStore.getState().index).toBe(2)
+  })
+})
+
+// ── 切歌：待播列表点某一行 ──────────────────────────────────────────────────
+
+describe('skipToIndex 待播列表点播', () => {
+  it('下标 <= 0 直接返回（第 0 项就是当前这首）', async () => {
+    loadQueue(0)
+
+    await skipToIndex(0)
+    await skipToIndex(-1)
+
+    expect(rntp.skip).not.toHaveBeenCalled()
+  })
+
+  it('合法下标：切过去并继续播', async () => {
+    loadQueue(0)
+
+    await skipToIndex(3)
+
+    expect(rntp.skip).toHaveBeenCalledWith(3)
+    expect(rntp.play).toHaveBeenCalled()
+  })
+
+  it('下标越界（队列刚被改过）时静默忽略，且不再补 play', async () => {
+    loadQueue(0)
+    rntp.skip.mockRejectedValueOnce(new Error('index out of range'))
+
+    await expect(skipToIndex(9)).resolves.toBeUndefined()
+
+    // play 在 try 里、skip 之后：切歌没成功就不该继续播
+    expect(rntp.play).not.toHaveBeenCalled()
+  })
+})
+
+// ── 切歌：上一首 ────────────────────────────────────────────────────────────
+
+describe('skipToPreviousSmart 上一首', () => {
+  it('播放已结束：回到本曲开头重播，不去翻历史', async () => {
+    loadQueue(0)
+    usePlayerStore.getState().setPlaybackEnded(true)
+
+    await skipToPreviousSmart()
+
+    expect(rntp.seekTo).toHaveBeenCalledWith(0)
+    expect(rntp.play).toHaveBeenCalled()
+    expect(rntp.add).not.toHaveBeenCalled()
+    expect(usePlayerStore.getState().playbackEnded).toBe(false)
+  })
+
+  it('没有历史曲目：回到本曲开头', async () => {
+    loadQueue(1)
+
+    await skipToPreviousSmart()
+
+    expect(rntp.seekTo).toHaveBeenCalledWith(0)
+    expect(rntp.add).not.toHaveBeenCalled()
+  })
+
+  it('有历史但 provider 已丢失：仍然回本曲开头，不炸', async () => {
+    loadQueue(1)
+    usePlayerStore.getState().appendHistoryItem(item('z'))
+
+    await skipToPreviousSmart()
+
+    expect(rntp.seekTo).toHaveBeenCalledWith(0)
+    expect(rntp.add).not.toHaveBeenCalled()
+  })
+
+  it('有历史 + provider：把上一首插到队首并切过去，同时登记待激活项', async () => {
+    loadQueue(1)
+    usePlayerStore.getState().appendHistoryItem(item('z'))
+    rememberProvider(fakeProvider())
+
+    await skipToPreviousSmart()
+
+    expect(rntp.add).toHaveBeenCalled()
+    const [track, position] = rntp.add.mock.calls[0]!
+    expect(position).toBe(0)
+    expect(rntp.skip).toHaveBeenCalledWith(0)
+    expect(rntp.play).toHaveBeenCalled()
+    // 待激活项必须与推给原生播放器的 id 对齐 —— bridge 就是靠这个 id 认领激活的
+    expect(takePendingPreviousActivation(track.id)).toMatchObject({ trackId: 'z' })
+    // 一次性的：认领过就没了，避免同一次切歌被处理两遍
+    expect(takePendingPreviousActivation(track.id)).toBeUndefined()
+  })
+
+  it('原生插入失败时撤销待激活项并回本曲开头', async () => {
+    loadQueue(1)
+    usePlayerStore.getState().appendHistoryItem(item('z'))
+    rememberProvider(fakeProvider())
+    rntp.add.mockRejectedValueOnce(new Error('播放器没就绪'))
+
+    await skipToPreviousSmart()
+
+    expect(rntp.seekTo).toHaveBeenCalledWith(0)
+    expect(rntp.play).toHaveBeenCalled()
+    // 不能留下悬挂的待激活项，否则下一次同 id 的切歌会被错误认领
+    const attemptedId = rntp.add.mock.calls[0]![0].id
+    expect(takePendingPreviousActivation(attemptedId)).toBeUndefined()
+  })
+})
+
+// ── 随机播放 ────────────────────────────────────────────────────────────────
+
+describe('setShuffledOrder 只重排当前之后的曲目', () => {
+  it('开关没变时直接返回，不做任何重排', async () => {
+    loadQueue(0)
+
+    await setShuffledOrder(false)
+
+    expect(rntp.move).not.toHaveBeenCalled()
+  })
+
+  it('待播不足两首时只翻开关，不重排', async () => {
+    loadQueue(2) // 4 首、当前在第 3 首 → 队尾只剩 1 首
+
+    await setShuffledOrder(true)
+
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+    expect(rntp.move).not.toHaveBeenCalled()
+    expect(queueIds()).toEqual(ids)
+  })
+
+  it('还没开始播（index < 0）时只翻开关', async () => {
+    loadQueue(-1)
+
+    await setShuffledOrder(true)
+
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+    expect(rntp.move).not.toHaveBeenCalled()
+  })
+
+  it('打开随机：当前曲目与已播部分保持原位，只打乱队尾', async () => {
+    loadQueue(0)
+    // 固定随机数让这次重排可复现；断言本身不依赖具体洗牌结果
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    await setShuffledOrder(true)
+
+    const after = queueIds()
+    // 当前这首不能被挪走 —— 否则「切随机」等于打断正在播的歌
+    expect(after[0]).toBe('a')
+    expect(usePlayerStore.getState().index).toBe(0)
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+    // 队尾只是换了顺序，不能多也不能少
+    expect(new Set(after.slice(1))).toEqual(new Set(['b', 'c', 'd']))
+    expect(rntp.move).toHaveBeenCalled()
+    // 展示顺序必须与下发给原生播放器的 move 结果一致（两端错位是这个模块的老毛病）
+    expect(after.slice(1)).toEqual(applyMoves(['b', 'c', 'd'], 1, rntp.move.mock.calls))
+
+    random.mockRestore()
+  })
+
+  it('关闭随机：按原始顺序快照还原队尾', async () => {
+    loadQueue(0)
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    await setShuffledOrder(true)
+    // 先确认确实被打乱了，否则下面的断言是空的
+    expect(queueIds()).not.toEqual(ids)
+
+    await setShuffledOrder(false)
+
+    expect(queueIds()).toEqual(ids)
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
+
+    random.mockRestore()
+  })
+
+  it('重排失败时开关保持已翻转，不把按钮卡在旧状态', async () => {
+    loadQueue(0)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    rntp.move.mockRejectedValueOnce(new Error('播放器没就绪'))
+
+    await setShuffledOrder(true)
+
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+    expect(queueIds()).toEqual(ids)
+    expect(warn).toHaveBeenCalled()
+
+    warn.mockRestore()
+  })
+})
+
+describe('toggleShuffle 兼容旧调用', () => {
+  it('返回翻转后的新状态', async () => {
+    loadQueue(0)
+
+    await expect(toggleShuffle()).resolves.toBe(true)
+    await expect(toggleShuffle()).resolves.toBe(false)
+  })
+})
+
+// ── provider 生命周期 ───────────────────────────────────────────────────────
+
+describe('rememberProvider 登出时清理模块级状态', () => {
+  it('传 null 清掉强制转码标记，避免换账号后继承上一轮的标记', () => {
+    const track = item('a', 'flac')
+    markForcedTranscode(track.qid)
+    expect(shouldTranscode(track)).toBe(true)
+
+    rememberProvider(null)
+
+    expect(shouldTranscode(track)).toBe(false)
+  })
+
+  it('传 null 同时停掉后台的转码缓存与预热任务', async () => {
+    const transcodeCache = await import('../../src/player/transcode-cache')
+    const prewarm = await import('../../src/player/transcode-prewarm')
+
+    rememberProvider(null)
+
+    expect(transcodeCache.abortTranscodeCaching).toHaveBeenCalled()
+    expect(prewarm.clearWarmTranscode).toHaveBeenCalled()
   })
 })
