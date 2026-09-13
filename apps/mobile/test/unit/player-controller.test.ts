@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { QueueItem, Track } from '@qj/core-domain'
+import type { PlaySource, QueueItem, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 
 /**
@@ -20,6 +20,9 @@ import type { MusicProvider } from '@qj/provider-api'
 
 // ── 平台替身 ────────────────────────────────────────────────────────────────
 
+/** 推给原生播放器的曲目：`id` 就是 qid，`url` 是播放地址 */
+type AddedTrack = { id: string; url?: string }
+
 // 参数签名显式写出来：部分用例要读 `mock.calls` 里的实参（如 move 的 from/to），
 // 无参的 `vi.fn(async () => ...)` 会把 calls 推成空元组，读出来是 never。
 const rntp = vi.hoisted(() => ({
@@ -27,7 +30,12 @@ const rntp = vi.hoisted(() => ({
   remove: vi.fn<(indexes: number[]) => Promise<void>>(async () => undefined),
   reset: vi.fn<() => Promise<void>>(async () => undefined),
   setRepeatMode: vi.fn<(mode: number) => Promise<void>>(async () => undefined),
-  add: vi.fn<(track: { id: string }, position?: number) => Promise<void>>(async () => undefined),
+  // 实参有**两种形状**：批量入队传数组（playTrackList / appendTracks / playNext），
+  // 单曲入队传对象（skipToPreviousSmart、cycleCurrentToQueueEnd）。
+  // 签名要如实写出来，否则读 mock.calls 拿到的是 never。
+  add: vi.fn<(tracks: AddedTrack | AddedTrack[], position?: number) => Promise<void>>(
+    async () => undefined,
+  ),
   skip: vi.fn<(index: number) => Promise<void>>(async () => undefined),
   skipToNext: vi.fn<() => Promise<void>>(async () => undefined),
   play: vi.fn<() => Promise<void>>(async () => undefined),
@@ -73,12 +81,16 @@ vi.mock('../../src/player/transcode-session', () => ({
 }))
 
 const {
+  appendTracks,
   clearForcedTranscode,
   clearQueue,
   clearUpcoming,
+  cycleCurrentToQueueEnd,
   cycleRepeat,
   markForcedTranscode,
   moveInQueue,
+  playNext,
+  playTrackList,
   rememberProvider,
   removeFromQueue,
   setShuffledOrder,
@@ -149,7 +161,26 @@ function fakeProvider(): MusicProvider {
   return {
     capabilities: { qualityTiers: false },
     stream: async (trackId: string) => ({ url: `stream://${trackId}` }),
+    // toQueueItem 在有封面时会调它算鉴权地址，缺了会直接抛
+    image: (coverId: string, size?: number) => ({ url: `img://${coverId}`, size }),
   } as unknown as MusicProvider
+}
+
+/** 领域曲目夹具；`format` 决定要不要走转码 */
+let trackSeq = 0
+function makeTrack(id: string, format = 'flac'): Track {
+  trackSeq += 1
+  return {
+    id,
+    title: `曲目 ${id}`,
+    durationMs: 180_000,
+    artists: [{ id: `ar-${trackSeq}`, name: '测试艺术家' }],
+    genres: [],
+    isCue: false,
+    isFavorite: false,
+    album: { id: 'al-1', name: '专辑' },
+    audio: { format, sizeBytes: 1024 },
+  }
 }
 
 /**
@@ -167,6 +198,34 @@ function applyMoves(startTail: string[], start: number, calls: [number, number][
     order.splice(to - start, 0, moved)
   }
   return order
+}
+
+/**
+ * `add` 的实参有两种形状，读的时候统一成数组，免得每个用例各判一次。
+ * 越界返回空数组，让断言直接失败而不是抛 TypeError。
+ */
+function addedTracks(callIndex = 0): AddedTrack[] {
+  const arg = rntp.add.mock.calls[callIndex]?.[0]
+  if (arg === undefined) return []
+  return Array.isArray(arg) ? arg : [arg]
+}
+
+/**
+ * 断言这次 `add` 收到的是**单曲**。
+ * 单曲接口被传成数组是个真实存在的错误形态（原生会当成一首名叫 "[object Object]" 的歌），
+ * 所以这里不静默兼容，直接抛。
+ */
+function addedSingleTrack(callIndex = 0): AddedTrack {
+  const arg = rntp.add.mock.calls[callIndex]?.[0]
+  if (arg === undefined || Array.isArray(arg)) {
+    throw new Error(`期望 add 收到单曲，实际是 ${Array.isArray(arg) ? '数组' : String(arg)}`)
+  }
+  return arg
+}
+
+/** `add` 的插入位置实参；批量入队时不传 */
+function addPosition(callIndex = 0): number | undefined {
+  return rntp.add.mock.calls[callIndex]?.[1]
 }
 
 beforeEach(() => {
@@ -622,8 +681,8 @@ describe('skipToPreviousSmart 上一首', () => {
     await skipToPreviousSmart()
 
     expect(rntp.add).toHaveBeenCalled()
-    const [track, position] = rntp.add.mock.calls[0]!
-    expect(position).toBe(0)
+    const track = addedSingleTrack()
+    expect(addPosition()).toBe(0)
     expect(rntp.skip).toHaveBeenCalledWith(0)
     expect(rntp.play).toHaveBeenCalled()
     // 待激活项必须与推给原生播放器的 id 对齐 —— bridge 就是靠这个 id 认领激活的
@@ -643,7 +702,7 @@ describe('skipToPreviousSmart 上一首', () => {
     expect(rntp.seekTo).toHaveBeenCalledWith(0)
     expect(rntp.play).toHaveBeenCalled()
     // 不能留下悬挂的待激活项，否则下一次同 id 的切歌会被错误认领
-    const attemptedId = rntp.add.mock.calls[0]![0].id
+    const attemptedId = addedSingleTrack().id
     expect(takePendingPreviousActivation(attemptedId)).toBeUndefined()
   })
 })
@@ -765,5 +824,233 @@ describe('rememberProvider 登出时清理模块级状态', () => {
 
     expect(transcodeCache.abortTranscodeCaching).toHaveBeenCalled()
     expect(prewarm.clearWarmTranscode).toHaveBeenCalled()
+  })
+})
+
+// ── 队列构建三兄弟（playTrackList / appendTracks / playNext）──────────────────
+
+/**
+ * 这一组盯的是「起播时队列怎么建」。三处都只用播放器的调用实参 + store 的最终
+ * 状态做断言，不碰原生。
+ *
+ * ⚠️ 夹具刻意**不带封面**：`playTrackList` 起播成功后会 `void refreshArtwork(...)`，
+ * 而 `refreshArtwork` 只在 `item.artwork` 存在时才去下封面。一旦带上封面，这条
+ * 游离的 promise 就会真的走到 `cacheArtwork`（未替身，要碰文件系统），
+ * 把用例变成不可控的异步噪声。封面地址的计算由下面 `toQueueItem` 那组单独覆盖。
+ */
+const provider = fakeProvider()
+
+function playListInput(
+  tracks: Track[],
+  startIndex = 0,
+  source: PlaySource = { kind: 'tracks', label: '全部歌曲' },
+) {
+  return { provider, serverId: 'srv', tracks, startIndex, source }
+}
+
+describe('playTrackList 起播时重建队列', () => {
+  it('空列表直接返回：不碰播放器，也不把旧队列清掉', async () => {
+    loadQueue(0)
+    const before = queueIds()
+
+    await playTrackList(playListInput([]))
+
+    expect(rntp.reset).not.toHaveBeenCalled()
+    expect(rntp.add).not.toHaveBeenCalled()
+    expect(rntp.play).not.toHaveBeenCalled()
+    expect(queueIds()).toEqual(before)
+  })
+
+  it('把选中的那首转到队首，其余保持原相对顺序', async () => {
+    await playTrackList(
+      playListInput([makeTrack('a'), makeTrack('b'), makeTrack('c'), makeTrack('d')], 2),
+    )
+
+    expect(queueIds()).toEqual(['c', 'a', 'b', 'd'])
+    expect(usePlayerStore.getState().index).toBe(0)
+  })
+
+  it('越界的 startIndex 夹到有效范围，不会拿 undefined 去起播', async () => {
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], 99))
+    expect(queueIds()).toEqual(['b', 'a'])
+
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], -5))
+    expect(queueIds()).toEqual(['a', 'b'])
+  })
+
+  it('先 reset 再 add —— 顺序反了会把上一个来源的队列留在播放器里', async () => {
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')]))
+
+    const resetAt = rntp.reset.mock.invocationCallOrder[0]!
+    const addAt = rntp.add.mock.invocationCallOrder[0]!
+    expect(resetAt).toBeLessThan(addAt)
+  })
+
+  it('下发给播放器的顺序与 store 的展示顺序逐项一致', async () => {
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b'), makeTrack('c')], 1))
+
+    // 原生曲目的 id 就是 qid，用它把两端对齐；错位不会报错，只会静默放错歌
+    const added = addedTracks()
+    expect(added.map((track) => track.id)).toEqual(
+      usePlayerStore.getState().queue.map((entry) => entry.qid),
+    )
+    expect(added).toHaveLength(3)
+  })
+
+  it('把选中那首的播放地址交给播放器（起播不能拿到别的歌）', async () => {
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], 1))
+
+    expect(addedTracks()[0]!.url).toBe('stream://b')
+  })
+
+  it('起播会真的调用 play，并把来源记进队列', async () => {
+    const source: PlaySource = { kind: 'album', id: 'al-1', label: '专辑 · 范特西' }
+
+    await playTrackList(playListInput([makeTrack('a')], 0, source))
+
+    expect(rntp.play).toHaveBeenCalled()
+    expect(usePlayerStore.getState().source).toEqual(source)
+  })
+
+  it('新队列把随机播放关掉，避免「开关是开着的、顺序却是原始的」', async () => {
+    loadQueue(0)
+    usePlayerStore.getState().setShuffle(true)
+
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')]))
+
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
+  })
+})
+
+describe('appendTracks 追加到队尾', () => {
+  it('空列表不碰播放器也不动队列', async () => {
+    loadQueue(0)
+
+    await appendTracks({ provider, serverId: 'srv', tracks: [] })
+
+    expect(rntp.add).not.toHaveBeenCalled()
+    expect(queueIds()).toEqual(ids)
+  })
+
+  it('同时追加进 queue 与 baseQueue —— 只追加一边，关掉随机后就会丢歌', async () => {
+    loadQueue(0)
+
+    await appendTracks({ provider, serverId: 'srv', tracks: [makeTrack('x'), makeTrack('y')] })
+
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual([...ids, 'x', 'y'])
+    expect(state.baseQueue.map((entry) => entry.trackId)).toEqual([...ids, 'x', 'y'])
+  })
+
+  it('不带插入位置，让播放器自己排到队尾', async () => {
+    loadQueue(0)
+
+    await appendTracks({ provider, serverId: 'srv', tracks: [makeTrack('x')] })
+
+    expect(addPosition()).toBeUndefined()
+  })
+})
+
+describe('playNext 插到当前曲目之后', () => {
+  it('空列表不碰播放器也不动队列', async () => {
+    loadQueue(0)
+
+    await playNext({ provider, serverId: 'srv', tracks: [] })
+
+    expect(rntp.add).not.toHaveBeenCalled()
+    expect(queueIds()).toEqual(ids)
+  })
+
+  it('原生侧插在 index + 1，store 侧也插在当前之后 —— 两端必须同址', async () => {
+    loadQueue(2)
+
+    await playNext({ provider, serverId: 'srv', tracks: [makeTrack('x')] })
+
+    // 原生：add(tracks, index + 1)
+    expect(addPosition()).toBe(3)
+    // store：当前仍是 c（下标 2），x 落在它后面
+    expect(queueIds()).toEqual(['a', 'b', 'c', 'x', 'd'])
+    expect(usePlayerStore.getState().index).toBe(2)
+  })
+
+  it('连插两首时顺序稳定，后插的排在先插的后面', async () => {
+    loadQueue(0)
+
+    await playNext({ provider, serverId: 'srv', tracks: [makeTrack('x')] })
+    await playNext({ provider, serverId: 'srv', tracks: [makeTrack('y')] })
+
+    // 第二首仍插在「当前曲目之后」，所以落在 x 前面 —— 这是既有语义，钉住它
+    expect(queueIds()).toEqual(['a', 'y', 'x', 'b', 'c', 'd'])
+  })
+})
+
+/**
+ * 这一组是**变异测试逼出来的**：把 `cycleCurrentToQueueEnd` 里的单曲改成数组推给
+ * 原生，整批用例居然全绿 —— 说明它当时一条覆盖都没有（唯一调用方是没测试的
+ * `bridge.tsx`）。补上之后该破坏会被 `addedSingleTrack()` 直接炸出来。
+ */
+describe('cycleCurrentToQueueEnd 把播完的当前曲目挪到队尾', () => {
+  it('没有 provider 时直接返回，不碰播放器', async () => {
+    loadQueue(0)
+
+    await cycleCurrentToQueueEnd(item('a'))
+
+    expect(rntp.add).not.toHaveBeenCalled()
+    expect(rntp.remove).not.toHaveBeenCalled()
+  })
+
+  it('先追加到队尾再删掉队首 —— 顺序反了会先把歌删没', async () => {
+    rememberProvider(provider)
+
+    await cycleCurrentToQueueEnd(item('a'))
+
+    expect(addedSingleTrack().id).toBeDefined()
+    expect(rntp.remove).toHaveBeenCalledWith([0])
+    const addAt = rntp.add.mock.invocationCallOrder[0]!
+    const removeAt = rntp.remove.mock.invocationCallOrder[0]!
+    expect(addAt).toBeLessThan(removeAt)
+  })
+
+  it('追加失败时仍然清掉队首，不把队列卡在半截', async () => {
+    rememberProvider(provider)
+    rntp.add.mockRejectedValueOnce(new Error('播放器没就绪'))
+
+    await cycleCurrentToQueueEnd(item('a'))
+
+    expect(rntp.remove).toHaveBeenCalledWith([0])
+  })
+})
+
+describe('toQueueItem 把领域曲目转成队列元素', () => {
+  it('有封面时把鉴权地址一并算好，锁屏 / 车机不用再请求', () => {
+    const entry = toQueueItem({ ...makeTrack('a'), coverId: 'cv-1' }, provider, 'srv')
+
+    expect(entry.coverId).toBe('cv-1')
+    expect(entry.artwork).toEqual({ url: 'img://cv-1', size: 600 })
+  })
+
+  it('没有封面时不带 artwork，免得去下载一个空地址', () => {
+    expect(toQueueItem(makeTrack('a'), provider, 'srv').artwork).toBeUndefined()
+  })
+
+  it('多位艺术家用 / 连接，没有艺术家时兜底成「未知艺术家」', () => {
+    const duet = toQueueItem(
+      { ...makeTrack('a'), artists: [{ id: '1', name: '甲' }, { id: '2', name: '乙' }] },
+      provider,
+      'srv',
+    )
+    expect(duet.artistText).toBe('甲 / 乙')
+
+    expect(toQueueItem({ ...makeTrack('b'), artists: [] }, provider, 'srv').artistText).toBe(
+      '未知艺术家',
+    )
+  })
+
+  it('同一首歌两次入队拿到不同 qid，队列里能区分两次出现', () => {
+    const first = toQueueItem(makeTrack('a'), provider, 'srv')
+    const second = toQueueItem(makeTrack('a'), provider, 'srv')
+
+    expect(first.qid).not.toBe(second.qid)
+    expect(first.trackId).toBe(second.trackId)
   })
 })

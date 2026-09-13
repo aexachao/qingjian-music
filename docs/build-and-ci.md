@@ -130,6 +130,40 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
    IPA 就是根目录含 `Payload/` 的 zip；`--sequesterRsrc` 会产生 `__MACOSX`，
    部分自签工具会挑刺。
 
+7. **Android 构建会被 `react-native-track-player@4.1.2` 卡住 —— `patches/` 里的补丁不能删。**
+   4.1.2 把可空的 `Track.originalItem: Bundle?` 直接传给 `Arguments.fromBundle(Bundle)`，
+   RN 0.81+ 的 Kotlin 2.x 把这条提升成**编译错误**，`:react-native-track-player:compileReleaseKotlin`
+   直接失败（第一次真正跑 Android 构建时才暴露，之前从没构建过）：
+
+   ```
+   e: MusicModule.kt:548:51 Argument type mismatch: actual type is 'Bundle?', but 'Bundle' was expected.
+   e: MusicModule.kt:588:17 Argument type mismatch: actual type is 'Bundle?', but 'Bundle' was expected.
+   ```
+
+   上游（doublesymmetry/react-native-track-player）**没有在 v4 修**，而是关掉 v4、
+   转向重写的 v5（`@rntp/player`）。所以这里用 pnpm patch 打了两个 hunk，把
+   `Arguments.fromBundle(x)` 改成 `x?.let { Arguments.fromBundle(it) }`。
+   用 `?.let` 而不是 `?: Bundle()`：后者会把 `null` 变成**空 map** 发给 JS，
+   破坏 `getTrack` / `getActiveTrack`「越界或空队列时返回 null」的既有契约。
+
+   ⚠️ **改 `patches/*.patch` 之后必须同步更新 `pnpm-lock.yaml` 里的哈希。**
+   那是 patch 文件**字节**的 sha256，对不上 `pnpm install --frozen-lockfile` 会直接失败：
+
+   ```bash
+   shasum -a 256 patches/react-native-track-player@4.1.2.patch
+   # 把结果写回 pnpm-lock.yaml 的 patchedDependencies
+   ```
+
+   ⚠️ **另一个尚未在真机验证的风险（重要）**：RNTP 4.1.2 的 `MusicModule` 是旧式模块
+   （`ReactContextBaseJavaModule`，没有 TurboModule 声明），而它的 39 个 `@ReactMethod`
+   里有 36 个写成 `fun x(...) = scope.launch { }` —— **返回 `Job` 而不是 `void`**。
+   RN 0.86 的 interop 层
+   （`ReactAndroid/.../TurboModuleInteropUtils.kt` 的 `getMethodDescriptorsFromModule`）
+   对「非同步方法 + 返回类型不是 `Void.TYPE`」的组合会**直接抛 `ParsingException`**。
+   这是**运行时**错误（编译能过），表现为模块一被 JS 访问就崩。
+   本机没有 Android 设备，**必须在真机上验一次**。若真的崩，退路是给 RNTP 再打一个补丁，
+   把那 36 个方法改成返回 `Unit`（上游 issue #2530 里有讨论与写法）。
+
 ---
 
 ## 五、本地出商店版（上架 App Store）

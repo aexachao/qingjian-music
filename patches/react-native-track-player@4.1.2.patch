@@ -17,3 +17,31 @@ index 7741994191921ed86f7577f7ce589b3939d9dd49..776c09ec0ae450daa4dc9031ccd3ff4b
 -              rejecter:(RCTPromiseRejectBlock)reject);
 -
  @end
+diff --git a/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt b/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
+--- a/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
++++ b/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
+@@ -545,7 +545,11 @@
+         if (verifyServiceBoundOrReject(callback)) return@launch
+ 
+         if (index >= 0 && index < musicService.tracks.size) {
+-            callback.resolve(Arguments.fromBundle(musicService.tracks[index].originalItem))
++            // ⚠️ originalItem 是可空的 Bundle?，而 Arguments.fromBundle 要求非空 Bundle。
++            // RN 0.81+ 的 Kotlin 2.x 把这条提升为编译错误（RNTP 4.1.2 因此编译不过）。
++            // 用 ?.let 而不是 ?: Bundle()：后者会把 null 变成空 map 发给 JS，
++            // 破坏 getTrack / getActiveTrack「越界或空队列时返回 null」的既有契约。
++            callback.resolve(musicService.tracks[index].originalItem?.let { Arguments.fromBundle(it) })
+         } else {
+             callback.resolve(null)
+         }
+@@ -584,9 +588,8 @@
+         if (verifyServiceBoundOrReject(callback)) return@launch
+         callback.resolve(
+             if (musicService.tracks.isEmpty()) null
+-            else Arguments.fromBundle(
+-                musicService.tracks[musicService.getCurrentTrackIndex()].originalItem
+-            )
++            // 同上：originalItem 可空，必须 ?.let 解包，同时保持 null 语义。
++            else musicService.tracks[musicService.getCurrentTrackIndex()].originalItem?.let { Arguments.fromBundle(it) }
+         )
+     }
+ 
