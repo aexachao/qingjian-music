@@ -1,19 +1,27 @@
 name: Build
 
-# 在 GitHub 上构建原生产物，本机不需要装 JDK / Android SDK / Xcode。
+# 在 GitHub 上构建可分发的安装包，本机不需要装 JDK / Android SDK / Xcode。
 #
 # 触发方式：
 #   · 手动：Actions → Build → Run workflow
-#   · 打 tag：git tag v0.1.0 && git push origin v0.1.0（会自动挂到 GitHub Release）
+#   · 打 tag：git tag v0.1.0 && git push origin v0.1.0（产物会自动挂到 GitHub Release）
 #
 # 产物：
-#   · android-debug-apk  —— 可直接装到 Android 真机验证（debug 包，无需签名配置）
-#   · ios-simulator-app  —— iOS 模拟器产物（**未签名**，不能装真机；只用于验证能编译过）
+#   · android-apk        —— **可直装**的 release APK（JS 已内嵌，装到手机上不需要 Metro）
+#   · ios-unsigned-ipa   —— **未签名**的 iOS 设备版 IPA，供用户用 Apple ID 自签
+#                           （Sideloadly / AltStore / ESign 等），无需付费开发者账号
 #
-# 为什么 iOS 默认只出模拟器包：真机 / IPA 需要苹果签名凭据（证书 + 描述文件，
-# 或 App Store Connect API Key）。没配 Secrets 时用 CODE_SIGNING_ALLOWED=NO 构建，
-# 依然能验证「原生工程 + JS 打包能不能过」——这正是本机做不了的那部分。
-# 签名构建的配置方法见 docs/构建与CI-2026-09-13.md。
+# 为什么 Android 用 release 而不是 debug：debug 包在 RN 下默认**不打包 JS**，
+# 装到手机上会连 Metro 才跑得起来，等于没法分发给别人。release 包会内嵌 bundle，
+# 且工程的 release 构建类型本来就指向 debug keystore（Expo 模板默认），
+# 所以既不需要任何 secret，又可以直接安装。
+#
+# 为什么 iOS 要显式关签名：真机 IPA 如果走正常签名，需要证书 + 描述文件 + 付费账号。
+# 用 CODE_SIGNING_ALLOWED=NO 编出来的 .app 不带签名、不带描述文件，
+# 用户拿到后用**自己的** Apple ID 自签即可 —— 这条路完全不需要我们持有凭据，
+# 因此 CI 里一个 Secrets 都不用配。
+#
+# 本地构建（含上架 App Store 的商店版）见 docs/build-and-ci.md。
 
 on:
   workflow_dispatch:
@@ -31,6 +39,16 @@ concurrency:
 env:
   # 与本机一致的 Node 大版本（package.json engines: >=22）
   NODE_VERSION: '22'
+
+  # ── 发行版（见 apps/mobile/src/lib/edition.ts）─────────────────────────────
+  # GitHub 上分发的构建一律是 `community`：**完整功能、不含任何购买链路**。
+  #
+  # 刻意放在顶层 env：Android 与 iOS 两个 job 都自动继承，不可能只给一个平台
+  # 设了、另一个漏掉。要改发行版只改这一行。
+  #
+  # 商店版（含永久会员购买、上架 App Store）不走这个工作流，在本地 Xcode 归档时
+  # 显式 `EXPO_PUBLIC_EDITION=store`，详见 docs/build-and-ci.md。
+  EXPO_PUBLIC_EDITION: community
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
@@ -95,10 +113,10 @@ jobs:
         run: pnpm exec expo export --platform android --output-dir "$RUNNER_TEMP/export-android"
 
   # ───────────────────────────────────────────────────────────────────────────
-  # 3. Android debug APK（可直接装真机）
+  # 3. Android 可直装 APK
   # ───────────────────────────────────────────────────────────────────────────
   android:
-    name: Android APK
+    name: Android APK（可直装）
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -137,19 +155,49 @@ jobs:
         working-directory: apps/mobile
         run: pnpm exec expo prebuild --platform android --no-install
 
-      - name: 构建 debug APK
-        working-directory: apps/mobile/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      # release 构建类型在 Expo 模板里就指向 debug keystore。先确认它在，
+      # 否则后面会以一个很难看懂的「keystore not found」失败。
+      - name: 确认 debug keystore 存在
+        run: test -f apps/mobile/android/app/debug.keystore
 
-      - name: 确认产物存在
+      # GitHub 分发的安装包必须是完整版：Android 与 iOS 都不带会员购买。
+      # 断言的是**生效值**而不是上面那行文本，所以某个 job 自己覆盖成 store
+      # （比如从商店版示例里抄了段 env）也会在这里被拦住。
+      - name: 断言发行版（GitHub 分发的包必须是完整版）
         run: |
-          ls -lh apps/mobile/android/app/build/outputs/apk/debug/
-          test -f apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if [ "$EXPO_PUBLIC_EDITION" != "community" ]; then
+            echo "::error::GitHub 分发的安装包必须是 community（完整版），当前是 $EXPO_PUBLIC_EDITION"
+            exit 1
+          fi
+          echo "发行版：$EXPO_PUBLIC_EDITION ✓"
+
+      - name: 构建 release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # 产物校验：光看「构建成功」不够，要确认这个 APK 真的能独立跑起来。
+      # 少了内嵌 bundle 的包会「装得上、打开白屏」，而且不会在构建阶段报错。
+      - name: 校验产物（可直装 + JS 已内嵌）
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "::error::没找到 $APK"; exit 1; }
+          ls -lh "$APK"
+
+          if ! unzip -l "$APK" | grep -q 'assets/index.android.bundle'; then
+            echo "::error::APK 里没有 assets/index.android.bundle —— JS 没被打进去，装到手机上会白屏"
+            exit 1
+          fi
+          echo "JS bundle 已内嵌 ✓"
+
+          cp "$APK" "$RUNNER_TEMP/qingjian-music-android.apk"
+          ls -lh "$RUNNER_TEMP/qingjian-music-android.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: android-apk
+          path: ${{ runner.temp }}/qingjian-music-android.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -162,14 +210,14 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
           gh release upload "$GITHUB_REF_NAME" \
-            apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk \
+            "$RUNNER_TEMP/qingjian-music-android.apk" \
             --clobber
 
   # ───────────────────────────────────────────────────────────────────────────
-  # 4. iOS 构建（模拟器，不签名）
+  # 4. iOS 未签名 IPA（供用户自签）
   # ───────────────────────────────────────────────────────────────────────────
   ios:
-    name: iOS 构建（模拟器）
+    name: iOS 未签名 IPA
     needs: verify
     runs-on: macos-latest
     timeout-minutes: 90
@@ -195,9 +243,19 @@ jobs:
       - name: 确认 workspace 存在
         run: test -d apps/mobile/ios/app.xcworkspace
 
+      # 与 android job 同一条约束：GitHub 分发的包必须是完整版，不带会员购买。
+      - name: 断言发行版（GitHub 分发的包必须是完整版）
+        run: |
+          if [ "$EXPO_PUBLIC_EDITION" != "community" ]; then
+            echo "::error::GitHub 分发的安装包必须是 community（完整版），当前是 $EXPO_PUBLIC_EDITION"
+            exit 1
+          fi
+          echo "发行版：$EXPO_PUBLIC_EDITION ✓"
+
+      # 设备版（iphoneos），不是模拟器版 —— 模拟器产物自签工具认不了。
       # Release 配置会真正跑 JS 打包，所以这一步同时验证了原生编译与 bundle。
       # 日志可能上万行，重定向到文件，失败时只打错误摘要 + 末尾片段。
-      - name: 构建（Release / 模拟器 / 不签名）
+      - name: 构建（Release / 设备 / 不签名）
         working-directory: apps/mobile
         run: |
           set -o pipefail
@@ -206,15 +264,15 @@ jobs:
               -workspace ios/app.xcworkspace \
               -scheme app \
               -configuration Release \
-              -sdk iphonesimulator \
-              -destination 'generic/platform=iOS Simulator' \
+              -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
               -derivedDataPath "$RUNNER_TEMP/ios-build" \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
               build > "$LOG" 2>&1; then
             echo "::group::错误摘要"
-            grep -nE "error:|BUILD FAILED|The following build commands failed" "$LOG" | head -60 || true
+            grep -nE "error:|BUILD FAILED|The following build commands failed|No profiles for" "$LOG" | head -60 || true
             echo "::endgroup::"
             echo "::group::日志末尾 150 行"
             tail -150 "$LOG"
@@ -224,17 +282,54 @@ jobs:
           echo "iOS 构建成功"
           tail -5 "$LOG"
 
-      - name: 打包 .app
+      # 三条断言都是「不报错但会坑用户」的静默失败：
+      #   · 没有 main.jsbundle  → 装得上、打开白屏
+      #   · 平台是模拟器版      → 自签工具直接拒绝
+      #   · 带了描述文件        → 说明签名没关干净，会和用户自己的签名冲突
+      - name: 打包 IPA 并校验
         run: |
-          APP=$(find "$RUNNER_TEMP/ios-build/Build/Products" -maxdepth 2 -name '*.app' -type d | head -1)
-          echo "找到产物：$APP"
-          test -n "$APP"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/app-ios-simulator.zip"
-          ls -lh "$RUNNER_TEMP/app-ios-simulator.zip"
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/ios-build/Build/Products/Release-iphoneos"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -type d | head -1)
+          test -n "$APP" || { echo "::error::在 $PRODUCTS 下没找到 .app"; exit 1; }
+          echo "产物：$APP"
+
+          test -f "$APP/main.jsbundle" \
+            || { echo "::error::缺 main.jsbundle —— JS 没被打进产物，装到手机上会白屏"; exit 1; }
+
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          PLATFORM=$(vtool -show-build "$BIN" | awk '/platform/{print $NF; exit}')
+          echo "二进制平台：$PLATFORM"
+          test "$PLATFORM" = "IOS" \
+            || { echo "::error::期望 iOS 设备版产物，实际是 $PLATFORM（模拟器版无法自签）"; exit 1; }
+
+          test ! -e "$APP/embedded.mobileprovision" \
+            || { echo "::error::产物里带了 embedded.mobileprovision，签名没关干净"; exit 1; }
+
+          # IPA 就是一个根目录含 Payload/ 的 zip。用 zip -y 保留符号链接，
+          # 不加 --sequesterRsrc（那会产生 __MACOSX，部分自签工具会挑刺）。
+          IPA="$RUNNER_TEMP/qingjian-music-unsigned.ipa"
+          rm -rf "$RUNNER_TEMP/ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$IPA" Payload)
+          unzip -l "$IPA" | head -5
+          ls -lh "$IPA"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-app
-          path: ${{ runner.temp }}/app-ios-simulator.zip
+          name: ios-unsigned-ipa
+          path: ${{ runner.temp }}/qingjian-music-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
+
+      - name: 挂到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/qingjian-music-unsigned.ipa" \
+            --clobber

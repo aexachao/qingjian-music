@@ -30,3 +30,20 @@ reference/
 
 # 本地 AI 助手的工作记忆（含本机绝对路径，只对本机有意义）
 .workbuddy-ai/
+
+# 内部工程文档（不随公开仓库发布；本地文件保留，只是不跟踪）
+# 这些是过程性材料：交接文档、技术评审、代码评审清单、实测报告、路线图、
+# 方案评估与设计补充。对外有价值的部分已经沉淀进 README 与 docs/ 下的
+# fnos-music-api / fnos-transcode / design-tokens / build-and-ci。
+docs/0号实测报告-*.md
+docs/Android-核对与验证-*.md
+docs/CI-与契约测试-*.md
+docs/交接文档-*.md
+docs/代码评审清单-*.md
+docs/入口缺失清单与实现方案-*.md
+docs/分期路线图-*.md
+docs/功能审计报告-*.md
+docs/技术评审报告-*.md
+docs/方案评估-*.md
+docs/设计补充-*.md
+docs/设计补充2-*.md

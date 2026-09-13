@@ -14,6 +14,7 @@ import { useConfirm } from '@/components/confirm-modal'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useAppLogo } from '@/lib/appearance-preferences'
+import { EDITION_LABEL } from '@/lib/edition-policy'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
@@ -105,7 +106,9 @@ export function AboutScreen() {
             resizeMode="cover"
           />
           <Text style={styles.appName}>轻简音乐</Text>
-          <Text style={styles.appVersion}>版本 {APP_VERSION}</Text>
+          <Text style={styles.appVersion}>
+            版本 {APP_VERSION} · {EDITION_LABEL}
+          </Text>
           <Text style={styles.appTagline}>为飞牛音乐精心打造的私有流媒体客户端</Text>
         </View>
 

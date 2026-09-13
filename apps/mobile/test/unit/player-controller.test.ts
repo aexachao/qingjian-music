@@ -717,6 +717,11 @@ describe('setShuffledOrder 只重排当前之后的曲目', () => {
   it('重排失败时开关保持已翻转，不把按钮卡在旧状态', async () => {
     loadQueue(0)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // ⚠️ 必须固定随机数。`shuffled()` 是 Fisher–Yates，3 个元素时有 1/6 的概率
+    // 洗出**和原顺序一样**的结果；那样 planTailReorder 会返回空移动列表，
+    // rntp.move 一次都不会被调用 → 下面这个 mockRejectedValueOnce 永远不会触发
+    // → 走不到 warn 分支。于是测试变成 ~17% 概率偶发失败的「薛定谔用例」。
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     rntp.move.mockRejectedValueOnce(new Error('播放器没就绪'))
 
     await setShuffledOrder(true)
@@ -725,6 +730,7 @@ describe('setShuffledOrder 只重排当前之后的曲目', () => {
     expect(queueIds()).toEqual(ids)
     expect(warn).toHaveBeenCalled()
 
+    random.mockRestore()
     warn.mockRestore()
   })
 })
