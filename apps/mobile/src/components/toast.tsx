@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { MINI_PLAYER_HEIGHT, useOverlayBottom } from '@/lib/bottom-space'
 import { usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 /** 一条提示停留多久 */
 const TOAST_DURATION = 1800
@@ -46,6 +47,7 @@ export function useToast(): (text: string) => void {
 }
 
 function ToastHost({ message }: { message: ToastMessage | null }) {
+  const styles = useStyles()
   const overlayBottom = useOverlayBottom()
   const hasQueue = usePlayerStore((state) => state.queue.length > 0)
   const opacity = useSharedValue(0)
@@ -72,7 +74,7 @@ function ToastHost({ message }: { message: ToastMessage | null }) {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   host: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   toast: {
     maxWidth: '86%',
@@ -84,4 +86,4 @@ const styles = StyleSheet.create({
     borderColor: colors.borderEmphasis,
   },
   text: { ...typography.footnote, color: colors.textPrimary, textAlign: 'center' },
-})
+}))

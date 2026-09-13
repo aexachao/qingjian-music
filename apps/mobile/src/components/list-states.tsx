@@ -1,7 +1,10 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 export function LoadingState() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   return (
     <View style={styles.center}>
       <ActivityIndicator color={colors.accent} />
@@ -10,6 +13,7 @@ export function LoadingState() {
 }
 
 export function EmptyState({ text }: { text: string }) {
+  const styles = useStyles()
   return (
     <View style={styles.center}>
       <Text style={styles.muted}>{text}</Text>
@@ -18,6 +22,7 @@ export function EmptyState({ text }: { text: string }) {
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const styles = useStyles()
   return (
     <View style={styles.center}>
       <Text style={styles.muted}>{error instanceof Error ? error.message : '加载失败'}</Text>
@@ -37,6 +42,8 @@ export function PaginationFooter({
   error?: unknown
   onRetry?: () => void
 }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   if (loading) return <ActivityIndicator style={styles.footer} color={colors.accent} />
   if (!error || !onRetry) return null
   return (
@@ -46,7 +53,7 @@ export function PaginationFooter({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
   muted: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center' },
   // 次级按钮：胶囊 + 半透明底，和 web 端 --ds-bg-button-secondary 一致
@@ -61,4 +68,4 @@ const styles = StyleSheet.create({
   retryLabel: { ...typography.headline, color: colors.textPrimary },
   footer: { paddingVertical: spacing.lg },
   footerRetry: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm },
-})
+}))

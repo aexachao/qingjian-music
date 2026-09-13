@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Platform, Share, StyleSheet, Text, View } from 'react-native'
-import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
-import { useRouter } from 'expo-router'
+import { StyleSheet, Text, View } from 'react-native'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
-import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
+import { Icon, IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
+import { TrackMenuButton } from '@/components/track-menu-button'
 import { SystemVolumeSlider, addVolumeListener, getSystemVolume, setSystemVolume } from '../../../modules/system-volume'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import * as Haptics from 'expo-haptics'
 import Animated, {
   Extrapolation,
   interpolate,
@@ -20,14 +18,15 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
-import { useDetailHref } from '@/lib/detail-href'
 import { useToast } from '@/components/toast'
 import { formatAudioSourceInfo } from '@/lib/audio-info'
 import { useToggleFavorite } from '@/lib/favorites'
+import { select, tap } from '@/lib/haptics'
 import { skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { useIsAudioLoading } from '@/player/use-audio-loading'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 interface PlayerDeckProps {
   current: QueueItem
@@ -48,6 +47,8 @@ export function PlayerTitleRow({
   onDismissWithAction,
   onMenuOpenChange,
 }: PlayerTitleRowProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const toggleFavorite = useToggleFavorite()
   const toast = useToast()
 
@@ -104,6 +105,8 @@ export function PlayerDeck({
   onDismissWithAction,
   onMenuOpenChange,
 }: PlayerDeckProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const { playing } = useIsPlaying()
   const isAudioLoading = useIsAudioLoading()
   const audioSourceInfo = useMemo(() => formatAudioSourceInfo(current), [current])
@@ -152,7 +155,10 @@ export function PlayerDeck({
           name="previous"
           size={iconSize.xxl}
           color={colors.textPrimary}
-          onPress={() => void skipToPreviousSmart()}
+          onPress={() => {
+            tap()
+            void skipToPreviousSmart()
+          }}
           accessibilityLabel="上一首"
           style={styles.sideControlHit}
         />
@@ -161,7 +167,10 @@ export function PlayerDeck({
           size={iconSize.hero}
           color={colors.textPrimary}
           loading={isAudioLoading}
-          onPress={() => void togglePlay()}
+          onPress={() => {
+            tap()
+            void togglePlay()
+          }}
           accessibilityLabel={playing ? '暂停' : '播放'}
           style={styles.playControlHit}
         />
@@ -169,7 +178,10 @@ export function PlayerDeck({
           name="next"
           size={iconSize.xxl}
           color={colors.textPrimary}
-          onPress={() => void skipToNextSafe()}
+          onPress={() => {
+            tap()
+            void skipToNextSafe()
+          }}
           accessibilityLabel="下一首"
           style={styles.sideControlHit}
         />
@@ -185,6 +197,8 @@ export function PlayerDeck({
  * 利用透明的 SystemVolumeSlider 拦截手势并抑制系统音量弹窗。
  */
 function VolumeBar() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const currentVol = getSystemVolume()
   const volume = useSharedValue(currentVol)
   const pressed = useSharedValue(0)
@@ -209,7 +223,7 @@ function VolumeBar() {
   const pan = Gesture.Pan()
     .failOffsetY([-14, 14])
     .onBegin(() => {
-      runOnJS(Haptics.selectionAsync)()
+      runOnJS(select)()
       pressed.value = withSpring(1, { damping: 34.6, stiffness: 300 })
       initialVolume.value = volume.value
     })
@@ -276,274 +290,30 @@ export function DeckMoreButton({
   onMenuOpenChange?: (open: boolean) => void
   popDirection?: 'up' | 'down'
 }) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const toast = useToast()
-  const router = useRouter()
-  const href = useDetailHref()
-
-  const dismissAndNavigate = (navigateAction: () => void) => {
-    setIsMenuOpen(false)
-    onMenuOpenChange?.(false)
-    if (onDismissWithAction) {
-      onDismissWithAction(navigateAction)
-    } else {
-      router.back()
-      setTimeout(navigateAction, 320)
-    }
-  }
-
-  const actions = useMemo<MenuAction[]>(() => {
-    if (Platform.OS === 'ios') {
-      if (popDirection === 'down') {
-        // 向下弹出（如队列顶部的卡片）：UIKit 从锚点（顶部）由近及远向下排列，第 0 项在最顶端
-        return [
-          {
-            id: 'group-playlist',
-            title: '',
-            displayInline: true,
-            subactions: [
-              {
-                id: 'add-to-playlist',
-                title: '添加到歌单',
-                image: 'plus.circle',
-                imageColor: '#ffffff',
-              },
-            ],
-          },
-          {
-            id: 'group-share',
-            title: '',
-            displayInline: true,
-            subactions: [
-              {
-                id: 'share-song',
-                title: '分享歌曲',
-                image: 'square.and.arrow.up',
-                imageColor: '#ffffff',
-              },
-              {
-                id: 'share-lyrics',
-                title: '分享歌词',
-                image: 'quote.bubble',
-                imageColor: '#ffffff',
-              },
-            ],
-          },
-          {
-            id: 'group-details',
-            title: '',
-            displayInline: true,
-            subactions: [
-              {
-                id: 'song-info',
-                title: '歌曲信息',
-                image: 'info.circle',
-                imageColor: '#ffffff',
-              },
-              {
-                id: 'goto-album',
-                title: '前往专辑',
-                image: 'music.note.list',
-                imageColor: '#ffffff',
-              },
-              {
-                id: 'goto-artist',
-                title: '查看艺术家',
-                image: 'person.crop.circle',
-                imageColor: '#ffffff',
-              },
-            ],
-          },
-        ]
-      }
-
-      // 向上弹出（默认，用于播放页底部的 DeckMoreButton）：
-      // UIKit 从锚点（底部）由近及远向上排列，第 0 项在最靠近底部的指尖位置
-      return [
-        {
-          id: 'group-details',
-          title: '',
-          displayInline: true,
-          subactions: [
-            {
-              id: 'goto-artist',
-              title: '查看艺术家',
-              image: 'person.crop.circle',
-              imageColor: '#ffffff',
-            },
-            {
-              id: 'goto-album',
-              title: '前往专辑',
-              image: 'music.note.list',
-              imageColor: '#ffffff',
-            },
-            {
-              id: 'song-info',
-              title: '歌曲信息',
-              image: 'info.circle',
-              imageColor: '#ffffff',
-            },
-          ],
-        },
-        {
-          id: 'group-share',
-          title: '',
-          displayInline: true,
-          subactions: [
-            {
-              id: 'share-lyrics',
-              title: '分享歌词',
-              image: 'quote.bubble',
-              imageColor: '#ffffff',
-            },
-            {
-              id: 'share-song',
-              title: '分享歌曲',
-              image: 'square.and.arrow.up',
-              imageColor: '#ffffff',
-            },
-          ],
-        },
-        {
-          id: 'group-playlist',
-          title: '',
-          displayInline: true,
-          subactions: [
-            {
-              id: 'add-to-playlist',
-              title: '添加到歌单',
-              image: 'plus.circle',
-              imageColor: '#ffffff',
-            },
-          ],
-        },
-      ]
-    }
-
-    return [
-      {
-        id: 'add-to-playlist',
-        title: '添加到歌单',
-        image: 'ic_menu_add',
-        imageColor: '#ffffff',
-      },
-      {
-        id: 'share-song',
-        title: '分享歌曲',
-        image: 'ic_menu_share',
-        imageColor: '#ffffff',
-      },
-      {
-        id: 'share-lyrics',
-        title: '分享歌词',
-        image: 'ic_menu_info_details',
-        imageColor: '#ffffff',
-      },
-      {
-        id: 'song-info',
-        title: '歌曲信息',
-        image: 'ic_menu_help',
-        imageColor: '#ffffff',
-      },
-      {
-        id: 'goto-album',
-        title: '前往专辑',
-        image: 'ic_media_play',
-        imageColor: '#ffffff',
-      },
-      {
-        id: 'goto-artist',
-        title: '查看艺术家',
-        image: 'ic_menu_myplaces',
-        imageColor: '#ffffff',
-      },
-    ]
-  }, [popDirection])
-
-  const handleAction = ({ nativeEvent }: NativeActionEvent) => {
-    setIsMenuOpen(false)
-    onMenuOpenChange?.(false)
-    switch (nativeEvent.event) {
-      case 'add-to-playlist':
-        toast('已添加到歌单')
-        break
-      case 'share-song':
-        void Share.share({
-          title: current.title,
-          message: `正在听 ${current.title} - ${current.artistText}`,
-        })
-        break
-      case 'share-lyrics':
-        void Share.share({
-          title: `${current.title} 歌词`,
-          message: `《${current.title}》- ${current.artistText}\n(分享自轻简音乐)`,
-        })
-        break
-      case 'song-info': {
-        const durationSec = Math.round(current.durationMs / 1000)
-        const m = Math.floor(durationSec / 60)
-        const s = durationSec % 60
-        const durationStr = `${m}:${String(s).padStart(2, '0')}`
-        const meta = [current.title, current.artistText, current.albumText].filter(Boolean).join(' · ')
-        toast(`${meta} (${durationStr})`)
-        break
-      }
-      case 'goto-album':
-        if (current.albumId) {
-          const target = href.album(current.albumId)
-          dismissAndNavigate(() => {
-            router.push(target)
-          })
-        } else {
-          toast('暂无专辑信息')
-        }
-        break
-      case 'goto-artist':
-        if (current.artistId) {
-          const target = href.artist(current.artistId)
-          dismissAndNavigate(() => {
-            router.push(target)
-          })
-        } else {
-          toast('暂无艺术家信息')
-        }
-        break
-    }
-  }
-
   return (
-    <MenuView
-      title="歌曲选项"
-      themeVariant="dark"
-      shouldOpenOnLongPress={false}
-      isAnchoredToRight={true}
-      actions={actions}
-      onOpenMenu={() => {
-        setIsMenuOpen(true)
-        onMenuOpenChange?.(true)
-        onBeforeOpen?.()
+    <TrackMenuButton
+      variant="iconButton"
+      context="current"
+      popDirection={popDirection}
+      onBeforeOpen={onBeforeOpen}
+      onMenuOpenChange={onMenuOpenChange}
+      onNavigate={onDismissWithAction}
+      accessibilityLabel="更多快捷操作"
+      subject={{
+        trackId: current.trackId,
+        title: current.title,
+        artistText: current.artistText,
+        ...(current.albumId ? { albumId: current.albumId } : {}),
+        ...(current.albumText ? { albumText: current.albumText } : {}),
+        ...(current.artistId ? { artistId: current.artistId } : {}),
+        durationMs: current.durationMs,
+        ...(current.isFavorite === undefined ? {} : { isFavorite: current.isFavorite }),
       }}
-      onCloseMenu={() => {
-        setIsMenuOpen(false)
-        onMenuOpenChange?.(false)
-      }}
-      onPressAction={handleAction}
-    >
-      <IconButton
-        name="more"
-        size={iconSize.lg}
-        color={isMenuOpen ? colors.textPrimary : colors.iconMid}
-        isActive={isMenuOpen}
-        onPress={() => {
-          onBeforeOpen?.()
-        }}
-        accessibilityLabel="更多快捷操作"
-      />
-    </MenuView>
+    />
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: { gap: spacing.lg },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
   // 歌名占满剩余宽度，两个图标按钮自然贴到行尾
@@ -572,4 +342,4 @@ const styles = StyleSheet.create({
   volumeFill: {
     backgroundColor: colors.playerProgressFill,
   },
-})
+}))

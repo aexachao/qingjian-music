@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "haptics-centralized": {
+      "apps/mobile/src/components/confirm-modal.tsx": 4,
+      "apps/mobile/src/components/lyric-view.tsx": 2,
+      "apps/mobile/src/components/option-picker-modal.tsx": 1,
+      "apps/mobile/src/components/player/player-queue.tsx": 2,
+      "apps/mobile/src/components/progress-bar.tsx": 1,
+      "apps/mobile/src/components/prompt-modal.tsx": 4,
+      "apps/mobile/src/screens/appearance-settings.tsx": 2,
+      "apps/mobile/src/screens/cache-settings.tsx": 2,
+      "apps/mobile/src/screens/home/HeroStationCard.tsx": 1
+    },
+    "type-escape-hatches": {
+      "apps/mobile/src/app/login.tsx": 1,
+      "apps/mobile/src/components/lyric-view.tsx": 1,
+      "apps/mobile/src/components/player/player-queue.tsx": 2,
+      "apps/mobile/src/components/stack-back-button.tsx": 1,
+      "apps/mobile/src/lib/use-track-menu.ts": 1,
+      "apps/mobile/src/screens/home/SectionHeader.tsx": 1,
+      "apps/mobile/src/screens/search.tsx": 1,
+      "apps/mobile/src/screens/settings.tsx": 1
+    }
+  },
+  "note": "架构守卫基线：由 `node scripts/guard-architecture.mjs --update-baseline` 生成。只允许下调。"
+}

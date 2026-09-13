@@ -3,7 +3,7 @@ import { useInfiniteQuery, type QueryKey } from '@tanstack/react-query'
 import { nextPageNumber, type Page } from '@qj/core-domain'
 
 /**
- * 分页列表的统一封装：所有资料库列表都用它，避免每个页面重复写 useInfiniteQuery。
+ * 分页列表的统一封装：所有音乐库列表都用它，避免每个页面重复写 useInfiniteQuery。
  */
 export function usePagedQuery<T>(options: {
   queryKey: QueryKey

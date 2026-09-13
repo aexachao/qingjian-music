@@ -6,6 +6,7 @@ import type {
   AudioSpec,
   Genre,
   GenreRef,
+  LyricAlternate,
   LyricLine,
   LyricSheet,
   LyricWord,
@@ -14,6 +15,7 @@ import type {
   SortSpec,
   Track,
 } from '@qj/core-domain'
+import { LYRIC_TIER_RANK, lyricTier } from '@qj/core-domain'
 import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnTrack, FnUser } from './schemas'
 
 /** null -> undefined，领域模型里统一只用 undefined 表示缺失 */
@@ -190,19 +192,50 @@ export function parseLyrics(raw: string, source?: string): LyricSheet {
     }
   }
   lines.sort((a, b) => a.atMs - b.atMs)
-  return { synced, lines, offsetMs: 0, source }
+  const sheet = { synced, lines, offsetMs: 0, source }
+  return { ...sheet, tier: lyricTier(sheet) }
 }
 
+/**
+ * 从服务端的多条歌词里挑出质量最高的一份。
+ *
+ * 实测 `/lyric/list` 会返回同一首歌的多个版本（逐字 / 整行 / 纯文本），
+ * 而服务端的 `preferred` 并不保证就是质量最高的那个 —— 只按 preferred 取，
+ * 会出现「明明有逐字歌词却在用整行」的情况。
+ * 所以这里把全部候选都解析出来，按档位择优；只有同档位内才尊重 preferred。
+ * 其余版本作为 `alternates` 带出去，供 UI 提供「切换歌词」。
+ */
 export function mapLyricSheet(entries: FnLyricEntry[], preferredGuid?: string | null): LyricSheet | null {
   const usable = entries.filter((entry) => typeof entry.content === 'string' && entry.content.trim().length > 0)
   if (usable.length === 0) return null
-  const picked = usable.find((entry) => entry.guid === preferredGuid) ?? usable[0]!
-  const source = picked.source === null || picked.source === undefined ? undefined : String(picked.source)
-  const sheet = parseLyrics(picked.content!, source)
+
+  const candidates = usable.map((entry) => {
+    const source = entry.source === null || entry.source === undefined ? undefined : String(entry.source)
+    const sheet = parseLyrics(entry.content!, source)
+    // 服务端的 isLRC 覆盖解析结果（服务端把纯文本标成 LRC 时以它为准）
+    const synced = entry.isLRC ?? sheet.synced
+    return { entry, sheet, synced, tier: lyricTier({ lines: sheet.lines, synced }) }
+  })
+
+  const ranked = [...candidates].sort((a, b) => LYRIC_TIER_RANK[a.tier] - LYRIC_TIER_RANK[b.tier])
+  const bestTier = ranked[0]!.tier
+  const sameTier = ranked.filter((candidate) => candidate.tier === bestTier)
+  const picked = sameTier.find((candidate) => candidate.entry.guid === preferredGuid) ?? sameTier[0]!
+
+  const alternates: LyricAlternate[] = ranked
+    .filter((candidate) => candidate.entry.guid !== picked.entry.guid)
+    .map((candidate) => ({
+      id: candidate.entry.guid,
+      tier: candidate.tier,
+      ...(candidate.sheet.source ? { source: candidate.sheet.source } : {}),
+    }))
+
   return {
-    ...sheet,
-    id: picked.guid,
-    offsetMs: Math.round(picked.offset ?? 0),
-    synced: picked.isLRC ?? sheet.synced,
+    ...picked.sheet,
+    id: picked.entry.guid,
+    synced: picked.synced,
+    tier: picked.tier,
+    offsetMs: Math.round(picked.entry.offset ?? 0),
+    ...(alternates.length > 0 ? { alternates } : {}),
   }
 }

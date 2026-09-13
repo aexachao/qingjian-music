@@ -115,7 +115,7 @@ export type PaletteKey = keyof typeof darkPalette
 /** 一套配色：键固定，值都是颜色字符串 */
 export type Palette = Record<PaletteKey, string>
 
-/** 亮色模式（web 端 `[data-theme=light]` 的同名变量），暂未接主题切换 */
+/** 亮色模式（web 端 `[data-theme=light]` 的同名变量） */
 const lightPalette: Palette = {
   bgPrimary: '#ffffff',
   bgCard: '#0000000a',
@@ -179,19 +179,34 @@ const lightPalette: Palette = {
 
 export const palette: { dark: Palette; light: Palette } = { dark: darkPalette, light: lightPalette }
 
-/**
- * 当前生效的配色。首版固定暗色 + 默认强调色；
- * accent / playing / like 三个都跟随强调色，和 web 端
- * `--ds-state-playing-color: var(--ds-accent-current)` 的关系一致。
- */
-export const colors = {
-  ...darkPalette,
-  accent: accents[DEFAULT_ACCENT],
+export type ResolvedTheme = keyof typeof palette
+export type ThemeColors = Palette & {
+  accent: string
   /** 正在播放的高亮色 */
-  playing: accents[DEFAULT_ACCENT],
+  playing: string
   /** 收藏（喜欢）色 */
-  like: accents[DEFAULT_ACCENT],
-} as const
+  like: string
+}
+
+function createThemeColors(base: Palette): ThemeColors {
+  const accent = accents[DEFAULT_ACCENT]
+  return {
+    ...base,
+    accent,
+    playing: accent,
+    like: accent,
+  }
+}
+
+/** 运行时可选的深浅色 token；对象引用稳定，供 Context 与 Reanimated closure 使用。 */
+export const themeColors: Record<ResolvedTheme, ThemeColors> = {
+  dark: createThemeColors(darkPalette),
+  light: createThemeColors(lightPalette),
+}
+
+export function getThemeColors(theme: ResolvedTheme): ThemeColors {
+  return themeColors[theme]
+}
 
 /**
  * 字体：web 端 `--ds-font-family-base` 首选 Montserrat（NAS 自带同样 4 个字重）。

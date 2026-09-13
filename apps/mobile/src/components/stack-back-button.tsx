@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router'
 import { IconButton, iconSize } from '@/components/icon'
-import { colors, spacing } from '@/theme/tokens'
+import { spacing } from '@/theme/tokens'
+import { useThemeColors } from '@/theme/theme-provider'
 
 export function StackBackButton({ fallbackRoute = '/(tabs)/library' }: { fallbackRoute?: string }) {
   const router = useRouter()
+  const colors = useThemeColors()
 
   const handlePress = () => {
     if (router.canGoBack()) {

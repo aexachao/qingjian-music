@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readSource } from '../support/source'
 
-const queueSource = readFileSync(resolve(__dirname, '../../src/components/player/player-queue.tsx'), 'utf8')
-const playerSource = readFileSync(resolve(__dirname, '../../src/app/player.tsx'), 'utf8')
+const queueSource = readSource('components/player/player-queue.tsx')
+const playerSource = readSource('app/player.tsx')
 
 describe('播放器队列 Tab 交互', () => {
   it('默认展示继续播放并在原标题位置提供历史记录 Tab', () => {
@@ -27,8 +26,9 @@ describe('播放器队列 Tab 交互', () => {
   })
 
   it('历史清除靠右并经过破坏性二次确认', () => {
-    expect(queueSource).toContain("Alert.alert('清除历史记录？', '该操作不可撤销。'")
-    expect(queueSource).toContain("{ text: '清除', style: 'destructive'")
+    expect(queueSource).toContain("title: '清除历史记录？'")
+    expect(queueSource).toContain("confirmText: '清除'")
+    expect(queueSource).toContain('destructive: true')
     expect(queueSource).toContain('<View style={styles.queueTabSpacer} />')
   })
 
@@ -64,7 +64,7 @@ describe('播放器队列 Tab 交互', () => {
 
   it('列表在顶部允许下拉退出，采用 ScrollHandler 联动退场机制与橡皮筋反向补偿', () => {
     expect(playerSource).toContain('const [isListAtTop, setIsListAtTop] = useState(true)')
-    expect(playerSource).toContain("if (mode === 'list') {\n      setIsListAtTop(true)")
+    expect(playerSource).toContain("if (mode === 'list') { setIsListAtTop(true)")
     expect(playerSource).toContain('createDismissPan={createDismissPan}')
     expect(playerSource).toContain("mode !== 'list' || isListAtTop")
     expect(queueSource).toContain('bounces={true}')
@@ -74,9 +74,9 @@ describe('播放器队列 Tab 交互', () => {
   })
 
   it('播放器与播放列表中的收藏 icon 统一采用面性（实心）形态', () => {
-    const iconSource = readFileSync(resolve(__dirname, '../../src/components/icon.tsx'), 'utf8')
-    const deckSource = readFileSync(resolve(__dirname, '../../src/components/player/player-deck.tsx'), 'utf8')
-    const queueSrc = readFileSync(resolve(__dirname, '../../src/components/player/player-queue.tsx'), 'utf8')
+    const iconSource = readSource('components/icon.tsx')
+    const deckSource = readSource('components/player/player-deck.tsx')
+    const queueSrc = readSource('components/player/player-queue.tsx')
 
     // OUTLINE_VARIANTS 不再包含 heart，全局 heart 恒为面性 glyph
     expect(iconSource).not.toContain("heart: 'heart-outline'")
@@ -89,14 +89,38 @@ describe('播放器队列 Tab 交互', () => {
   })
 
   it('上一首切歌逻辑接入 restorePreviousTrack 与 pendingPreviousActivation', () => {
-    const controllerSource = readFileSync(resolve(__dirname, '../../src/player/controller.ts'), 'utf8')
-    const bridgeSource = readFileSync(resolve(__dirname, '../../src/player/bridge.tsx'), 'utf8')
+    const controllerSource = readSource('player/controller.ts')
+    const bridgeSource = readSource('player/bridge.tsx')
 
     expect(controllerSource).toContain('takePendingPreviousActivation')
     expect(controllerSource).toContain('pendingPreviousActivation')
     expect(bridgeSource).toContain('takePendingPreviousActivation')
     expect(bridgeSource).toContain('restorePreviousTrack')
-    // 上一首恢复不能 remove([1])，保留待播队列
-    expect(bridgeSource).toContain('// 上一首恢复时，原当前曲目顺延到 index 1 作为待播曲目，保留在原生队列中，不得 remove([1])')
+    // 上一首恢复走 restorePreviousTrack 并保留待播队列；remove([1]) 只允许出现在历史点播分支里，
+    // 所以它的位置必须排在 restorePreviousTrack 之后。
+    expect(bridgeSource).toContain('usePlayerStore.getState().restorePreviousTrack(previousItem)')
+    expect(bridgeSource).toContain('void TrackPlayer.remove([1])')
+    expect(bridgeSource.indexOf('restorePreviousTrack(previousItem)')).toBeLessThan(
+      bridgeSource.indexOf('void TrackPlayer.remove([1])'),
+    )
+  })
+
+  it('待播行「···」菜单接上共享菜单组件，且与主触控区物理隔离', () => {
+    // 条目规则与顺序在 lib/track-menu.ts 里单独跑行为单测，这里只锁接线与结构
+    expect(queueSource).toContain('<TrackMenuButton')
+    expect(queueSource).toContain('context="upcoming"')
+    expect(queueSource).toContain('queueIndex,')
+    expect(queueSource).toContain('upcomingCount,')
+    // 左右是兄弟节点：否则「···」的点击会被外层 Pressable 抢走
+    expect(queueSource).toContain('<View style={styles.rowWrapper}>')
+    expect(queueSource).toContain('style={styles.rowMain}')
+    expect(queueSource).toContain('style={styles.rowRight}')
+    // 打开菜单前先收起左滑删除，避免两层操作面同时存在
+    expect(queueSource).toContain('onBeforeOpen={() => {')
+    expect(queueSource).toContain('closeOpenQueueAction()')
+    // 菜单关闭后的冷却期内不响应行点按，否则「点空白关菜单」会顺手切歌
+    expect(queueSource).toContain('if (isGlobalMenuInteracting()) return')
+    // 待播行数只允许有一个定义
+    expect(queueSource).toContain('const upcomingCount = Math.max(0, queue.length - 1)')
   })
 })

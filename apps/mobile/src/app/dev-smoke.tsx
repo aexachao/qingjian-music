@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
-import { ScrollView, StyleSheet, Text } from 'react-native'
-import { useRouter } from 'expo-router'
+import { ScrollView, Text } from 'react-native'
+import { Redirect, useRouter } from 'expo-router'
 import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 /**
  * 开发期自检页（仅 __DEV__）：打开即自动取第一张专辑的第一首播放，
  * 用来验证「provider 取流 → 鉴权头 → RNTP 播放」这条链路，不需要人工点击。
- * 生产包里这个页面直接返回 null。
+ * 生产包里这个页面不渲染任何内容，深链进来直接回首页。
  */
 export default function DevSmokeScreen() {
+  const styles = useStyles()
   const router = useRouter()
   const { provider, connection, status } = useServerSession()
   const [log, setLog] = useState<string[]>([])
@@ -47,7 +49,7 @@ export default function DevSmokeScreen() {
           source: { kind: 'album', id: album.id, label: `专辑 · ${album.name}` },
         })
         push('已调用 playTrackList')
-        // 起播后回到资料库，顺便验证迷你播放条
+        // 起播后回到音乐库，顺便验证迷你播放条
         setTimeout(() => router.replace('/library'), 6000)
         setTimeout(() => {
           void (async () => {
@@ -65,7 +67,8 @@ export default function DevSmokeScreen() {
     }
   }, [provider, connection])
 
-  if (!__DEV__) return null
+  // 生产包里这个路由仍然存在（文件即路由），深链进来时回首页而不是停在空白页
+  if (!__DEV__) return <Redirect href="/home" />
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -85,9 +88,9 @@ export default function DevSmokeScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, gap: spacing.sm, paddingTop: spacing.xxl * 2 },
   title: { ...typography.title, color: colors.textPrimary },
   line: { ...typography.footnote, color: colors.textSecondary },
-})
+}))

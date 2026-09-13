@@ -10,9 +10,18 @@ import { StorageMutationQueue } from './storage-mutation-queue'
 const KEY_SERVERS = 'qj.servers'
 const KEY_ACTIVE = 'qj.activeServerId'
 const KEY_DEVICE = 'qj.deviceId'
+const KEY_LAST_SERVER = 'qj.lastServer'
 const keySession = (serverId: string) => `qj.session.${serverId}`
 const keyPassword = (serverId: string) => `qj.password.${serverId}`
 const serverMutations = new StorageMutationQueue()
+
+export interface LastServerInfo {
+  serverId?: string
+  baseUrl: string
+  username: string
+  displayName?: string
+  rememberPassword?: boolean
+}
 
 async function readJson<T>(key: string): Promise<T | null> {
   const raw = await SecureStore.getItemAsync(key)
@@ -43,10 +52,10 @@ export async function listServers(): Promise<ServerConnection[]> {
 
 export function upsertServer(connection: ServerConnection): Promise<void> {
   return serverMutations.run(async () => {
-    const servers = await listServers()
-    const index = servers.findIndex((item) => item.id === connection.id)
-    if (index >= 0) servers[index] = connection
-    else servers.push(connection)
+    const servers = (await listServers()).filter(
+      (item) => item.id !== connection.id && !(item.baseUrl === connection.baseUrl && item.username === connection.username),
+    )
+    servers.unshift(connection)
     await writeJson(KEY_SERVERS, servers)
   })
 }
@@ -59,6 +68,20 @@ export function removeServer(serverId: string): Promise<void> {
     await SecureStore.deleteItemAsync(keyPassword(serverId))
     if ((await getActiveServerId()) === serverId) {
       await setActiveServerId(servers[0]?.id ?? null)
+    }
+    const last = await getLastServer()
+    if (last && servers.length > 0) {
+      const stillExists = servers.some((s) => s.baseUrl === last.baseUrl && s.username === last.username)
+      if (!stillExists) {
+        await saveLastServer({
+          serverId: servers[0].id,
+          baseUrl: servers[0].baseUrl,
+          username: servers[0].username,
+          displayName: servers[0].displayName,
+        })
+      }
+    } else if (servers.length === 0) {
+      await SecureStore.deleteItemAsync(KEY_LAST_SERVER)
     }
   })
 }
@@ -94,6 +117,14 @@ export async function getPassword(serverId: string): Promise<string | null> {
 
 export async function clearPassword(serverId: string): Promise<void> {
   await SecureStore.deleteItemAsync(keyPassword(serverId))
+}
+
+export async function saveLastServer(info: LastServerInfo): Promise<void> {
+  await writeJson(KEY_LAST_SERVER, info)
+}
+
+export async function getLastServer(): Promise<LastServerInfo | null> {
+  return readJson<LastServerInfo>(KEY_LAST_SERVER)
 }
 
 /** SecureStore 的 key 只允许字母数字与 . - _ */

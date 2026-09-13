@@ -8,9 +8,22 @@ import TrackPlayer, {
 
 let setupPromise: Promise<void> | null = null
 
-/** 幂等初始化：任何入口（列表点播、锁屏、后续 CarPlay）都先 await 它 */
+/**
+ * 幂等初始化：任何入口（列表点播、锁屏、后续 CarPlay）都先 await 它。
+ *
+ * **失败的初始化绝不能留在缓存里**：`setupPromise ??= initialize()` 这种写法一旦
+ * initialize 抛错，缓存下来的就是一个 rejected promise —— 之后每个入口 await 它都会
+ * 立刻抛，播放/暂停、上下一首、点歌全部没反应，而且不重启 App 永远恢复不了。
+ *
+ * 所以失败时把缓存清掉：下一次调用会重新初始化。重试是安全的 ——
+ * `setupPlayer` 对「已经初始化过」是幂等的（见 initialize 里的 already initialized 分支），
+ * `updateOptions` 本身也是可重复调用。
+ */
 export function ensurePlayer(): Promise<void> {
-  setupPromise ??= initialize()
+  setupPromise ??= initialize().catch((error: unknown) => {
+    setupPromise = null
+    throw error
+  })
   return setupPromise
 }
 
@@ -30,9 +43,23 @@ async function initialize(): Promise<void> {
       ...(Platform.OS === 'android' ? { minBuffer: 15, maxBuffer: 60, backBuffer: 30 } : {}),
     })
   } catch (error) {
-    // 热重载时播放器可能已初始化，这不是错误
+    // 热重载 / Fast Refresh 时原生播放器可能已经初始化过，这不是错误。
+    //
+    // ⚠️ 这里曾经写成 `message.includes('already initialized')` —— 看着没问题，实际
+    // **从来没有命中过**：RNTP 三端抛出的原文都是
+    //   "The player has already been initialized via setupPlayer."
+    // 中间多一个 "been"，所以子串匹配恒为 false。后果是热重载后每一次
+    // `ensurePlayer()` 都直接 reject，播放/暂停/切歌/点歌全部没反应。
+    // 这类「字符串近似但不等」的容错分支不会报错、只会静默失效，所以：
+    //   1. 匹配放宽成「同时出现 already 与 initialized」，并优先看错误码；
+    //   2. 由 test/unit/player-setup-resilience.test.ts 钉住行为，
+    //      同时核对 RNTP 原生源码里的消息原文，改版走样会被测出来。
+    const code = (error as { code?: unknown } | null)?.code
     const message = error instanceof Error ? error.message : String(error)
-    if (!message.includes('already initialized')) throw error
+    const alreadyInitialized =
+      code === 'player_already_initialized' ||
+      (/already/.test(message) && /initialized/.test(message))
+    if (!alreadyInitialized) throw error
   }
 
   await applyPlayerOptions()

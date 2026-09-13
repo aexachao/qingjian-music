@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Icon, iconSize } from '@/components/icon'
-import { colors, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { typography } from '@/theme/tokens'
 
 interface SectionHeaderProps {
   title: string
@@ -15,6 +16,8 @@ interface SectionHeaderProps {
  * 遵循 Apple 规范，向右箭头直接紧跟在 label 后面（间距 8pt），点击可直达二级完整页面
  */
 export function SectionHeader({ title, href, onPress, isInteracting }: SectionHeaderProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const router = useRouter()
 
   const handlePress = () => {
@@ -46,7 +49,7 @@ export function SectionHeader({ title, href, onPress, isInteracting }: SectionHe
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -64,4 +67,4 @@ const styles = StyleSheet.create({
     ...typography.sectionTitle,
     color: colors.textPrimary,
   },
-})
+}))

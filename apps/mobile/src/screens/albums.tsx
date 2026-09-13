@@ -7,11 +7,13 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { spacing, typography } from '@/theme/tokens'
 
 const PAGE_SIZE = 40
 
 export function AlbumsScreen() {
+  const styles = useStyles()
   const { provider, connection } = useServerSession()
   const { width } = useWindowDimensions()
   const bottom = useBottomSpace()
@@ -67,9 +69,9 @@ export function AlbumsScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   total: { ...typography.caption, color: colors.textTertiary, paddingBottom: spacing.md },
   name: { ...typography.subhead, color: colors.textPrimary, marginTop: spacing.sm },
   artist: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-})
+}))

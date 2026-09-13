@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
-import { colors, fonts } from '@/theme/tokens'
+import { fonts } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 import { getTrackFormatTag } from '@/lib/format-tag'
 
@@ -12,6 +13,7 @@ export { getTrackFormatTag }
  * 遵循 Apple Music 的克制精致风格，微光描边与紧凑排版
  */
 export function FormatBadge({ track }: { track: Track }) {
+  const styles = useStyles()
   const tag = getTrackFormatTag(track)
   if (!tag) return null
 
@@ -22,14 +24,14 @@ export function FormatBadge({ track }: { track: Track }) {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   badge: {
     paddingHorizontal: 3.5,
     paddingVertical: 1,
     borderRadius: 3,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.badgeBorder,
+    backgroundColor: colors.badgeBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -39,4 +41,4 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     letterSpacing: 0.3,
   },
-})
+}))

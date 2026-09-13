@@ -4,9 +4,9 @@
     "slug": "qingjian-music",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/app-icons/ios/crimson-glass.png",
     "scheme": "qingjianmusic",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
@@ -24,8 +24,8 @@
       "package": "com.chrisli.music",
       "adaptiveIcon": {
         "backgroundColor": "#f62c55",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/app-icons/android/crimson-glass-foreground.png",
+        "monochromeImage": "./assets/images/app-icons/android/crimson-glass-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -54,6 +54,8 @@
         }
       ],
       "./plugins/with-ios-ldflags-dedupe",
+      "./plugins/with-app-icons",
+      "./plugins/with-android-cleartext",
       [
         "expo-splash-screen",
         {

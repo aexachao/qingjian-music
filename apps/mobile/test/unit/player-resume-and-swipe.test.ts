@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readSource } from '../support/source'
 
 function source(path: string): string {
-  return readFileSync(resolve(__dirname, `../../src/${path}`), 'utf8')
+  return readSource(path)
 }
 
 describe('播放恢复与队列点击语义', () => {
@@ -38,10 +37,12 @@ describe('播放恢复与队列点击语义', () => {
   })
 
   it('快捷菜单支持 popDirection 并在队列卡片向下弹出时保证正序视觉排列', () => {
-    const deck = source('components/player/player-deck.tsx')
+    const menu = source('lib/track-menu.ts')
     const queue = source('components/player/player-queue.tsx')
-    expect(deck).toContain("popDirection = 'up'")
-    expect(deck).toContain("popDirection === 'down'")
+    // 向上弹出时整体反向（组顺序 + 组内顺序），向下弹出时保持正序
+    expect(menu).toContain("popDirection: 'up' | 'down' = 'up'")
+    expect(menu).toContain("popDirection === 'up'")
+    expect(menu).toContain('groups.reverse()')
     expect(queue).toContain('popDirection="down"')
   })
 })

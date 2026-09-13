@@ -8,15 +8,11 @@ import ExpoModulesCore
 /// 系统面板、状态栏、控制中心认的都是它）。颜色跟 App 主题走：没连设备是
 /// 白色，连上 AirPlay 设备后变 App 的强调红（跟收藏、正在播放同色）。
 class AirplayRouteButtonView: ExpoView {
-  private let picker = AVRoutePickerView()
+  let picker = AVRoutePickerView()
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
-    // 音频场景：不要优先列视频设备（否则 Apple TV 之类会排在前面）
     picker.prioritizesVideoDevices = false
-    picker.tintColor = .white
-    // 强调红 #f62c55
-    picker.activeTintColor = UIColor(red: 246 / 255, green: 44 / 255, blue: 85 / 255, alpha: 1)
     addSubview(picker)
   }
 
@@ -30,6 +26,13 @@ public class AirplayButtonModule: Module {
   public func definition() -> ModuleDefinition {
     Name("AirplayButton")
 
-    View(AirplayRouteButtonView.self) {}
+    View(AirplayRouteButtonView.self) {
+      Prop("tintColor") { (view: AirplayRouteButtonView, color: UIColor?) in
+        view.picker.tintColor = color
+      }
+      Prop("activeTintColor") { (view: AirplayRouteButtonView, color: UIColor?) in
+        view.picker.activeTintColor = color
+      }
+    }
   }
 }

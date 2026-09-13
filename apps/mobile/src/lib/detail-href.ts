@@ -3,7 +3,7 @@ import { useSegments } from 'expo-router'
 let lastKnownTab: 'home' | 'search' | 'library' = 'home'
 
 /**
- * 详情页在「首页」「搜索」「资料库」三个 Tab 下各有一份路由（同一个屏组件），
+ * 详情页在「首页」「搜索」「音乐库」三个 Tab 下各有一份路由（同一个屏组件），
  * 这样点进详情不会把用户踢出当前 Tab。这里根据当前所在 Tab 给出正确的目标。
  *
  * 每个分支都返回完整的 { pathname, params }：expo-router 的 Href 是
@@ -35,6 +35,7 @@ export function useDetailHref() {
       return { pathname: '/library/genre/[id]', params: { id, name } } as const
     },
     playlist: (id: string, name = '') => {
+      if (inSearch) return { pathname: '/search/playlist/[id]', params: { id, name } } as const
       if (inHome) return { pathname: '/home/playlist/[id]', params: { id, name } } as const
       return { pathname: '/library/playlist/[id]', params: { id, name } } as const
     },

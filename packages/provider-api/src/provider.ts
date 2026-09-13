@@ -39,6 +39,20 @@ export interface PlaybackReport {
   finished: boolean
 }
 
+/** 歌单名长度上限（飞牛实测 1-32） */
+export const PLAYLIST_NAME_MAX_LENGTH = 32
+
+export interface PlaylistCreateInput {
+  name: string
+  /** 省略或空串都合法（实测服务端回写 null） */
+  coverId?: string
+}
+
+export interface PlaylistEditInput {
+  name?: string
+  coverId?: string
+}
+
 export interface LyricOffsetUpdate {
   trackId: string
   /** 服务端歌词条目 id，来自 LyricSheet.id */
@@ -75,6 +89,16 @@ export interface MusicProvider {
   playlists(request: PageRequest): Promise<Page<Playlist>>
   playlistTracks(playlistId: string, request: PageRequest): Promise<Page<Track>>
 
+  // ---- 歌单写操作 ----
+  // capabilities.playlists === 'write' 时才存在，UI 必须先查能力再调用。
+  // 注意：服务端对未知参数是**静默忽略**的（返回成功码但不生效），
+  // 所以实现方不能只凭成功码判断结果，UI 也不应无条件报成功。
+  createPlaylist?(input: PlaylistCreateInput): Promise<Playlist>
+  editPlaylist?(playlistId: string, input: PlaylistEditInput): Promise<void>
+  deletePlaylist?(playlistId: string): Promise<void>
+  addTracksToPlaylist?(playlistId: string, trackIds: string[]): Promise<void>
+  removeTracksFromPlaylist?(playlistId: string, trackIds: string[]): Promise<void>
+
   // ---- 收藏与历史 ----
   favorites?(request: PageRequest): Promise<Page<Track>>
   setFavorite?(trackId: string, favorite: boolean): Promise<void>
@@ -85,6 +109,8 @@ export interface MusicProvider {
   searchTracks(keyword: string, request: PageRequest): Promise<Page<Track>>
   searchAlbums(keyword: string, request: PageRequest): Promise<Page<Album>>
   searchArtists(keyword: string, request: PageRequest): Promise<Page<Artist>>
+  /** 搜索歌单；capabilities.playlists !== 'none' 时才存在 */
+  searchPlaylists?(keyword: string, request: PageRequest): Promise<Page<Playlist>>
 
   // ---- 媒体 ----
   /** 返回可直接交给播放器的 url + headers（飞牛不支持 query token） */

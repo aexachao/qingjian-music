@@ -68,6 +68,32 @@ describe('分页请求', () => {
   })
 })
 
+describe('搜索', () => {
+  it('searchPlaylists 打 /search/playlist 并带上 q 与分页参数', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        return {
+          code: 0,
+          msg: '',
+          data: { list: [{ guid: 'pl-1', name: '深夜爵士', trackCount: 12 }], total: 1, sort: '' },
+        }
+      }),
+    )
+
+    const page = await provider.searchPlaylists('爵士', { page: 2, size: 5 })
+
+    expect(urls[0]).toContain('/music/api/v1/search/playlist?')
+    expect(urls[0]).toContain('q=%E7%88%B5%E5%A3%AB')
+    expect(urls[0]).toContain('page=2')
+    expect(urls[0]).toContain('size=5')
+    expect(page.items[0]?.name).toBe('深夜爵士')
+    expect(page.items[0]?.trackCount).toBe(12)
+    expect(page.total).toBe(1)
+  })
+})
+
 describe('错误码翻译', () => {
   it('99999 变成 unauthorized', async () => {
     const provider = makeProvider(fakeFetch(() => ({ code: 99999, msg: 'INVALID TOKEN', data: null }), 401))
@@ -213,6 +239,23 @@ describe('转码与 HLS 会话', () => {
     expect(stream.session).toBeUndefined()
   })
 
+  it('标准音质即使原格式可直推也会转码到较低码率', async () => {
+    let captured: { url: string; body: any } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        return okTranscode
+      }),
+    )
+
+    const stream = await provider.stream('track-flac', { quality: 'medium', allowTranscode: false })
+
+    expect(captured?.url).toContain('/track/transcode')
+    expect(captured?.body.output.bitrate).toBe(256)
+    expect(stream.transport).toBe('hls')
+    expect(stream.quality).toBe('medium')
+  })
+
   it('allowTranscode 为 true 时 POST /track/transcode 并返回 HLS 地址', async () => {
     let captured: { url: string; body: any } | undefined
     const provider = makeProvider(
@@ -297,5 +340,104 @@ describe('转码与 HLS 会话', () => {
     await expect(stream.session?.heartbeat(1_000)).rejects.toSatisfy(
       (error: unknown) => isMusicError(error) && error.code === 'notFound',
     )
+  })
+})
+
+describe('歌单写操作', () => {
+  it('createPlaylist 未传 coverId 时省略该字段，并把返回的完整对象映射成领域 Playlist', async () => {
+    let captured: { url: string; body: unknown } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        // 实测 create 成功返回完整对象（含 null coverId）
+        return { code: 0, msg: '', data: { guid: 'pl-1', name: '我的歌单', coverId: null, createdAt: 100, updatedAt: 200 } }
+      }),
+    )
+
+    const playlist = await provider.createPlaylist({ name: '我的歌单' })
+
+    expect(captured?.url).toContain('/playlist/create')
+    expect(captured?.body).toEqual({ name: '我的歌单' })
+    expect(playlist.id).toBe('pl-1')
+    expect(playlist.name).toBe('我的歌单')
+    expect(playlist.coverId).toBeUndefined()
+    expect(playlist.createdAt).toBe(100)
+  })
+
+  it('createPlaylist 传 coverId 时带上该字段', async () => {
+    let body: unknown
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: { guid: 'pl-1', name: 'x' } }
+      }),
+    )
+    await provider.createPlaylist({ name: 'x', coverId: 'album_ab' })
+    expect(body).toEqual({ name: 'x', coverId: 'album_ab' })
+  })
+
+  it('重名返回 160001 时翻译成不可重试的参数错误，而不是 server', async () => {
+    const provider = makeProvider(fakeFetch(() => ({ code: 160001, msg: 'playlist name already exists', data: null })))
+    await expect(provider.createPlaylist({ name: '重名' })).rejects.toSatisfy(
+      (error: unknown) =>
+        isMusicError(error) && error.providerCode === 160001 && error.code === 'invalidArguments' && !error.retryable,
+    )
+  })
+
+  it('editPlaylist 提交 { guid, name }', async () => {
+    let body: unknown
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    await provider.editPlaylist('pl-1', { name: '新名字' })
+    expect(body).toEqual({ guid: 'pl-1', name: '新名字' })
+  })
+
+  it('deletePlaylist 提交 { guid }', async () => {
+    let captured: { url: string; body: unknown } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    await provider.deletePlaylist('pl-1')
+    expect(captured?.url).toContain('/playlist/delete')
+    expect(captured?.body).toEqual({ guid: 'pl-1' })
+  })
+
+  it('addTracksToPlaylist 提交 { guid, trackGUIDs }', async () => {
+    let body: unknown
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    await provider.addTracksToPlaylist('pl-1', ['t1', 't2'])
+    expect(body).toEqual({ guid: 'pl-1', trackGUIDs: ['t1', 't2'] })
+  })
+
+  it('曲目数组为空时不发请求（避免无意义的空写）', async () => {
+    const fetchImpl = vi.fn()
+    const provider = makeProvider(fetchImpl as unknown as typeof fetch)
+    await provider.addTracksToPlaylist('pl-1', [])
+    await provider.removeTracksFromPlaylist('pl-1', [])
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('removeTracksFromPlaylist 提交 { guid, trackGUIDs }', async () => {
+    let body: unknown
+    const provider = makeProvider(
+      fakeFetch((_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    await provider.removeTracksFromPlaylist('pl-1', ['t9'])
+    expect(body).toEqual({ guid: 'pl-1', trackGUIDs: ['t9'] })
   })
 })

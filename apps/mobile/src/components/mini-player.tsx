@@ -1,27 +1,17 @@
-import { useEffect } from 'react'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { useRouter, useSegments } from 'expo-router'
-import Animated, {
-  Easing,
-  SlideInDown,
-  SlideOutDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated'
-import * as Haptics from 'expo-haptics'
 import { useIsPlaying, useProgress } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
+import { tap } from '@/lib/haptics'
 import { skipToNextSafe, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { useIsAudioLoading } from '@/player/use-audio-loading'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 
-/** 往左滑多远算下一首（pt） */
-const SWIPE_SLOP = 48
 /** 底部进度线的高度 */
 const PROGRESS_HEIGHT = 2
 
@@ -29,13 +19,16 @@ const PROGRESS_HEIGHT = 2
 const USE_BLUR = Platform.OS === 'ios'
 
 /**
- * 迷你播放条：贴在页签上方，点击进入正在播放页。
+ * 迷你播放条：固定贴在页签上方，点击进入正在播放页。
  *
  * 底色必须**挡住**下面滚动的内容——之前用白 10% 的半透明，列表文字会透上来，
  * 和背景糊在一起。现在 iOS 是「毛玻璃 + 深色蒙层」，Android 是实心底，
  * 再加一圈描边把它和页面分开。底部一条 2pt 的细线显示播放进度。
+ * 固定停靠在底部，不使用任何入场/出场/位移动画。
  */
 export function MiniPlayer() {
+  const { colors, mode } = useAppTheme()
+  const styles = useStyles()
   const router = useRouter()
   const segments = useSegments()
   const isPlayerOpen = segments[0] === 'player'
@@ -46,32 +39,6 @@ export function MiniPlayer() {
   const isAudioLoading = useIsAudioLoading()
   const progress = useProgress(500)
 
-  const translateY = useSharedValue(0)
-  const opacity = useSharedValue(1)
-
-  useEffect(() => {
-    if (isPlayerOpen) {
-      // 展开全屏播放页时：迷你条向下滑出隐藏并渐隐
-      translateY.value = withTiming(80, {
-        duration: 320,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      })
-      opacity.value = withTiming(0, { duration: 220 })
-    } else {
-      // 退出全屏播放页时：迷你条从下方平滑升起重现
-      translateY.value = withTiming(0, {
-        duration: 420,
-        easing: Easing.bezier(0.25, 1, 0.5, 1),
-      })
-      opacity.value = withTiming(1, { duration: 320 })
-    }
-  }, [isPlayerOpen])
-
-  const playerTransitionStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-    opacity: opacity.value,
-  }))
-
   if (!current) return null
 
   const ratio = playbackEnded
@@ -81,18 +48,16 @@ export function MiniPlayer() {
     : 0
 
   const togglePlayWithHaptics = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    tap()
     void togglePlay()
   }
 
   return (
-    <Animated.View 
-      style={[styles.shell, playerTransitionStyle]}
+    <View
+      style={styles.shell}
       pointerEvents={isPlayerOpen ? 'none' : 'auto'}
-      entering={SlideInDown.duration(380).easing(Easing.bezier(0.25, 1, 0.5, 1))} 
-      exiting={SlideOutDown.duration(280).easing(Easing.bezier(0.25, 1, 0.5, 1))}
     >
-      {Platform.OS === 'ios' && <BlurView intensity={80} tint="systemThickMaterialDark" style={StyleSheet.absoluteFill} />}
+      {Platform.OS === 'ios' && <BlurView intensity={80} tint={mode === 'dark' ? 'systemThickMaterialDark' : 'systemThickMaterialLight'} style={StyleSheet.absoluteFill} />}
         
         <Pressable
           style={styles.container}
@@ -120,7 +85,10 @@ export function MiniPlayer() {
             name="next"
             size={iconSize.lg}
             color={colors.iconMid}
-            onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); void skipToNextSafe(); }}
+            onPress={() => {
+              tap()
+              void skipToNextSafe()
+            }}
             accessibilityLabel="下一首"
           />
         </Pressable>
@@ -130,11 +98,11 @@ export function MiniPlayer() {
             <View style={[styles.progressFill, { width: `${ratio * 100}%` }]} />
           </View>
         ) : null}
-    </Animated.View>
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   shell: {
     marginHorizontal: spacing.md,
     borderRadius: radius.lg,
@@ -142,7 +110,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderEmphasis,
     // overflow 必须裁掉，否则毛玻璃会画到圆角外面
     overflow: 'hidden',
-    backgroundColor: Platform.OS === 'ios' ? 'transparent' : '#1c1c1e',
+    backgroundColor: Platform.OS === 'ios' ? 'transparent' : colors.bgFloatingSolid,
   },
   container: {
     flexDirection: 'row',
@@ -164,4 +132,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.playerProgressTrack,
   },
   progressFill: { height: PROGRESS_HEIGHT, backgroundColor: colors.iconBright },
-})
+}))

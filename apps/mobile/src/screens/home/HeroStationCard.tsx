@@ -2,7 +2,8 @@ import { useCallback } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { Icon, iconSize } from '@/components/icon'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
 interface HeroStationCardProps {
   onStartRadio: () => void
@@ -21,6 +22,8 @@ export function HeroStationCard({
   totalTracks,
   isInteracting,
 }: HeroStationCardProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const handlePress = useCallback(() => {
     if (isInteracting?.()) return
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
@@ -53,13 +56,13 @@ export function HeroStationCard({
       </View>
 
       <View style={styles.playCircle}>
-        <Icon name="play" size={iconSize.md + 2} color="#ffffff" />
+        <Icon name="play" size={iconSize.md + 2} color={colors.textOnAccent} />
       </View>
     </Pressable>
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -111,4 +114,4 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
   },
-})
+}))

@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const modules = ['airplay-button', 'system-volume'] as const
+const modules = ['airplay-button'] as const
 const rntpPatchPath = fileURLToPath(new URL('../../../../patches/react-native-track-player@4.1.2.patch', import.meta.url))
 
-function modulePath(module: (typeof modules)[number], file: string) {
+function modulePath(module: string, file: string) {
   return fileURLToPath(new URL(`../../modules/${module}/${file}`, import.meta.url))
 }
 
@@ -16,6 +16,28 @@ describe('Apple-only 本地模块跨平台隔离', () => {
       expect(source).not.toMatch(/requireNative(Module|View)/)
       expect(source).not.toContain("from 'expo'")
     }
+  })
+
+  it('system-volume 已不再是 Apple-only：Android 走真实原生模块', () => {
+    // 一期 F2：Android 侧补了 AudioManager 实现，入口必须真正连上原生模块，
+    // 不能再是「只改内存变量」的桩。
+    const androidEntry = readFileSync(modulePath('system-volume', 'index.android.tsx'), 'utf8')
+    expect(androidEntry).toContain("requireNativeModule('SystemVolume')")
+    expect(androidEntry).toContain('SystemVolumeModule.setSystemVolume(volume)')
+    expect(androidEntry).toContain("addListener('onVolumeChange'")
+
+    const moduleConfig = JSON.parse(readFileSync(modulePath('system-volume', 'expo-module.config.json'), 'utf8'))
+    expect(moduleConfig.platforms).toContain('android')
+    expect(moduleConfig.android.modules).toEqual(['expo.modules.systemvolume.SystemVolumeModule'])
+
+    const kotlin = readFileSync(
+      modulePath('system-volume', 'android/src/main/java/expo/modules/systemvolume/SystemVolumeModule.kt'),
+      'utf8',
+    )
+    expect(kotlin).toContain('AudioManager.STREAM_MUSIC')
+    // flags 传 0 才不会弹系统音量 HUD，与 iOS 的静默改音量对齐
+    expect(kotlin).toContain('setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)')
+    expect(kotlin).toContain('android.media.VOLUME_CHANGED_ACTION')
   })
 
   it('RNTP iOS Bridge 不导出原生未实现的睡眠定时器方法', () => {

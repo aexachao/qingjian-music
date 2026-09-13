@@ -6,9 +6,11 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { spacing, typography } from '@/theme/tokens'
 
 export function GenresScreen() {
+  const styles = useStyles()
   const { provider, connection } = useServerSession()
   const bottom = useBottomSpace()
   const href = useDetailHref()
@@ -49,10 +51,10 @@ export function GenresScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md },
   name: { ...typography.callout, color: colors.textPrimary },
   meta: { ...typography.caption, color: colors.textTertiary },
   separator: { height: 1, backgroundColor: colors.borderSubtle },
-})
+}))

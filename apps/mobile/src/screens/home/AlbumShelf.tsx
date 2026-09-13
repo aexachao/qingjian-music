@@ -3,7 +3,8 @@ import { useRouter } from 'expo-router'
 import type { Album } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { useDetailHref } from '@/lib/detail-href'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { SectionHeader } from './SectionHeader'
 
 const ALBUM_SIZE = 140
@@ -21,6 +22,7 @@ interface AlbumShelfProps {
  * 封面不贴任何杂乱遮挡按键，标题右侧配备向右箭头；使用原生 Pressable 保留全部样式。
  */
 export function AlbumShelf({ title, albums, seeAllHref, isInteracting }: AlbumShelfProps) {
+  const styles = useStyles()
   const router = useRouter()
   const href = useDetailHref()
 
@@ -67,7 +69,7 @@ export function AlbumShelf({ title, albums, seeAllHref, isInteracting }: AlbumSh
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.titleGap,
   },
@@ -104,4 +106,4 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.textSecondary,
   },
-})
+}))

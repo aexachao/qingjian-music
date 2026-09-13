@@ -1,10 +1,13 @@
 import { useMemo } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { Link } from 'expo-router'
+import { CollapsibleHeaderBar, LargeTitleHeader } from '@/components/collapsible-tab-header'
 import { Icon, iconSize, type IconName } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 /** 需要后端支持哪项能力才显示这一行 */
 type Requirement = 'favorites' | 'playHistory' | 'genres' | 'playlists'
@@ -51,8 +54,16 @@ const GROUPS: readonly { title: string; entries: readonly LibraryEntry[] }[] = [
 ]
 
 export function LibraryHomeScreen() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const { provider } = useServerSession()
   const bottom = useBottomSpace()
+  const scrollY = useSharedValue(0)
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y
+    },
+  })
 
   // 按后端能力过滤：换成 Emby 后不支持的项会自动消失，整组都没了就不画这张卡
   const groups = useMemo(() => {
@@ -71,36 +82,44 @@ export function LibraryHomeScreen() {
   }, [provider])
 
   return (
-    <ScrollView
-      contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
-      contentInsetAdjustmentBehavior="automatic"
-    >
-      {groups.map((group) => (
-        <View key={group.title} style={styles.group}>
-          <Text style={styles.groupTitle}>{group.title}</Text>
-          <View style={styles.card}>
-            {group.entries.map((entry, index) => (
-              <Link key={entry.href} href={entry.href} asChild>
-                <Pressable
-                  style={StyleSheet.flatten([styles.row, index > 0 && styles.rowBorder])}
-                  accessibilityRole="button"
-                  accessibilityLabel={entry.label}
-                >
-                  <Icon name={entry.icon} size={iconSize.md} color={colors.accent} />
-                  <Text style={styles.label}>{entry.label}</Text>
-                  <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
-                </Pressable>
-              </Link>
-            ))}
-          </View>
+    <View style={{ flex: 1 }}>
+      <CollapsibleHeaderBar title="音乐库" scrollY={scrollY} />
+      <Animated.ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
+        scrollEventThrottle={16}
+        onScroll={onScroll}
+      >
+        <LargeTitleHeader title="音乐库" scrollY={scrollY} />
+        <View style={styles.groupsContainer}>
+          {groups.map((group) => (
+            <View key={group.title} style={styles.group}>
+              <Text style={styles.groupTitle}>{group.title}</Text>
+              <View style={styles.card}>
+                {group.entries.map((entry, index) => (
+                  <Link key={entry.href} href={entry.href} asChild>
+                    <Pressable
+                      style={StyleSheet.flatten([styles.row, index > 0 && styles.rowBorder])}
+                      accessibilityRole="button"
+                      accessibilityLabel={entry.label}
+                    >
+                      <Icon name={entry.icon} size={iconSize.md} color={colors.accent} />
+                      <Text style={styles.label}>{entry.label}</Text>
+                      <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
+                    </Pressable>
+                  </Link>
+                ))}
+              </View>
+            </View>
+          ))}
         </View>
-      ))}
-    </ScrollView>
+      </Animated.ScrollView>
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
-  content: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, gap: spacing.lg },
+const useStyles = createThemedStyles((colors) => ({
+  content: { paddingHorizontal: spacing.lg, paddingTop: 0 },
+  groupsContainer: { gap: spacing.lg, marginTop: spacing.sm },
   group: { gap: spacing.sm },
   groupTitle: { ...typography.footnote, color: colors.textTertiary, marginLeft: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.md, overflow: 'hidden' },
@@ -114,4 +133,4 @@ const styles = StyleSheet.create({
   rowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSubtle },
   // flex 让标题占满中间，右侧箭头自然贴到行尾
   label: { ...typography.callout, color: colors.textPrimary, flex: 1 },
-})
+}))

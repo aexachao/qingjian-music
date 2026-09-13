@@ -11,7 +11,8 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 const TRACK_HEIGHT = 6
 /** 手指按住时整条轨道放大到多少倍（对齐 Apple Music 的按压反馈） */
@@ -42,6 +43,8 @@ function formatTime(seconds: number): string {
  * 按住时整条轨道放大、已播部分从半透明白变纯白，松手还原。
  */
 export function ProgressBar({ position, duration, onSeek, centerLabel }: ProgressBarProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const width = useSharedValue(0)
   const dragRatio = useSharedValue(-1)
   const initialRatio = useSharedValue(0)
@@ -101,7 +104,7 @@ export function ProgressBar({ position, duration, onSeek, centerLabel }: Progres
       [0, 1],
       [colors.playerProgressFill, colors.playerProgressFillActive],
     ),
-  }))
+  }), [colors.playerProgressFill, colors.playerProgressFillActive])
 
   const shown = dragSeconds ?? position
 
@@ -137,7 +140,7 @@ export function ProgressBar({ position, duration, onSeek, centerLabel }: Progres
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: { gap: spacing.xs },
   hitArea: { height: 16, justifyContent: 'center' }, // 视觉高度减小，靠 hitSlop 保证点击区
   track: {
@@ -171,4 +174,4 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     paddingHorizontal: spacing.xs,
   },
-})
+}))

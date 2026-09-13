@@ -4,12 +4,15 @@ import { EmptyState } from '@/components/list-states'
 import { Icon, iconSize } from '@/components/icon'
 import { audioCacheStats } from '@/player/audio-cache'
 import { formatBytes } from '@/player/audio-cache-policy'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
 /**
  * 已下载与本地缓存音乐页面
  */
 export function DownloadedScreen() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const [stats] = useState(() => audioCacheStats())
 
   if (stats.files === 0) {
@@ -33,7 +36,7 @@ export function DownloadedScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     flex: 1,
     padding: spacing.pageMargin,
@@ -69,4 +72,4 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
   },
-})
+}))

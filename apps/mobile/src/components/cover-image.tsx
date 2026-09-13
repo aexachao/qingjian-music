@@ -2,7 +2,8 @@ import { Image } from 'expo-image'
 import { StyleSheet, View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
 import { Icon } from '@/components/icon'
-import { colors, radius } from '@/theme/tokens'
+import { radius } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { useServerSession } from '@/lib/server-session'
 
 interface CoverImageProps {
@@ -20,6 +21,8 @@ const PLACEHOLDER_ICON_RATIO = 0.4
 
 /** 飞牛的封面接口需要鉴权头，所以统一走 provider.image() 拿 url + headers */
 export function CoverImage({ coverId, resource, size, borderRadius = radius.md }: CoverImageProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const { provider } = useServerSession()
   const target = resource ?? (coverId && provider ? provider.image(coverId, Math.round(size * 2)) : null)
 
@@ -29,7 +32,7 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
         <Icon
           name="tracks"
           size={Math.round(size * PLACEHOLDER_ICON_RATIO)}
-          color="#ffffffb3"
+          color={colors.textOnAccent}
         />
       </View>
     )
@@ -48,6 +51,6 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   placeholder: { backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-})
+}))

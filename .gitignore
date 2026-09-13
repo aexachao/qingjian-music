@@ -27,3 +27,6 @@ expo-env.d.ts
 
 # 参考项目源码（只读研究用，不进版本库）
 reference/
+
+# 本地 AI 助手的工作记忆（含本机绝对路径，只对本机有意义）
+.workbuddy-ai/

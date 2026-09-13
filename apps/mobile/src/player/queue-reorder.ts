@@ -24,13 +24,3 @@ export function planTailReorder<T>(current: readonly T[], desired: readonly T[],
   }
   return moves
 }
-
-/** 纯 JS 模拟 move 语义，用于验证 moves 能真正把 current 变成 desired */
-export function applyMoves<T>(current: T[], moves: Array<[number, number]>): T[] {
-  const result = [...current]
-  for (const [from, to] of moves) {
-    const [moved] = result.splice(from, 1)
-    result.splice(to, 0, moved!)
-  }
-  return result
-}

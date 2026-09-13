@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
-import { colors, radius, spacing } from '@/theme/tokens'
+import { radius, spacing } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 const DOT = 7
 const PILL_WIDTH = 20
@@ -18,6 +19,7 @@ interface PageIndicatorProps {
 
 /** 播放页导航栏中间的页码指示器：当前页是白色胶囊，其余是浅灰小圆点 */
 export function PageIndicator({ count, index, onSelect, labels }: PageIndicatorProps) {
+  const styles = useStyles()
   return (
     <View style={styles.row}>
       {Array.from({ length: count }, (_, i) => (
@@ -37,6 +39,7 @@ export function PageIndicator({ count, index, onSelect, labels }: PageIndicatorP
 }
 
 function Dot({ active }: { active: boolean }) {
+  const styles = useStyles()
   const width = useSharedValue(active ? PILL_WIDTH : DOT)
   const opacity = useSharedValue(active ? 1 : 0.4)
 
@@ -50,7 +53,7 @@ function Dot({ active }: { active: boolean }) {
   return <Animated.View style={[styles.dot, style]} />
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 1 },
   dot: { height: DOT, borderRadius: radius.pill, backgroundColor: colors.textPrimary },
-})
+}))

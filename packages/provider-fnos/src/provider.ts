@@ -23,6 +23,8 @@ import type {
   LyricOffsetUpdate,
   MusicProvider,
   PlaybackReport,
+  PlaylistCreateInput,
+  PlaylistEditInput,
   ProviderFactory,
   ProviderSession,
   RadioSlice,
@@ -88,10 +90,34 @@ export const FNOS_CAPABILITIES: Capabilities = {
   genres: true,
   ratings: false,
   multiLibrary: true,
+  audioSpec: true,
+  // 实测确认：转码恒输出无损 FLAC，服务端**忽略** output.bitrate（128 与 320 的分片字节数完全一致），
+  // 即飞牛只有一档输出。所以「标准音质省流量」在这里不成立，UI 不该提供该选项。
+  qualityTiers: false,
 }
 
 /** 心跳间隔：web 端写死 10 秒，服务端按这个节奏判活 */
 const TRANSCODE_HEARTBEAT_MS = 10_000
+
+/**
+ * 心跳与 quit 的超时，对齐 web 端实测值（bundle 里的 `ch=3e3`）。
+ *
+ * 为什么给这么短：这两个调用都在**串行变更队列的关键路径**上 ——
+ * `stopTranscodeSession()` 会被 `ensureTranscodeForIndexMutation` await，
+ * 用默认的 15s 会把切歌最多拖慢 15 秒。quit 失败也不是灾难：
+ * 服务端本来就会按心跳超时（约 1 分钟）自行回收任务。
+ */
+const TRANSCODE_SESSION_TIMEOUT_MS = 3_000
+
+/**
+ * 发起转码的请求超时。
+ *
+ * 必须给足：这是一次「服务端开始转码」的同步调用，首次遇到大文件时服务端要
+ * 先建任务再返回，实测耗时明显长于普通接口。web 端给的是 20s（bundle 里的 `sh=2e4`），
+ * 而 HttpClient 的默认超时只有 15s —— 用默认值会在服务端还没来得及返回时就把
+ * 自己的请求掐掉，表现为「转码重试失败」，然后一路跳到下一首。
+ */
+const TRANSCODE_START_TIMEOUT_MS = 20_000
 
 /**
  * 音质档位 → transcode 的 bitrate。飞牛只认 128/256/320 三档且 codec 恒为 flac，
@@ -236,6 +262,59 @@ export class FnosProvider implements MusicProvider {
     return this.pagedList(FNOS_ENDPOINTS.track.playlistDetailList, trackListSchema, request, mapTrack, 'track', { playlistGUID: playlistId })
   }
 
+  // ---- 歌单写操作 ----
+  //
+  // 实测结论（2026-09-12，mediasrv 0.8.41）：
+  // · create / edit / delete **确实生效**（改名后回读列表可确认），member 角色即可；
+  // · create 成功返回**完整 playlist 对象**，`coverId` 可省略也可传空串（回写 null）；
+  // · 重名返回 160001「playlist name already exists」；
+  // · 但 add-track **返回成功码却不生效**，且 `/playlist/detail`、`/track/playlist-detail/list`
+  //   一律返回 100002 —— 也就是说歌单曲目在这台服务器上不可用。
+  // · 服务端对**未知参数静默忽略**（返回成功码），所以调用方不能只凭成功码判断结果。
+
+  async createPlaylist(input: PlaylistCreateInput): Promise<Playlist> {
+    const data = await this.client.post(
+      FNOS_ENDPOINTS.playlist.create,
+      { name: input.name, ...(input.coverId !== undefined ? { coverId: input.coverId } : {}) },
+      fnPlaylistSchema,
+    )
+    return mapPlaylist(data)
+  }
+
+  async editPlaylist(playlistId: string, input: PlaylistEditInput): Promise<void> {
+    await this.client.post(
+      FNOS_ENDPOINTS.playlist.edit,
+      {
+        guid: playlistId,
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.coverId !== undefined ? { coverId: input.coverId } : {}),
+      },
+      z.unknown(),
+    )
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> {
+    await this.client.post(FNOS_ENDPOINTS.playlist.delete, { guid: playlistId }, z.unknown())
+  }
+
+  async addTracksToPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+    if (trackIds.length === 0) return
+    await this.client.post(
+      FNOS_ENDPOINTS.playlist.addTrack,
+      { guid: playlistId, trackGUIDs: trackIds },
+      z.unknown(),
+    )
+  }
+
+  async removeTracksFromPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+    if (trackIds.length === 0) return
+    await this.client.post(
+      FNOS_ENDPOINTS.playlist.removeTrack,
+      { guid: playlistId, trackGUIDs: trackIds },
+      z.unknown(),
+    )
+  }
+
   // ---- 收藏与历史 ----
 
   favorites(request: PageRequest): Promise<Page<Track>> {
@@ -276,14 +355,19 @@ export class FnosProvider implements MusicProvider {
     return this.pagedList(FNOS_ENDPOINTS.search.artist, artistListSchema, request, mapArtist, 'artist', { q: keyword })
   }
 
+  searchPlaylists(keyword: string, request: PageRequest): Promise<Page<Playlist>> {
+    return this.pagedList(FNOS_ENDPOINTS.search.playlist, playlistListSchema, request, mapPlaylist, 'playlist', { q: keyword })
+  }
+
   // ---- 媒体 ----
 
   async stream(trackId: string, options: StreamOptions): Promise<StreamRequest> {
     if (!this.client.hasToken()) {
       throw new MusicError({ code: 'unauthorized', message: '尚未登录，无法播放' })
     }
-    // 允许转码时走 HLS 会话（WMA/APE 这类 AVPlayer 解不了的格式只能这样播）
-    if (options.allowTranscode) return this.transcodeStream(trackId, options)
+    // 不支持原生播放，或用户选择标准音质时走 HLS 转码。
+    // 飞牛的 progressive 端点始终返回原文件，无法单独降低码率。
+    if (options.allowTranscode || options.quality !== 'original') return this.transcodeStream(trackId, options)
     // 直推：实测支持 Range，AVPlayer / ExoPlayer 可直接消费
     return {
       url: this.client.resourceUrl(FNOS_ENDPOINTS.track.stream, { guid: trackId }),
@@ -306,6 +390,7 @@ export class FnosProvider implements MusicProvider {
       FNOS_ENDPOINTS.track.transcode,
       { guid: trackId, output: { codec: 'flac', bitrate: transcodeBitrate(options.quality), channel: 2 } },
       fnTranscodeSchema,
+      { timeoutMs: TRANSCODE_START_TIMEOUT_MS },
     )
     const status = (data.status ?? '').toLowerCase()
     if (status !== 'success' && status !== 'ready') {
@@ -339,6 +424,7 @@ export class FnosProvider implements MusicProvider {
           FNOS_ENDPOINTS.track.transcodeHeartbeat,
           { guid: trackId, timestamp: Number(timestamp.toFixed(3)) },
           fnTranscodeSchema,
+          { timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS },
         )
         // 任务被回收后心跳会返回 failed（errmsg: playLink not found），交给上层重新起会话
         if ((data.status ?? '').toLowerCase() === 'failed') {
@@ -350,7 +436,9 @@ export class FnosProvider implements MusicProvider {
         }
       },
       close: async () => {
-        await this.client.post(FNOS_ENDPOINTS.track.transcodeQuit, { guid: trackId }, fnTranscodeSchema)
+        await this.client.post(FNOS_ENDPOINTS.track.transcodeQuit, { guid: trackId }, fnTranscodeSchema, {
+          timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS,
+        })
       },
     }
   }

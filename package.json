@@ -5,8 +5,10 @@
   "packageManager": "pnpm@11.8.0",
   "engines": { "node": ">=22" },
   "scripts": {
-    "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
+    "guard": "node scripts/guard-architecture.mjs",
+    "verify": "node scripts/verify.mjs",
+    "typecheck": "node scripts/verify.mjs --only typecheck",
+    "test": "node scripts/verify.mjs --only test",
     "test:contract": "pnpm --filter @qj/provider-fnos test:contract",
     "start": "pnpm --filter @qj/mobile start",
     "ios": "pnpm --filter @qj/mobile ios",

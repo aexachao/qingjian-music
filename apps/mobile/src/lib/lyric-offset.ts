@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { LyricSheet } from '@qj/core-domain'
+import type { MusicProvider } from '@qj/provider-api'
 import { useServerSession } from '@/lib/server-session'
+import { readCachedLyric, writeCachedLyric } from '@/lib/lyric-cache'
 import { usePlayerStore } from '@/player/store'
 
 /** 每次调整多少毫秒 */
@@ -16,15 +18,49 @@ export function formatOffset(offsetMs: number): string {
   return `${sign}${(Math.abs(offsetMs) / 1000).toFixed(1)} 秒`
 }
 
-/** 当前曲目的歌词。歌词页和播放页的「···」菜单共用同一份缓存 */
+/** 歌词几乎不变，缓存久一点省请求 */
+export const LYRIC_STALE_MS = 30 * 60_000
+
+/** 歌词查询 key。hook 与「分享歌词」这类命令式读取共用，避免两处 key 漂移 */
+export function lyricQueryKey(serverId: string | undefined, trackId: string) {
+  return ['lyrics', serverId, trackId] as const
+}
+
+/** lyrics 是能力可选方法：后端不支持时直接当作没有歌词 */
+export function fetchLyricSheet(
+  provider: Pick<MusicProvider, 'lyrics'> | null | undefined,
+  trackId: string,
+): Promise<LyricSheet | null> {
+  return provider?.lyrics ? provider.lyrics(trackId) : Promise.resolve(null)
+}
+
+/**
+ * 取歌词：**本地优先**。
+ * 本地命中（按「逐字 > 整行 > 纯文本」取最好的一份）就直接返回，不发请求；
+ * 未命中才打服务端，并把选中的那份写回本地。
+ */
+export async function loadLyricSheet(
+  provider: Pick<MusicProvider, 'lyrics'> | null | undefined,
+  serverId: string | undefined,
+  trackId: string,
+): Promise<LyricSheet | null> {
+  if (serverId) {
+    const cached = readCachedLyric(serverId, trackId)
+    if (cached) return cached
+  }
+  const sheet = await fetchLyricSheet(provider, trackId)
+  if (sheet && serverId) writeCachedLyric(serverId, trackId, sheet)
+  return sheet
+}
+
+/** 当前曲目的歌词。歌词页、播放页「···」菜单、分享歌词共用同一份缓存 */
 export function useLyricSheet(trackId: string) {
   const { provider, connection } = useServerSession()
   return useQuery<LyricSheet | null>({
-    queryKey: ['lyrics', connection?.id, trackId],
+    queryKey: lyricQueryKey(connection?.id, trackId),
     enabled: Boolean(provider && trackId),
-    // lyrics 是能力可选方法：后端不支持时直接当作没有歌词
-    queryFn: async () => (provider?.lyrics ? provider.lyrics(trackId) : null),
-    staleTime: 30 * 60_000,
+    queryFn: () => loadLyricSheet(provider, connection?.id, trackId),
+    staleTime: LYRIC_STALE_MS,
   })
 }
 

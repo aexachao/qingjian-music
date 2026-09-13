@@ -1,0 +1,91 @@
+name: CI
+
+# 常规校验在 GitHub 托管 runner 上跑；
+# 契约测试要连局域网里的真实 NAS，托管 runner 到不了，所以单独放在自托管 runner 上手动触发。
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_contract:
+        description: '同时跑契约测试（需要 nas-lan 自托管 runner 与 FNOS_* Secrets）'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 类型检查与单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本从 package.json 的 packageManager 字段读取，避免两处版本漂移
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 架构守卫（把文档里的硬规则变成检查）
+        run: pnpm guard
+
+      - name: 类型检查（core-domain / provider-api / provider-fnos / mobile）
+        run: pnpm typecheck
+
+      - name: 单元测试（core-domain / provider-api / provider-fnos / mobile）
+        run: pnpm test
+
+  contract:
+    name: 契约测试（真实 NAS）
+    needs: verify
+    # 只有手动触发并勾选 run_contract 时才跑：
+    # 契约测试会真的写服务器（播放上报、歌词偏移），不该在每次 push 上执行。
+    if: github.event_name == 'workflow_dispatch' && inputs.run_contract
+    # 自托管 runner 必须与 NAS 在同一局域网，并打上 nas-lan 标签
+    runs-on: [self-hosted, nas-lan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 校验凭据已配置
+        env:
+          FNOS_BASE_URL: ${{ secrets.FNOS_BASE_URL }}
+          FNOS_USERNAME: ${{ secrets.FNOS_USERNAME }}
+          FNOS_PASSWORD: ${{ secrets.FNOS_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$FNOS_BASE_URL" ] && missing="$missing FNOS_BASE_URL"
+          [ -z "$FNOS_USERNAME" ] && missing="$missing FNOS_USERNAME"
+          [ -z "$FNOS_PASSWORD" ] && missing="$missing FNOS_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 Secrets:$missing（仓库 Settings → Secrets and variables → Actions 里配置）"
+            exit 1
+          fi
+
+      - name: 跑契约测试
+        env:
+          # baseUrl 是服务器根地址，**不要**带 /music/api/v1 前缀（客户端会自己拼）
+          FNOS_BASE_URL: ${{ secrets.FNOS_BASE_URL }}
+          FNOS_USERNAME: ${{ secrets.FNOS_USERNAME }}
+          FNOS_PASSWORD: ${{ secrets.FNOS_PASSWORD }}
+          # 写操作（收藏增删）默认跳过，需要时手动设成 1
+          FNOS_CONTRACT_MUTATE: ${{ vars.FNOS_CONTRACT_MUTATE }}
+        run: pnpm test:contract

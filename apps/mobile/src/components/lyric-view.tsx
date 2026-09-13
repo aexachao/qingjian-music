@@ -29,7 +29,8 @@ import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
 import { useLyricSheet } from '@/lib/lyric-offset'
 import { usePlayerStore } from '@/player/store'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 /** 没有下一行时，假设当前行唱这么久（逐词进度的兜底） */
 const FALLBACK_LINE_MS = 4000
@@ -37,9 +38,6 @@ const FALLBACK_LINE_MS = 4000
 const LONG_PRESS_MS = 320
 /** 列表已停在顶部还继续往下拽超过多少 pt，算「要退出全屏」 */
 const PULL_REVEAL_PT = 36
-
-/** 卡拉OK行里还没唱到的字用这个灰（唱到的字是纯白） */
-const PENDING_CHAR = '#ffffff99'
 
 /** 跨组件与切页持久缓存的行坐标与视口高度，避免切回歌词页重新排版导致的滚动跳跃 */
 const trackOffsetsCache = new Map<string, number[]>()
@@ -125,6 +123,8 @@ export function LyricView({
   onDismiss,
   playing: playingProp,
 }: LyricViewProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const hookPlaying = useIsPlaying()
   const playing = playingProp !== undefined ? playingProp : Boolean(hookPlaying?.playing)
   const { height: screenHeight } = useWindowDimensions()
@@ -567,6 +567,8 @@ const LyricRow = memo(function LyricRow({
   onPressOut,
   onLayout,
 }: LyricRowProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const karaoke = active && litCount !== undefined
   const chars = karaoke && line.text ? Array.from(line.text) : []
   const sung = Math.min(Math.max(litCount ?? 0, 0), chars.length)
@@ -638,6 +640,8 @@ function LyricsSheetModal({
   initialIndex: number
   onClose: () => void
 }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const scrollRef = useRef<ScrollView>(null)
   const rowY = useRef<number[]>([])
   const [viewH, setViewH] = useState(0)
@@ -734,7 +738,7 @@ function LyricsSheetModal({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   wrapper: { flex: 1 },
   scroll: { flex: 1 },
   content: {
@@ -763,7 +767,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   rowSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: colors.bgListItem,
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
@@ -773,7 +777,7 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 32,
     fontFamily: fonts.bold,
-    color: 'rgba(255, 255, 255, 0.40)',
+    color: colors.textQuaternary,
   },
   // 正在唱的整行：字号显著增大（28pt），纯白高亮，拉开强烈视觉对比
   lineActive: {
@@ -792,18 +796,18 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   charSung: { color: colors.textPrimary },
-  charPending: { color: PENDING_CHAR },
+  charPending: { color: colors.textTertiary },
 
   // —— 翻译 ——
   translation: {
     ...typography.subhead,
     marginTop: spacing.xs,
-    color: 'rgba(255, 255, 255, 0.28)',
+    color: colors.textQuaternary,
   },
   translationActive: { color: colors.textSecondary },
   // —— 全部歌词面板 ——
   sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.xl },
-  sheetCard: { backgroundColor: '#1c1c21f2', borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },
+  sheetCard: { backgroundColor: colors.bgModal, borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -845,4 +849,4 @@ const styles = StyleSheet.create({
   },
   sheetButtonPressed: { backgroundColor: colors.bgCardHover },
   sheetButtonLabel: { ...typography.callout, color: colors.textPrimary },
-})
+}))

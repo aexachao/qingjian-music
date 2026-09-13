@@ -122,4 +122,42 @@ describe('mapLyricSheet', () => {
     expect(mapLyricSheet([])).toBeNull()
     expect(mapLyricSheet([{ guid: 'ly-4', content: null }])).toBeNull()
   })
+
+  // 实测 /lyric/list 会返回同一首歌的多个版本，且 preferred 不保证是质量最高的那个，
+  // 所以选法必须是「按档位择优」，而不是「按 preferred 或数组顺序取」。
+  it('多版本按档位择优：逐字优先于整行，不受数组顺序影响', () => {
+    const mixed = [
+      { guid: 'line-1', content: '[00:01.00]整行歌词', isLRC: true, offset: 0 },
+      { guid: 'word-1', content: '[00:01.00]逐[00:01.50]字', isLRC: true, offset: 0 },
+    ]
+    const sheet = mapLyricSheet(mixed)
+    expect(sheet?.id).toBe('word-1')
+    expect(sheet?.tier).toBe('word')
+    expect(sheet?.lines[0]?.words).toHaveLength(2)
+    // 落选的版本作为备选带出去，供 UI 提供「切换歌词」
+    expect(sheet?.alternates).toEqual([{ id: 'line-1', tier: 'line' }])
+  })
+
+  it('preferred 只在同档位内生效，不会把逐字降级成整行', () => {
+    const mixed = [
+      { guid: 'line-1', content: '[00:01.00]整行歌词', isLRC: true },
+      { guid: 'word-1', content: '[00:01.00]逐[00:01.50]字', isLRC: true },
+    ]
+    expect(mapLyricSheet(mixed, 'line-1')?.id).toBe('word-1')
+  })
+
+  it('没有逐字版本时按「整行 > 纯文本」择优', () => {
+    const mixed = [
+      { guid: 'plain-1', content: '纯文本歌词', isLRC: false },
+      { guid: 'line-1', content: '[00:01.00]整行歌词', isLRC: true },
+    ]
+    const sheet = mapLyricSheet(mixed)
+    expect(sheet?.id).toBe('line-1')
+    expect(sheet?.tier).toBe('line')
+    expect(sheet?.alternates).toEqual([{ id: 'plain-1', tier: 'plain' }])
+  })
+
+  it('单版本时不产生 alternates', () => {
+    expect(mapLyricSheet([{ guid: 'only', content: '[00:01.00]只有一份', isLRC: true }])?.alternates).toBeUndefined()
+  })
 })

@@ -19,6 +19,17 @@ export interface Capabilities {
   ratings: boolean
   /** 多媒体库（共享库）概念 */
   multiLibrary: boolean
+  /** 是否支持获取音频技术规格（codec、码率、采样率等） */
+  audioSpec: boolean
+  /**
+   * 后端能否**真正按码率档位输出**（即「标准音质 / 省流量」是否有意义）。
+   *
+   * 为 false 表示服务端只有一档输出：此时选择「标准音质」既省不了流量，
+   * 又会因为走转码链路而降低播放成功率 —— 所以 UI 不该提供这个选项，
+   * 播放侧也必须恒按 original 处理，不得据此强制转码。
+   * 已知：飞牛为 false（转码恒输出无损 FLAC，服务端忽略 bitrate，见 docs/fnos-transcode.md）。
+   */
+  qualityTiers: boolean
 }
 
 export const NO_CAPABILITIES: Capabilities = {
@@ -33,4 +44,6 @@ export const NO_CAPABILITIES: Capabilities = {
   genres: false,
   ratings: false,
   multiLibrary: false,
+  audioSpec: false,
+  qualityTiers: false,
 }

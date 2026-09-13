@@ -3,7 +3,8 @@ import { useRouter } from 'expo-router'
 import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { useDetailHref } from '@/lib/detail-href'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { SectionHeader } from './SectionHeader'
 
 const PLAYLIST_SIZE = 140
@@ -20,6 +21,7 @@ interface PlaylistShelfProps {
  * - 展示歌单名称与包含歌曲数量；使用原生 Pressable 保留全部样式。
  */
 export function PlaylistShelf({ playlists, isInteracting }: PlaylistShelfProps) {
+  const styles = useStyles()
   const router = useRouter()
   const href = useDetailHref()
 
@@ -66,7 +68,7 @@ export function PlaylistShelf({ playlists, isInteracting }: PlaylistShelfProps) 
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.titleGap,
   },
@@ -103,4 +105,4 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.textSecondary,
   },
-})
+}))

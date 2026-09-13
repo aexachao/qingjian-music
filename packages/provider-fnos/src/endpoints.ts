@@ -114,4 +114,8 @@ export const FNOS_CODES = {
   invalidArguments: 100002,
   forbiddenAdminOnly: 100003,
   notFound: 100005,
+  /** 歌单名已存在（实测 POST /playlist/create 重名） */
+  playlistNameExists: 160001,
+  /** 歌单数量达到上限 */
+  playlistHitMaxCount: 160002,
 } as const

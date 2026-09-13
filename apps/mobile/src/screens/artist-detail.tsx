@@ -13,11 +13,14 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 const TOP_TRACK_COUNT = 5
 
 export function ArtistDetailScreen() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
   const { width } = useWindowDimensions()
@@ -175,7 +178,7 @@ export function ArtistDetailScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   header: { gap: spacing.xs, marginBottom: spacing.lg, alignItems: 'center' },
   name: { ...typography.title, color: colors.textPrimary, marginTop: spacing.md, textAlign: 'center' },
@@ -197,4 +200,4 @@ const styles = StyleSheet.create({
   sectionTitle: { ...typography.headline, color: colors.textPrimary, alignSelf: 'flex-start', marginTop: spacing.lg },
   albumName: { ...typography.subhead, color: colors.textPrimary, marginTop: spacing.sm },
   albumYear: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-})
+}))

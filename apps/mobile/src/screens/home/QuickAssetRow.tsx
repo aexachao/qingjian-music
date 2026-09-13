@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Icon, iconSize, type IconName } from '@/components/icon'
-import { colors, fonts, radius, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { fonts, radius, typography } from '@/theme/tokens'
 
 interface QuickAssetRowProps {
   favoritesCount?: number
@@ -24,6 +25,8 @@ interface AssetCardItem {
  * - 快捷菜单打开或防误触期间阻断跳转。
  */
 export function QuickAssetRow({ isInteracting }: QuickAssetRowProps) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const router = useRouter()
 
   const cards: AssetCardItem[] = [
@@ -75,7 +78,7 @@ export function QuickAssetRow({ isInteracting }: QuickAssetRowProps) {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -85,10 +88,9 @@ const styles = StyleSheet.create({
   tile: {
     flex: 1,
     height: 74,
-    // 清晰可见的次级实体底色与细腻边框，保证在 OLED 纯黑屏与深色模式下均具实体瓷片质感
-    backgroundColor: '#1f1f23',
+    backgroundColor: colors.bgCard,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: colors.borderEmphasis,
     borderRadius: radius.lg,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -107,4 +109,4 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     color: colors.textPrimary,
   },
-})
+}))

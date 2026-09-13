@@ -6,7 +6,8 @@ import { FormatBadge } from '@/components/format-badge'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { TrackMoreButton } from '@/components/track-more-button'
 import { isGlobalMenuInteracting } from '@/lib/menu-guard'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { SectionHeader } from './SectionHeader'
 
 const TRACKS_PER_PAGE = 3
@@ -41,6 +42,7 @@ export function PagedTrackCarousel({
   onPlayTrack,
   onMenuOpenChange,
 }: PagedTrackCarouselProps) {
+  const styles = useStyles()
   const { width: screenWidth } = useWindowDimensions()
   const pageWidth = screenWidth - spacing.pageMargin * 2 - PEEK_WIDTH
 
@@ -137,7 +139,7 @@ export function PagedTrackCarousel({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: {
     gap: spacing.titleGap,
   },
@@ -199,4 +201,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flexShrink: 1,
   },
-})
+}))

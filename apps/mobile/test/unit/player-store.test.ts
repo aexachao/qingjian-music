@@ -222,3 +222,47 @@ describe('收藏、恢复和设置', () => {
     expect(usePlayerStore.getState().queue.map((entry) => entry.trackId)).toEqual(['a', 'b', 'c', 'd'])
   })
 })
+
+describe('清空待播（队列页「清空」）', () => {
+  it('只丢掉当前曲目之后的待播，当前曲目与历史都不受影响', () => {
+    usePlayerStore.getState().setQueue(queue, 0) // [a, b, c, d]
+    usePlayerStore.getState().activateIndex(2) // 播放 c，a 进历史
+
+    usePlayerStore.getState().clearUpcoming()
+
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((entry) => entry.trackId)).toEqual(['c'])
+    expect(selectCurrent(state)?.trackId).toBe('c')
+    expect(state.index).toBe(0)
+    expect(state.history.map((entry) => entry.trackId)).toEqual(['a'])
+  })
+
+  it('同步裁剪 baseQueue，关闭随机播放时不会把已清掉的歌还原回来', () => {
+    usePlayerStore.getState().setQueue(queue, 0)
+    usePlayerStore.getState().activateIndex(1) // 播放 b，待播 [c, d]
+
+    usePlayerStore.getState().clearUpcoming()
+    // baseQueue 是关随机时用来还原顺序的快照：必须只剩当前曲目
+    expect(usePlayerStore.getState().baseQueue.map((entry) => entry.trackId)).toEqual(['b'])
+  })
+
+  it('还没开始播放（index 为 -1）时，整个队列都算待播', () => {
+    usePlayerStore.getState().setQueue(queue, -1)
+
+    usePlayerStore.getState().clearUpcoming()
+
+    const state = usePlayerStore.getState()
+    expect(state.queue).toEqual([])
+    expect(state.baseQueue).toEqual([])
+    expect(state.index).toBe(-1)
+  })
+
+  it('待播本来就是空的时候调用是幂等的', () => {
+    usePlayerStore.getState().setQueue([queue[0]!], 0)
+    const before = usePlayerStore.getState().queue
+
+    usePlayerStore.getState().clearUpcoming()
+
+    expect(usePlayerStore.getState().queue).toBe(before)
+  })
+})

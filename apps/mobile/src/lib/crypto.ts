@@ -7,3 +7,11 @@ export async function sha256Hex(input: string): Promise<string> {
   })
   return digest.toLowerCase()
 }
+
+/** FN Connect authx 签名要求 md5（十六进制小写） */
+export async function md5Hex(input: string): Promise<string> {
+  const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.MD5, input, {
+    encoding: Crypto.CryptoEncoding.HEX,
+  })
+  return digest.toLowerCase()
+}

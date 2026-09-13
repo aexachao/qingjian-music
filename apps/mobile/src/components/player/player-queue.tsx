@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
   type LayoutChangeEvent,
   type LayoutRectangle,
 } from 'react-native'
+import { useConfirm } from '@/components/confirm-modal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
@@ -32,9 +32,12 @@ import Animated, {
 import type { QueueItem, PlayMode } from '@qj/core-domain'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { LivePlayingBars } from '@/components/playing-bars'
+import { TrackMenuButton } from '@/components/track-menu-button'
+import { isGlobalMenuInteracting } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
 import {
   clearHistory,
+  clearUpcoming,
   cycleRepeat,
   extendWithRadio,
   fillRadio,
@@ -50,7 +53,8 @@ import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from './cover-backdrop'
 import { usePlayerStore } from '@/player/store'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useAppTheme, useThemeColors } from '@/theme/theme-provider'
 import { useToggleFavorite } from '@/lib/favorites'
 import { DeckMoreButton } from '@/components/player/player-deck'
 
@@ -114,6 +118,8 @@ export function PlayerQueue({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   const stageTopOffset = propStageTopOffset ?? (insets.top + spacing.sm + 50 + spacing.xs)
@@ -128,6 +134,7 @@ export function PlayerQueue({
   const autoplay = usePlayerStore((state) => state.autoplay)
   const [tab, setTab] = useState<QueueTab>('upcoming')
   const { playing: isGloballyPlaying } = useIsPlaying()
+  const confirm = useConfirm()
 
   const setQueueActionOpen = useCallback((open: boolean) => {
     onActionOpenChange?.(open)
@@ -369,11 +376,25 @@ export function PlayerQueue({
 
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
-    Alert.alert('清除历史记录？', '该操作不可撤销。', [
-      { text: '取消', style: 'cancel' },
-      { text: '清除', style: 'destructive', onPress: () => void clearHistory() },
-    ])
-  }, [consumeOpenAction])
+    confirm({
+      title: '清除历史记录？',
+      message: '清除后历史播放记录将无法恢复。',
+      confirmText: '清除',
+      destructive: true,
+      onConfirm: () => void clearHistory(),
+    })
+  }, [confirm, consumeOpenAction])
+
+  const confirmClearUpcoming = useCallback(() => {
+    if (consumeOpenAction()) return
+    confirm({
+      title: '清空待播列表？',
+      message: '正在播放的歌曲不受影响，之后的待播歌曲将被移除。',
+      confirmText: '清空',
+      destructive: true,
+      onConfirm: () => void clearUpcoming(),
+    })
+  }, [confirm, consumeOpenAction])
 
   const rowAnimatedStyle = useAnimatedStyle(() => {
     // 仅当手势是在列表最顶部（已吸顶）发起全屏下拉退场时，反向补偿列表项 translateY，
@@ -389,13 +410,19 @@ export function PlayerQueue({
     }
   })
 
+  /**
+   * 待播行数。待播列表就是 `queue.slice(1)`（当前曲目恒在 index 0），
+   * 所以这里用 `queue.length - 1` 作为唯一定义，别处不要再各自算一遍。
+   */
+  const upcomingCount = Math.max(0, queue.length - 1)
+
   const renderUpcomingItem = useCallback(({ item }: { item: UpcomingRowData; index: number }) => {
     if (item.type === 'emptyState') {
       return (
         <Animated.View style={rowAnimatedStyle}>
           <QueueEmptyState
             title="队列已播完"
-            description="可在资料库中点播歌曲，或开启上方无限播放"
+            description="可在音乐库中点播歌曲，或开启上方无限播放"
             action={!autoplay && provider ? { label: '开启无限播放', onPress: onToggleAutoplay } : undefined}
             minHeight={minContentHeight}
             scrollY={scrollY}
@@ -409,6 +436,7 @@ export function PlayerQueue({
         <QueueRow 
           item={item.item} 
           queueIndex={item.index} 
+          upcomingCount={upcomingCount}
           playing={false} 
           isGloballyPlaying={!!isGloballyPlaying}
           isHistory={false}
@@ -418,7 +446,7 @@ export function PlayerQueue({
         />
       </Animated.View>
     )
-  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen])
+  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, upcomingCount])
 
   const renderHistoryItem = useCallback(({ item }: { item: HistoryRowData }) => {
     if (item.type === 'emptyState') {
@@ -494,10 +522,12 @@ export function PlayerQueue({
                 autoplay={autoplay}
                 tab={tab}
                 historyCount={history.length}
+                upcomingCount={upcomingCount}
                 provider={provider}
                 onTabChange={onTabChange}
                 consumeOpenAction={consumeOpenAction}
                 onClearHistory={confirmClearHistory}
+                onClearUpcoming={confirmClearUpcoming}
                 onToggleAutoplay={onToggleAutoplay}
               />
             </View>
@@ -524,10 +554,12 @@ export function PlayerQueue({
               autoplay={autoplay}
               tab={tab}
               historyCount={history.length}
+              upcomingCount={upcomingCount}
               provider={provider}
               onTabChange={onTabChange}
               consumeOpenAction={consumeOpenAction}
               onClearHistory={confirmClearHistory}
+              onClearUpcoming={confirmClearUpcoming}
               onToggleAutoplay={onToggleAutoplay}
             />
           </View>
@@ -609,6 +641,8 @@ export function CurrentTrackCard({
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
 }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const toggleFavorite = useToggleFavorite()
 
   return (
@@ -653,10 +687,12 @@ function ModesHeader({
   autoplay,
   tab,
   historyCount,
+  upcomingCount,
   provider,
   onTabChange,
   consumeOpenAction,
   onClearHistory,
+  onClearUpcoming,
   onToggleAutoplay,
 }: {
   artwork?: any
@@ -669,12 +705,15 @@ function ModesHeader({
   autoplay: boolean
   tab: QueueTab
   historyCount: number
+  upcomingCount: number
   provider: any
   onTabChange: (tab: QueueTab) => void
   consumeOpenAction: () => boolean
   onClearHistory: () => void
+  onClearUpcoming: () => void
   onToggleAutoplay: () => void
 }) {
+  const styles = useStyles()
   const tabLayouts = useRef<{ upcoming?: LayoutRectangle; history?: LayoutRectangle }>({})
   const indicatorX = useSharedValue(24)
   const indicatorOpacity = useSharedValue(1)
@@ -794,7 +833,17 @@ function ModesHeader({
               accessibilityRole="button"
               accessibilityLabel="清除播放历史"
             >
-              <Text style={styles.historyClear}>清除</Text>
+              <Text style={styles.listClear}>清除</Text>
+            </Pressable>
+          ) : null}
+          {tab === 'upcoming' && upcomingCount > 0 ? (
+            <Pressable
+              onPress={onClearUpcoming}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="清空待播列表"
+            >
+              <Text style={styles.listClear}>清空</Text>
             </Pressable>
           ) : null}
         </View>
@@ -815,6 +864,7 @@ function QueueTabButton({
   onPress: () => void
   onLayout?: (e: LayoutChangeEvent) => void
 }) {
+  const styles = useStyles()
   return (
     <Pressable
       onPress={onPress}
@@ -829,6 +879,8 @@ function QueueTabButton({
 }
 
 function ModeButton({ icon, label, active, onPress }: { icon: IconName; label: string; active: boolean; onPress: () => void }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   return (
     <Pressable
       onPress={onPress}
@@ -862,6 +914,7 @@ export function QueueEmptyState({
   minHeight,
   scrollY,
 }: QueueEmptyStateProps) {
+  const styles = useStyles()
   const animatedStyle = useAnimatedStyle(() => {
     // 动态垂直居中：根据上方循环工具栏是否吸顶，动态计算 list 视口高度并垂直居中
     // scrollY == 0（未吸顶）：视口为 stageHeight - 194，相对于容器（stageHeight - 106）向上偏移 44pt
@@ -904,6 +957,7 @@ export function QueueEmptyState({
 function QueueRow({
   item,
   queueIndex,
+  upcomingCount,
   playing,
   isGloballyPlaying,
   isHistory,
@@ -913,6 +967,8 @@ function QueueRow({
 }: {
   item: QueueItem
   queueIndex: number
+  /** 待播行总数（不含当前曲目），用于判断「已经在队尾」 */
+  upcomingCount: number
   playing: boolean
   isGloballyPlaying: boolean
   isHistory: boolean
@@ -920,6 +976,8 @@ function QueueRow({
   swipeEnabled: boolean
   onActionOpenChange?: (open: boolean) => void
 }) {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const isActive = useIsActive()
   const drag = useReorderableDrag()
   const elevation = useSharedValue(0)
@@ -935,10 +993,10 @@ function QueueRow({
       shadowRadius: elevation.value * 2,
       shadowOffset: { width: 0, height: elevation.value },
       zIndex: isActive ? 100 : 0,
-      backgroundColor: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+      backgroundColor: isActive ? colors.bgListItemActive : 'transparent',
       borderRadius: isActive ? radius.md : 0,
     }
-  })
+  }, [colors.bgListItemActive, isActive, elevation])
   const startX = useRef(0)
   const startY = useRef(0)
   const moved = useRef(false)
@@ -985,37 +1043,47 @@ function QueueRow({
     onActionOpenChange?.(false)
   }
 
+
   const content = (
     <Animated.View style={animatedStyle}>
-    <Pressable
-      onTouchStart={(event) => {
-        startX.current = event.nativeEvent.pageX
-        startY.current = event.nativeEvent.pageY
-        moved.current = false
-      }}
-      onTouchMove={(event) => {
-        const { pageX, pageY } = event.nativeEvent
-        if (Math.abs(pageX - startX.current) > TAP_SLOP || Math.abs(pageY - startY.current) > TAP_SLOP) {
-          moved.current = true
-        }
-      }}
-      onPress={() => {
-        if (moved.current) return
-        if (closeOpenQueueAction()) return
-        onSelect()
-      }}
-      style={styles.row}
-      accessibilityRole="button"
-      accessibilityLabel={`播放 ${item.title}，${item.artistText}`}
-    >
-      <CoverImage resource={item.artwork} size={48} borderRadius={radius.sm} />
-      <View style={styles.rowMain}>
-        <View style={styles.rowTitleLine}>
-          <Text style={[styles.rowTitle]} numberOfLines={1}>{item.title}</Text>
+    {/*
+      左右物理隔离：主触控区（点按播放）与右侧控件区（播放键 / 「···」菜单 / 拖动把手）
+      是兄弟节点而非嵌套，避免「···」的点击被外层 Pressable 抢走。
+      与 PagedTrackCarousel / TrackRow 的规范一致。
+    */}
+    <View style={styles.rowWrapper}>
+      <Pressable
+        onTouchStart={(event) => {
+          startX.current = event.nativeEvent.pageX
+          startY.current = event.nativeEvent.pageY
+          moved.current = false
+        }}
+        onTouchMove={(event) => {
+          const { pageX, pageY } = event.nativeEvent
+          if (Math.abs(pageX - startX.current) > TAP_SLOP || Math.abs(pageY - startY.current) > TAP_SLOP) {
+            moved.current = true
+          }
+        }}
+        onPress={() => {
+          if (moved.current) return
+          // 菜单刚关闭的 450ms 冷却期内不响应，否则「点空白处关菜单」会顺手切歌
+          if (isGlobalMenuInteracting()) return
+          if (closeOpenQueueAction()) return
+          onSelect()
+        }}
+        style={styles.rowMain}
+        accessibilityRole="button"
+        accessibilityLabel={`播放 ${item.title}，${item.artistText}`}
+      >
+        <CoverImage resource={item.artwork} size={48} borderRadius={radius.sm} />
+        <View style={styles.rowText}>
+          <View style={styles.rowTitleLine}>
+            <Text style={[styles.rowTitle]} numberOfLines={1}>{item.title}</Text>
+          </View>
+          <Text style={styles.rowMeta} numberOfLines={1}>{item.artistText}</Text>
         </View>
-        <Text style={styles.rowMeta} numberOfLines={1}>{item.artistText}</Text>
-      </View>
-      
+      </Pressable>
+
       {!isHistory && (
         <View style={styles.rowRight}>
           {playing ? (
@@ -1028,6 +1096,32 @@ function QueueRow({
               accessibilityLabel={isGloballyPlaying ? '暂停' : '播放'}
             />
           ) : null}
+
+          <TrackMenuButton
+            context="upcoming"
+            color={colors.iconDim}
+            title="待播选项"
+            accessibilityLabel={`${item.title} 的更多操作`}
+            // 打开菜单前先收起已展开的左滑删除，避免两层操作面同时存在。
+            // 刻意不接 onMenuOpenChange：那是给播放页挂全屏拦截遮罩用的，
+            // 原生菜单自带窗口与点击外部关闭，再叠一层 RN 遮罩会白吞一次点击。
+            onBeforeOpen={() => {
+              closeOpenQueueAction()
+            }}
+            subject={{
+              trackId: item.trackId,
+              title: item.title,
+              artistText: item.artistText,
+              ...(item.albumId ? { albumId: item.albumId } : {}),
+              ...(item.albumText ? { albumText: item.albumText } : {}),
+              ...(item.artistId ? { artistId: item.artistId } : {}),
+              durationMs: item.durationMs,
+              ...(item.isFavorite === undefined ? {} : { isFavorite: item.isFavorite }),
+              queueIndex,
+              upcomingCount,
+            }}
+          />
+
           <Pressable
             onPressIn={() => {
               dismissedSwipeOnHandlePress.current = closeOpenQueueAction()
@@ -1044,7 +1138,9 @@ function QueueRow({
               dismissedSwipeOnHandlePress.current = false
               setDragHandlePressed(false)
             }}
-            hitSlop={{ top: 14, bottom: 14, left: 16, right: 16 }}
+            // 只向上下与右侧扩：左边紧挨着「···」按钮，左扩 16pt 会把按钮右半边变成死区
+            // （把手只有按下/长按，没有点击，那块区域点了不会有任何反应）
+            hitSlop={{ top: 14, bottom: 14, right: 16 }}
             style={styles.dragSlot}
             accessibilityRole="button"
             accessibilityLabel="拖动排序"
@@ -1053,7 +1149,7 @@ function QueueRow({
           </Pressable>
         </View>
       )}
-    </Pressable>
+    </View>
     </Animated.View>
   )
 
@@ -1086,6 +1182,7 @@ function HistoryRow({
   item: QueueItem
   onSelect: () => void
 }) {
+  const styles = useStyles()
   const startX = useRef(0)
   const startY = useRef(0)
   const moved = useRef(false)
@@ -1113,7 +1210,7 @@ function HistoryRow({
       accessibilityLabel={`播放 ${item.title}，${item.artistText}`}
     >
       <CoverImage resource={item.artwork} size={48} borderRadius={radius.sm} />
-      <View style={styles.rowMain}>
+      <View style={styles.rowText}>
         <View style={styles.rowTitleLine}>
           <Text style={[styles.rowTitle]} numberOfLines={1}>{item.title}</Text>
         </View>
@@ -1123,7 +1220,7 @@ function HistoryRow({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   container: { flex: 1, overflow: 'hidden' },
   headerOverlay: {
     position: 'absolute',
@@ -1200,7 +1297,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textPrimary,
   },
   queueTabSpacer: { flex: 1 },
-  historyClear: { ...typography.callout, color: colors.iconMid },
+  listClear: { ...typography.callout, color: colors.iconMid },
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1234,7 +1331,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyStateButtonPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: colors.bgCardHover,
   },
   emptyStateButtonText: {
     fontSize: 13,
@@ -1264,14 +1361,28 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.xl,
   },
-  rowMain: { flex: 1, gap: 2, justifyContent: 'center' },
+  // 待播行：主触控区与右侧控件区是兄弟节点，物理隔离事件
+  rowWrapper: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  rowMain: {
+    flex: 1,
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  rowText: { flex: 1, gap: 2, justifyContent: 'center' },
   rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   rowTitle: { ...typography.callout, color: colors.textPrimary, flexShrink: 1 },
   rowMeta: { ...typography.caption, color: colors.textSecondary },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   
   deleteAction: { backgroundColor: colors.danger || 'red', justifyContent: 'center', alignItems: 'center', width: 80, height: '100%' },
-  deleteIconBg: { backgroundColor: 'white', borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
+  deleteIconBg: { backgroundColor: colors.textOnAccent, borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
   dragSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   playingIconBg: { backgroundColor: colors.textPrimary, borderRadius: radius.pill, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-})
+}))

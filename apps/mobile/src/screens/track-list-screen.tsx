@@ -10,7 +10,8 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, spacing } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { spacing } from '@/theme/tokens'
 
 interface TrackListScreenProps {
   queryKey: QueryKey
@@ -34,6 +35,7 @@ export function TrackListScreen({
   leading = 'cover',
   enabled = true,
 }: TrackListScreenProps) {
+  const styles = useStyles()
   const { provider, connection } = useServerSession()
   const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
@@ -90,8 +92,8 @@ export function TrackListScreen({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1 },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   separator: { height: 1, marginLeft: 60, backgroundColor: colors.borderSubtle },
-})
+}))

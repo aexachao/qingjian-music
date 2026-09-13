@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useIsPlaying } from 'react-native-track-player'
-import { colors } from '@/theme/tokens'
+import { useThemeColors } from '@/theme/theme-provider'
 
 /**
  * 「正在播放」动态音符/律动条 (Live Playing Indicator):
@@ -95,9 +95,11 @@ function Bar({
 
 export function PlayingBars({
   size = DEFAULT_HEIGHT,
-  color = colors.playing,
+  color,
   animating = true,
 }: PlayingBarsProps) {
+  const colors = useThemeColors()
+  const resolvedColor = color ?? colors.playing
   return (
     <View
       style={[styles.container, { height: size }]}
@@ -109,7 +111,7 @@ export function PlayingBars({
           key={index}
           config={config}
           size={size}
-          color={color}
+          color={resolvedColor}
           animating={animating}
         />
       ))}
@@ -124,13 +126,15 @@ export function PlayingBars({
  */
 export function LivePlayingBars({
   size = DEFAULT_HEIGHT,
-  color = colors.playing,
+  color,
 }: {
   size?: number
   color?: string
 }) {
+  const colors = useThemeColors()
+  const resolvedColor = color ?? colors.playing
   const { playing } = useIsPlaying()
-  return <PlayingBars size={size} color={color} animating={playing ?? false} />
+  return <PlayingBars size={size} color={resolvedColor} animating={playing ?? false} />
 }
 
 const styles = StyleSheet.create({

@@ -1,0 +1,237 @@
+name: Build
+
+# 在 GitHub 上构建原生产物，本机不需要装 JDK / Android SDK / Xcode。
+#
+# 触发方式：
+#   · 手动：Actions → Build → Run workflow
+#   · 打 tag：git tag v0.1.0 && git push origin v0.1.0（会自动挂到 GitHub Release）
+#
+# 产物：
+#   · android-debug-apk  —— 可直接装到 Android 真机验证（debug 包，无需签名配置）
+#   · ios-simulator-app  —— iOS 模拟器产物（**未签名**，不能装真机；只用于验证能编译过）
+#
+# 为什么 iOS 默认只出模拟器包：真机 / IPA 需要苹果签名凭据（证书 + 描述文件，
+# 或 App Store Connect API Key）。没配 Secrets 时用 CODE_SIGNING_ALLOWED=NO 构建，
+# 依然能验证「原生工程 + JS 打包能不能过」——这正是本机做不了的那部分。
+# 签名构建的配置方法见 docs/构建与CI-2026-09-13.md。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # 与本机一致的 Node 大版本（package.json engines: >=22）
+  NODE_VERSION: '22'
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. 先把校验跑绿，坏提交不给出包
+  # ───────────────────────────────────────────────────────────────────────────
+  verify:
+    name: 校验（守卫 / 类型 / 单测）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 架构守卫
+        run: pnpm guard
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 单元测试
+        run: pnpm test
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. JS 打包检查（快，先失败先反馈）
+  # ───────────────────────────────────────────────────────────────────────────
+  bundle:
+    name: JS 打包检查
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 不需要原生工程，纯 Metro 打包。这一步能抓到「模块解析不到 / 平台后缀缺失」
+      # 这类问题，比等 20 分钟原生构建失败划算得多。
+      - name: 打包 iOS bundle
+        working-directory: apps/mobile
+        run: pnpm exec expo export --platform ios --output-dir "$RUNNER_TEMP/export-ios"
+
+      - name: 打包 Android bundle
+        working-directory: apps/mobile
+        run: pnpm exec expo export --platform android --output-dir "$RUNNER_TEMP/export-android"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. Android debug APK（可直接装真机）
+  # ───────────────────────────────────────────────────────────────────────────
+  android:
+    name: Android APK
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # RN 0.86 / Expo 57 用 JDK 17
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 保证 sdkmanager / 许可证就绪（gradle 需要时能自动补装 build-tools / NDK）
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # android/ 是生成产物且被 .gitignore 排除，CI 上必须现生成。
+      # --no-install：依赖已装过，跳过 npm install（Android 侧不需要 pod install）。
+      - name: 生成原生工程
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: 构建 debug APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: 确认产物存在
+        run: |
+          ls -lh apps/mobile/android/app/build/outputs/apk/debug/
+          test -f apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 打 tag 时自动挂到 Release，省得去 Actions 页面下载
+      - name: 挂到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" \
+            apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk \
+            --clobber
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 4. iOS 构建（模拟器，不签名）
+  # ───────────────────────────────────────────────────────────────────────────
+  ios:
+    name: iOS 构建（模拟器）
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # ⚠️ 不要加 --no-install：那会清空 ios/ 却不跑 pod install，
+      # 结果 .xcworkspace 不存在，xcodebuild 直接报 workspace 找不到。
+      - name: 生成原生工程 + pod install
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform ios
+
+      - name: 确认 workspace 存在
+        run: test -d apps/mobile/ios/app.xcworkspace
+
+      # Release 配置会真正跑 JS 打包，所以这一步同时验证了原生编译与 bundle。
+      # 日志可能上万行，重定向到文件，失败时只打错误摘要 + 末尾片段。
+      - name: 构建（Release / 模拟器 / 不签名）
+        working-directory: apps/mobile
+        run: |
+          set -o pipefail
+          LOG="$RUNNER_TEMP/xcodebuild.log"
+          if ! xcodebuild \
+              -workspace ios/app.xcworkspace \
+              -scheme app \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath "$RUNNER_TEMP/ios-build" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build > "$LOG" 2>&1; then
+            echo "::group::错误摘要"
+            grep -nE "error:|BUILD FAILED|The following build commands failed" "$LOG" | head -60 || true
+            echo "::endgroup::"
+            echo "::group::日志末尾 150 行"
+            tail -150 "$LOG"
+            echo "::endgroup::"
+            exit 1
+          fi
+          echo "iOS 构建成功"
+          tail -5 "$LOG"
+
+      - name: 打包 .app
+        run: |
+          APP=$(find "$RUNNER_TEMP/ios-build/Build/Products" -maxdepth 2 -name '*.app' -type d | head -1)
+          echo "找到产物：$APP"
+          test -n "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/app-ios-simulator.zip"
+          ls -lh "$RUNNER_TEMP/app-ios-simulator.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: ${{ runner.temp }}/app-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 30

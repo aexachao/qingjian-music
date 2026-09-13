@@ -50,4 +50,18 @@ describe('MusicError', () => {
     abort.name = 'AbortError'
     expect(toMusicError(abort).code).toBe('canceled')
   })
+
+  it('expo fetch 的取消异常也归类为 canceled，而不是 network', () => {
+    // 回归防线：expo 的原生 fetch 被取消时抛的是它自己的异常，
+    // 名字既不是 AbortError 也不在 name 里，只出现在 message 里。
+    // 认不出来就会变成 code:'network'（可重试）—— 既掩盖真实原因，又会重试一个已放弃的请求。
+    const canceled = new Error('fetch failed: FetchRequestCanceledException: Fetch request has been canceled')
+    expect(toMusicError(canceled).code).toBe('canceled')
+    expect(toMusicError(canceled).retryable).toBe(false)
+  })
+
+  it('普通网络错误仍然是 network 且可重试', () => {
+    expect(toMusicError(new Error('Network request failed')).code).toBe('network')
+    expect(toMusicError(new Error('Network request failed')).retryable).toBe(true)
+  })
 })

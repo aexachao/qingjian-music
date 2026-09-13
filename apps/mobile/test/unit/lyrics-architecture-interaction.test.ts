@@ -65,7 +65,7 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(lyricViewSource).not.toContain('(pressed || selected) && styles.rowSelected')
     // 选中浅色矩形底板
     expect(lyricViewSource).toContain('rowSelected')
-    expect(lyricViewSource).toContain("backgroundColor: 'rgba(255, 255, 255, 0.08)'")
+    expect(lyricViewSource).toContain('backgroundColor: colors.bgCard')
   })
 
   it('手势与歌词动画防冲突：交互硬锁定、视口容差与宽容冷却期', () => {

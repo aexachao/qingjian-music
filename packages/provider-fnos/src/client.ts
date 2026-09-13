@@ -128,6 +128,12 @@ export function translateCode(code: number, msg: string, path: string): MusicErr
       return new MusicError({ code: 'invalidArguments', message: `${path} 参数不正确`, providerCode: code })
     case FNOS_CODES.notFound:
       return new MusicError({ code: 'notFound', message: '资源不存在', providerCode: code })
+    // 歌单的 160001/160002 若不单独翻译会落到 default 变成 code:'server'，
+    // 而 'server' 被 MusicError.retryable 判为可重试 —— 重名重试多少次都不会成功。
+    case FNOS_CODES.playlistNameExists:
+      return new MusicError({ code: 'invalidArguments', message: '歌单名称已存在', providerCode: code })
+    case FNOS_CODES.playlistHitMaxCount:
+      return new MusicError({ code: 'invalidArguments', message: '歌单数量已达上限', providerCode: code })
     case FNOS_CODES.unknownError:
       return new MusicError({ code: 'protocol', message: msg || `${path} 请求体结构不正确`, providerCode: code })
     default:

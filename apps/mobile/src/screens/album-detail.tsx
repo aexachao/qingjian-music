@@ -12,9 +12,12 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 export function AlbumDetailScreen() {
+  const colors = useThemeColors()
+  const styles = useStyles()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
   const current = usePlayerStore(selectCurrent)
@@ -59,7 +62,6 @@ export function AlbumDetailScreen() {
         options={{
           headerShown: true,
           title: album.name,
-          headerBackTitle: '返回',
           headerLeft: () => <StackBackButton />,
         }}
       />
@@ -128,7 +130,7 @@ export function AlbumDetailScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   header: { alignItems: 'center', gap: spacing.xs, marginBottom: spacing.lg },
   name: { ...typography.title, color: colors.textPrimary, textAlign: 'center', marginTop: spacing.md },
@@ -146,4 +148,4 @@ const styles = StyleSheet.create({
   buttonPrimary: { backgroundColor: colors.accent },
   buttonLabel: { ...typography.headline, color: colors.textPrimary },
   buttonLabelPrimary: { color: colors.textOnAccent },
-})
+}))

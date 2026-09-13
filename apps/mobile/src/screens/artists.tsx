@@ -7,9 +7,11 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { colors, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
+import { spacing, typography } from '@/theme/tokens'
 
 export function ArtistsScreen() {
+  const styles = useStyles()
   const { provider, connection } = useServerSession()
   const bottom = useBottomSpace()
   const href = useDetailHref()
@@ -57,7 +59,7 @@ export function ArtistsScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   total: { ...typography.caption, color: colors.textTertiary, paddingBottom: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
@@ -65,4 +67,4 @@ const styles = StyleSheet.create({
   name: { ...typography.callout, color: colors.textPrimary },
   meta: { ...typography.caption, color: colors.textSecondary },
   separator: { height: 1, marginLeft: 68, backgroundColor: colors.borderSubtle },
-})
+}))

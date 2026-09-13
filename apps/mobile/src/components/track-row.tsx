@@ -2,10 +2,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { FormatBadge } from '@/components/format-badge'
+import { Icon } from '@/components/icon'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { TrackMoreButton } from '@/components/track-more-button'
+import { useToast } from '@/components/toast'
 import { isGlobalMenuInteracting } from '@/lib/menu-guard'
-import { colors, fonts, radius, spacing, typography } from '@/theme/tokens'
+import { useServerSession } from '@/lib/server-session'
+import { useToggleFavorite } from '@/lib/favorites'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 interface TrackRowProps {
   track: Track
@@ -25,7 +30,20 @@ interface TrackRowProps {
  * - 歌曲名称下方仅展示歌手名称，并在歌手名称前显示音频格式 Tag（如 FLAC、MP3 等）。
  */
 export function TrackRow({ track, leading, index, playing = false, onPress }: TrackRowProps) {
+  const styles = useStyles()
+  const { provider } = useServerSession()
+  const toggleFavorite = useToggleFavorite()
+  const toast = useToast()
+  const canFavorite = provider?.capabilities.favorites && track.isFavorite !== undefined
   const artistText = track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'
+
+  const handleFavoritePress = () => {
+    if (!canFavorite) return
+    const next = !track.isFavorite
+    void toggleFavorite(track.id, next)
+      .then(() => toast(next ? '已添加到我喜欢' : '已取消收藏'))
+      .catch((e) => toast(e instanceof Error ? e.message : '操作失败'))
+  }
 
   const handlePress = () => {
     if (isGlobalMenuInteracting()) return
@@ -79,13 +97,28 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
         </View>
       </Pressable>
 
-      {/* 右侧：显示「···」快捷菜单按钮，物理隔离防冒泡 */}
+      {/* 右侧：收藏 + 快捷菜单 */}
+      {canFavorite ? (
+        <Pressable
+          hitSlop={8}
+          onPress={handleFavoritePress}
+          accessibilityRole="button"
+          accessibilityLabel={track.isFavorite ? '取消收藏' : '加入收藏'}
+          style={styles.favoriteBtn}
+        >
+          <Icon
+            name={track.isFavorite ? 'heart' : 'heartOutline'}
+            size={20}
+            color={track.isFavorite ? styles.favoriteActive.color : styles.favoriteInactive.color}
+          />
+        </Pressable>
+      ) : null}
       <TrackMoreButton track={track} />
     </View>
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((colors) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -140,6 +173,18 @@ const styles = StyleSheet.create({
   playing: {
     color: colors.playing,
   },
+  favoriteBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favoriteActive: {
+    color: colors.accent,
+  },
+  favoriteInactive: {
+    color: colors.textTertiary,
+  },
   subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -151,4 +196,4 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flexShrink: 1,
   },
-})
+}))

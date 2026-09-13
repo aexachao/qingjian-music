@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { colors, radius, spacing, typography } from '../../src/theme/tokens'
-
-function source(path: string): string {
-  return readFileSync(resolve(__dirname, `../../src/${path}`), 'utf8')
-}
+import { radius, spacing, themeColors, typography } from '../../src/theme/tokens'
+import { readSource as source } from '../support/source'
 
 describe('首页 Apple Music 风格设计规范与架构契约', () => {
   it('间距系统遵循 8pt 与 Apple 规范（20pt 页边距，24pt 分区呼吸感，10pt 组内吸附）', () => {
@@ -32,17 +27,18 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
   })
 
   it('表面与材质色彩定义完整', () => {
-    expect(colors.surfaceGrouped).toBe('#121214')
-    expect(colors.surfaceCard).toBe('#ffffff0d')
-    expect(colors.hairlineBorder).toBe('#ffffff14')
-    expect(colors.badgeBg).toBe('#ffffff14')
+    expect(themeColors.dark.surfaceGrouped).toBe('#121214')
+    expect(themeColors.dark.surfaceCard).toBe('#ffffff0d')
+    expect(themeColors.dark.hairlineBorder).toBe('#ffffff14')
+    expect(themeColors.dark.badgeBg).toBe('#ffffff14')
+    expect(themeColors.light.surfaceGrouped).toBe('#f2f2f7')
   })
 
   it('三等分功能瓷片采用原生 Pressable 实体背景色，去除副标题纯净呈现，并与上方漫游卡片紧凑组合', () => {
     const quickAsset = source('screens/home/QuickAssetRow.tsx')
     expect(quickAsset).not.toContain('<Link')
     expect(quickAsset).toContain('router.push')
-    expect(quickAsset).toContain("backgroundColor: '#1f1f23'")
+    expect(quickAsset).toContain('backgroundColor: colors.bgCard')
     expect(quickAsset).toContain("key: 'downloaded'")
     expect(quickAsset).not.toContain('私房金曲')
     expect(quickAsset).not.toContain('听歌足迹')
@@ -55,10 +51,13 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
     expect(home).toContain('gap: 12')
   })
 
-  it('页签根页大标题收起时为导航栏配置实体背景，防止滚动内容穿透重叠', () => {
+  it('页签根页消除原生空白并由 CollapsibleHeader 承载深色背景，防止滚动内容穿透重叠', () => {
     const stackOptions = source('lib/stack-options.ts')
-    expect(stackOptions).toContain('headerLargeStyle: { backgroundColor: \'transparent\' }')
-    expect(stackOptions).toContain('headerStyle: { backgroundColor: colors.bgPrimary }')
+    expect(stackOptions).toContain('headerShown: false')
+
+    const header = source('components/collapsible-tab-header.tsx')
+    expect(header).toContain('colors.bgPrimary')
+    expect(header).toContain("mode === 'dark' ? 'dark' : 'light'")
   })
 
   it('分区标题右侧箭头与标题保持 8pt 吸附间距，且字号为精致 18pt', () => {

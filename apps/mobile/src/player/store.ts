@@ -24,6 +24,8 @@ interface PlayerState {
   setQueue(queue: QueueItem[], index: number, source?: PlaySource): void
   /** 往队尾追加（漫游续歌、无限播放用） */
   appendItems(items: QueueItem[]): void
+  /** 插入到当前曲目之后（「下一首播放」） */
+  insertAfterCurrent(items: QueueItem[]): void
   /** 重排后同步展示顺序（随机播放开/关都走它） */
   reorder(queue: QueueItem[], index: number): void
   setIndex(index: number): void
@@ -41,6 +43,8 @@ interface PlayerState {
   moveItem(from: number, to: number): void
   /** 队列页删除一首后同步本地顺序 */
   removeItem(target: number): void
+  /** 队列页「清空待播」：只丢掉当前曲目之后的部分，当前曲目继续播放 */
+  clearUpcoming(): void
   patchItem(trackId: string, patch: Partial<QueueItem>): void
   clear(): void
   clearHistory(): void
@@ -101,6 +105,14 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     })),
   appendItems: (items) =>
     set((state) => ({ queue: [...state.queue, ...items], baseQueue: [...state.baseQueue, ...items] })),
+  insertAfterCurrent: (items) =>
+    set((state) => {
+      const insertAt = state.index + 1
+      const before = state.queue.slice(0, insertAt)
+      const after = state.queue.slice(insertAt)
+      const next = [...before, ...items, ...after]
+      return { queue: next, baseQueue: next }
+    }),
   reorder: (queue, index) => set({ queue, index }),
   setIndex: (index) => set({ index, playbackEnded: false }),
   activateIndex: (target) =>
@@ -193,6 +205,18 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       history: state.history.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
       baseQueue: state.baseQueue.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
     })),
+  clearUpcoming: () =>
+    set((state) => {
+      // index < 0 表示还没开始播放，此时「待播」就是整个队列
+      const keepCount = state.index >= 0 ? state.index + 1 : 0
+      // 没有待播时保持原引用，避免触发无意义的重渲染
+      if (keepCount >= state.queue.length) return state
+      const keep = state.queue.slice(0, keepCount)
+      const keepIds = new Set(keep.map((item) => item.qid))
+      // baseQueue 是关闭随机播放时用来还原顺序的快照，必须同步裁掉已移除的项，
+      // 否则下次关随机会把已经清掉的歌又「还原」回来
+      return { queue: keep, baseQueue: state.baseQueue.filter((item) => keepIds.has(item.qid)) }
+    }),
   restore: (payload) =>
     set(() => {
       const history = payload.history ?? payload.queue.slice(0, payload.index)

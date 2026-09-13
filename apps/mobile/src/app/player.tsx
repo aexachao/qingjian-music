@@ -25,13 +25,16 @@ import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { colors, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 const LYRIC_TICK_MS = 200
 
 type PlayerMode = 'cover' | 'lyrics' | 'list'
 
 export default function PlayerScreen() {
+  const styles = useStyles()
+  const colors = useThemeColors()
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
@@ -40,8 +43,19 @@ export default function PlayerScreen() {
 
   const [mode, setMode] = useState<PlayerMode>('cover')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [stageMeasuredHeight, setStageMeasuredHeight] = useState(0)
-  const stageHeight = useSharedValue(440)
+
+  // 1. 同步预估舞台高度，确保首帧计算出的封面尺寸与测量后 100% 一致，避免入场中途 setState 触发重渲染
+  const initialStageHeight = useMemo(() => {
+    const pageH = height || 850
+    const top = insets.top + spacing.sm + 50 + spacing.xs
+    const bottom = insets.bottom + spacing.xs + 56
+    return Math.max(320, pageH - top - bottom - 190)
+  }, [height, insets.top, insets.bottom])
+
+  const [stageMeasuredHeight, setStageMeasuredHeight] = useState(initialStageHeight)
+  const stageMeasuredRef = useRef(initialStageHeight)
+  const [hasEntered, setHasEntered] = useState(false)
+  const stageHeight = useSharedValue(initialStageHeight)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
   const listAnim = useSharedValue(0)
@@ -81,11 +95,16 @@ export default function PlayerScreen() {
     }
   }, [mode])
 
+  // 2. 优化进场时长与曲线（360ms 对齐 Apple Music 原生弹层节奏），进场完成后再激活后台渲染
   useEffect(() => {
     translateY.value = withTiming(0, {
-      duration: 480,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
+      duration: 360,
+      easing: Easing.bezier(0.2, 0.9, 0.3, 1),
     })
+    const timer = setTimeout(() => {
+      setHasEntered(true)
+    }, 380)
+    return () => clearTimeout(timer)
   }, [translateY])
 
   const createDismissPan = useCallback((enabled: boolean) =>
@@ -93,28 +112,23 @@ export default function PlayerScreen() {
       .enabled(enabled)
       .activeOffsetY(8)
       .failOffsetY(-15)
-      .onTouchesDown((event) => {
-        console.log(`[DISMISS-PAN] onTouchesDown: enabled=${enabled}, isListAtTop=${isListAtTop}, mode=${mode}, touches=${event.allTouches.length}`)
+      .onTouchesDown(() => {
         if (!queueActionOpen) return
         runOnJS(closeOpenQueueAction)()
         runOnJS(setQueueActionOpen)(false)
       })
-      .onBegin((event) => {
-        console.log(`[DISMISS-PAN] onBegin: y=${event.y}, enabled=${enabled}`)
+      .onBegin(() => {
         // 若在进场动画期间触摸，立即中止当前动画并锚定当前位置
         translateY.value = translateY.value
       })
-      .onStart((event) => {
-        console.log(`[DISMISS-PAN] onStart ACTIVE: y=${event.y}, transY=${event.translationY}`)
+      .onStart(() => {
         startY.value = translateY.value
       })
       .onUpdate((event) => {
-        console.log(`[DISMISS-PAN] onUpdate: transY=${event.translationY.toFixed(1)}`)
         const next = startY.value + event.translationY
         translateY.value = Math.max(0, next)
       })
       .onEnd((event) => {
-        console.log(`[DISMISS-PAN] onEnd: transY=${event.translationY.toFixed(1)}, vy=${event.velocityY.toFixed(1)}`)
         const pageHeight = height || 850
         // 动量投射：结合当前位移与松手瞬时速度（Apple Music / iOS 原生交互物理法则）
         const projectedY = translateY.value + event.velocityY * 0.15
@@ -135,10 +149,7 @@ export default function PlayerScreen() {
             easing: Easing.bezier(0.25, 1, 0.5, 1),
           })
         }
-      })
-      .onFinalize((event, success) => {
-        console.log(`[DISMISS-PAN] onFinalize: success=${success}, transY=${event.translationY.toFixed(1)}`)
-      }), [height, translateY, startY, dismiss, queueActionOpen, isListAtTop, mode])
+      }), [height, translateY, startY, dismiss, queueActionOpen])
 
   const triggerDismiss = useCallback(() => {
     const pageHeight = height || 850
@@ -179,7 +190,6 @@ export default function PlayerScreen() {
     transform: [{ translateY: translateY.value }],
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: colors.bgPrimary,
     borderRadius: 32,
   }))
 
@@ -238,7 +248,7 @@ export default function PlayerScreen() {
   return (
     <AuthGate group="protected">
       <GestureDetector gesture={dismissGesture}>
-        <Animated.View style={[rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
+        <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
           <CoverBackdrop artwork={current.artwork} />
 
           <GestureDetector gesture={headerDismissGesture}>
@@ -260,28 +270,33 @@ export default function PlayerScreen() {
                   onLayout={(e) => {
                     const h = e.nativeEvent.layout.height
                     stageHeight.value = h
-                    setStageMeasuredHeight(h)
+                    if (Math.abs(h - stageMeasuredRef.current) > 30) {
+                      stageMeasuredRef.current = h
+                      setStageMeasuredHeight(h)
+                    }
                   }}
                 >
                   <Animated.View
                     style={[StyleSheet.absoluteFill, queueAnimatedStyle]}
                     pointerEvents={mode === 'list' ? 'auto' : 'none'}
                   >
-                    <PlayerQueue
-                      bottomSpace={0}
-                      listAnim={listAnim}
-                      stageTopOffset={stageTopOffset}
-                      stageHeight={stageHeight}
-                      onTopStateChange={setIsListAtTop}
-                      onActionOpenChange={setQueueActionOpen}
-                      onDismissWithAction={dismissWithAction}
-                      onMenuOpenChange={setMenuOpen}
-                      isMenuOpen={menuOpen}
-                      createDismissPan={createDismissPan}
-                      cardDismissGesture={headerDismissGesture}
-                      translateY={translateY}
-                      onDismiss={dismiss}
-                    />
+                    {(mode === 'list' || hasEntered) ? (
+                      <PlayerQueue
+                        bottomSpace={0}
+                        listAnim={listAnim}
+                        stageTopOffset={stageTopOffset}
+                        stageHeight={stageHeight}
+                        onTopStateChange={setIsListAtTop}
+                        onActionOpenChange={setQueueActionOpen}
+                        onDismissWithAction={dismissWithAction}
+                        onMenuOpenChange={setMenuOpen}
+                        isMenuOpen={menuOpen}
+                        createDismissPan={createDismissPan}
+                        cardDismissGesture={headerDismissGesture}
+                        translateY={translateY}
+                        onDismiss={dismiss}
+                      />
+                    ) : null}
                   </Animated.View>
 
                   <Animated.View
@@ -321,25 +336,29 @@ export default function PlayerScreen() {
               <Animated.View style={pinnedHeaderAnimatedStyle}>
                 <GestureDetector gesture={headerDismissGesture}>
                   <View style={styles.pinnedHeader}>
-                    <CurrentTrackCard
-                      item={current}
-                      consumeOpenAction={() => false}
-                      onDismissWithAction={dismissWithAction}
-                      onMenuOpenChange={setMenuOpen}
-                    />
+                    {(mode === 'lyrics' || hasEntered) ? (
+                      <CurrentTrackCard
+                        item={current}
+                        consumeOpenAction={() => false}
+                        onDismissWithAction={dismissWithAction}
+                        onMenuOpenChange={setMenuOpen}
+                      />
+                    ) : null}
                   </View>
                 </GestureDetector>
               </Animated.View>
 
               <View style={styles.lyricsStage}>
-                <LyricPage
-                  trackId={current.trackId}
-                  bottomSpace={48 + insets.bottom}
-                  onTopStateChange={setIsLyricAtTop}
-                  active={mode === 'lyrics'}
-                  translateY={translateY}
-                  onDismiss={dismiss}
-                />
+                {(mode === 'lyrics' || hasEntered) ? (
+                  <LyricPage
+                    trackId={current.trackId}
+                    bottomSpace={48 + insets.bottom}
+                    onTopStateChange={setIsLyricAtTop}
+                    active={mode === 'lyrics'}
+                    translateY={translateY}
+                    onDismiss={dismiss}
+                  />
+                ) : null}
               </View>
             </Animated.View>
           </View>
@@ -356,7 +375,11 @@ export default function PlayerScreen() {
               style={styles.bottomIcon}
             />
             <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-              <AirplayRouteButton style={styles.airplayNative} />
+              <AirplayRouteButton
+                style={styles.airplayNative}
+                tintColor={colors.iconMid}
+                activeTintColor={colors.accent}
+              />
             </View>
             <IconButton
               name="queue"
@@ -382,8 +405,10 @@ export default function PlayerScreen() {
 }
 
 function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
+  const styles = useStyles()
+  const colors = useThemeColors()
   return (
-    <View style={[styles.container, styles.center]}>
+    <View style={[styles.root, styles.center]}>
       <Text style={styles.empty}>还没有正在播放的歌曲</Text>
       <IconButton
         name="chevronDown"
@@ -411,6 +436,7 @@ function LyricPage({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
+  const styles = useStyles()
   const { playing } = useIsPlaying()
   const progress = useProgress(active ? LYRIC_TICK_MS : 1000)
   const current = usePlayerStore(selectCurrent)
@@ -436,8 +462,8 @@ function LyricPage({
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bgPrimary },
+const useStyles = createThemedStyles((colors) => ({
+  root: { flex: 1, backgroundColor: colors.bgPrimary },
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   empty: { ...typography.subhead, color: colors.textSecondary },
   header: {
@@ -488,4 +514,4 @@ const styles = StyleSheet.create({
   airplayNative: { width: 44, height: 44 },
   bottomIcon: { borderRadius: 12 },
   menuScrim: { backgroundColor: 'rgba(0, 0, 0, 0.001)', zIndex: 9999 },
-})
+}))

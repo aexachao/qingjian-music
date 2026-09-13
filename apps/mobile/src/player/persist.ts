@@ -42,16 +42,6 @@ export function readPlaybackSnapshot(): RestorablePlaybackSnapshot | null {
   }
 }
 
-/** 清空队列 / 退出登录时删掉快照，下次进来就是全新状态 */
-export function deletePlaybackSnapshot(): void {
-  try {
-    const file = snapshotFile()
-    if (file.exists) file.delete()
-  } catch {
-    // 删不掉无所谓，下次读的时候队列对不上自然会忽略
-  }
-}
-
 async function persistSnapshot(snapshot: ReturnType<typeof createPlaybackSnapshot> | null): Promise<void> {
   const file = snapshotFile()
   if (file.exists) file.delete()

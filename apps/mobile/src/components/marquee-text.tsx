@@ -9,13 +9,8 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated'
+import { marqueeMetrics, MARQUEE_GAP, MARQUEE_PAUSE_MS } from '@/lib/marquee-policy'
 
-/** 每像素滚多少毫秒：越大越慢 */
-const MS_PER_PIXEL = 22
-/** 两端各停多久再继续滚 */
-const PAUSE_MS = 1400
-/** 同一份文字之间的留白，避免尾部直接粘到下一轮开头 */
-const MARQUEE_GAP = 32
 /**
  * 给文字一个足够宽的盒子。
  * numberOfLines={1} 会按可用宽度截断成「…」，只有把盒子撑开才会真的溢出，
@@ -39,21 +34,18 @@ export function MarqueeText({ text, style, containerStyle, accessibilityLabel }:
   const [textWidth, setTextWidth] = useState(0)
   const translateX = useSharedValue(0)
 
-  const overflow = textWidth - containerWidth
-  const shouldScroll = containerWidth > 0 && overflow > 6
+  const { shouldScroll, distance, duration } = marqueeMetrics(textWidth, containerWidth)
 
   useEffect(() => {
     cancelAnimation(translateX)
     translateX.value = 0
     if (!shouldScroll) return
-    const distance = textWidth + MARQUEE_GAP
-    const duration = Math.round(distance * MS_PER_PIXEL)
     // 业内常见的 ticker：停一下后单向匀速滚动，第二份文字无缝接上，不来回反弹。
     translateX.value = withDelay(
-      PAUSE_MS,
+      MARQUEE_PAUSE_MS,
       withRepeat(withTiming(-distance, { duration, easing: Easing.linear }), -1, false),
     )
-  }, [shouldScroll, text, textWidth, translateX])
+  }, [shouldScroll, text, distance, duration, translateX])
 
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
 

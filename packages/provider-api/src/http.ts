@@ -59,9 +59,26 @@ export class HttpClient {
   async requestJson(path: string, init: RequestInit & RequestOptions = {}): Promise<unknown> {
     const { query, timeoutMs, headers, signal, ...rest } = init
     const url = this.buildUrl(path, query)
+    const effectiveTimeoutMs = timeoutMs ?? this.timeoutMs
+    // 调用方已经取消过了就别再发请求
+    if (signal?.aborted) {
+      throw new MusicError({ code: 'canceled', message: '请求已取消' })
+    }
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(new MusicError({ code: 'timeout', message: '请求超时' })), timeoutMs ?? this.timeoutMs)
-    const onOuterAbort = () => controller.abort(signal?.reason)
+    /**
+     * 超时原因必须用**本地变量**记，不能靠 `controller.signal.reason` 反查：
+     *   - RN / expo 的 AbortController 对 `abort(reason)` 支持不一致，部分实现会直接丢掉 reason；
+     *   - expo fetch 被取消时抛的是它自己的 `FetchRequestCanceledException`，
+     *     而不是 DOM 的 `AbortError`，所以 `error.name === 'AbortError'` 也匹配不上。
+     * 两者叠加的后果就是：一次「我们自己的超时」被降级成 `code:'network'` +
+     * 一句读不懂的 `fetch failed: FetchRequestCanceledException...`，日志里根本看不出是超时。
+     */
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, effectiveTimeoutMs)
+    const onOuterAbort = () => controller.abort()
     signal?.addEventListener('abort', onOuterAbort, { once: true })
     try {
       const response = await this.fetchImpl(url, {
@@ -84,8 +101,16 @@ export class HttpClient {
         throw new MusicError({ code: 'protocol', message: '响应不是合法 JSON', status: response.status, cause })
       }
     } catch (error) {
-      if (controller.signal.aborted && controller.signal.reason instanceof MusicError) {
-        throw controller.signal.reason
+      if (timedOut) {
+        throw new MusicError({
+          code: 'timeout',
+          message: `请求超时（${effectiveTimeoutMs}ms）`,
+          cause: error,
+        })
+      }
+      // 外部 signal 取消（切歌 / 离开页面 / 主动放弃）：这是主动取消，不是网络故障
+      if (controller.signal.aborted) {
+        throw new MusicError({ code: 'canceled', message: '请求已取消', cause: error })
       }
       throw toMusicError(error)
     } finally {

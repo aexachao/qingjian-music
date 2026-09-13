@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import TrackPlayer, { Event, State, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
+import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
 import { useServerSession } from '@/lib/server-session'
 import {
+  clearForcedTranscode,
   cycleCurrentToQueueEnd,
   ensureTranscodeForIndex,
   extendWithRadio,
@@ -18,8 +20,15 @@ import {
   takePendingPreviousActivation,
 } from './controller'
 import { readPlaybackSnapshot, startPlaybackPersistence } from './persist'
+import {
+  exceedsAutoSkipBudget,
+  isNetworkFailure,
+  normalizePlaybackError,
+  pruneAutoSkips,
+} from './playback-error-policy'
 import { ensurePlayer, setLikeState } from './setup'
 import { selectCurrent, usePlayerStore } from './store'
+import { cachedTranscodeUri, invalidateTranscodeProduct } from './transcode-cache'
 import { setSessionLostHandler } from './transcode-session'
 
 import { addVolumeListener } from '../../modules/system-volume'
@@ -34,9 +43,12 @@ const REPORT_DEDUPE_MS = 5_000
 export function PlayerBridge() {
   const { provider, connection } = useServerSession()
   const queryClient = useQueryClient()
+  const toast = useToast()
   const toggleFavorite = useToggleFavorite()
   const isFavorite = usePlayerStore(selectCurrent)?.isFavorite ?? false
   const lastReport = useRef<{ qid: string; at: number } | null>(null)
+  /** 最近几次「自动跳歌」的时间戳，用来发现「连着好几首都放不出来」 */
+  const recentAutoSkips = useRef<number[]>([])
 
   // 全局持续监听系统音量变化，确保进入播放页时能立即可用最新的真实系统音量
   useEffect(() => {
@@ -57,7 +69,7 @@ export function PlayerBridge() {
 
   /**
    * 上报起播。飞牛只认「起播」这一个事件（没有进度上报），
-   * 上报成功后让「最近播放」失效，回到资料库就能看到刚听的这首。
+   * 上报成功后让「最近播放」失效，回到音乐库就能看到刚听的这首。
    */
   const reportPlay = useCallback(
     (index: number, qid?: string) => {
@@ -82,7 +94,39 @@ export function PlayerBridge() {
     [connection, provider, queryClient],
   )
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackQueueEnded, Event.PlaybackError, Event.RemoteLike], (event) => {
+  /**
+   * 播放失败后的自动跳歌。
+   *
+   * 加预算的原因：错误处理里直接 `skipToNext()` 会形成「跳一首 → 那首也失败 →
+   * 再跳」的循环，几秒钟就能把整个队列静默烧完，用户只看到歌名飞快地跳、
+   * 什么都没响。所以窗口内跳够上限就停下，把问题明确报出来。
+   */
+  const skipAfterFailure = useCallback(
+    (message: string) => {
+      const now = Date.now()
+      if (exceedsAutoSkipBudget(recentAutoSkips.current, now)) {
+        recentAutoSkips.current = []
+        console.warn('连续多首曲目播放失败，已停止自动跳歌')
+        toast('多首曲目都无法播放，请检查网络或服务器后重试')
+        void TrackPlayer.pause().catch(() => undefined)
+        return
+      }
+      recentAutoSkips.current = [...pruneAutoSkips(recentAutoSkips.current, now), now]
+      toast(message)
+      void TrackPlayer.skipToNext().catch(() => undefined)
+    },
+    [toast],
+  )
+
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackQueueEnded, Event.PlaybackError, Event.PlaybackState, Event.RemoteLike], (event) => {
+    // 真的放出来了：撤掉之前因失败打上的「强制转码」标记。
+    // 标记是永久的，误打一次会把这首之后每次播放都钉在转码路径上，这里兜住。
+    if (event.type === Event.PlaybackState && event.state === State.Playing) {
+      const { queue, index } = usePlayerStore.getState()
+      const item = queue[index]
+      if (item) clearForcedTranscode(item.qid)
+      return
+    }
     // 锁屏 / 车机上点了心形：切当前曲目的收藏，状态回流后 setLikeState 会把按钮点亮
     if (event.type === Event.RemoteLike) {
       const { queue, index } = usePlayerStore.getState()
@@ -155,14 +199,50 @@ export function PlayerBridge() {
       return
     }
     if (event.type === Event.PlaybackError) {
-      console.warn('播放失败', event.code, event.message)
-      // 原生解不了（格式白名单没覆盖到）时，改走服务端转码重试一次
       const { queue, index } = usePlayerStore.getState()
       const item = queue[index]
-      if (!item || !markForcedTranscode(item.qid)) return
-      void ensureTranscodeForIndex(index).catch((retryError: unknown) => {
-        console.warn('转码重试失败', retryError)
+      // 不能直接读 event.code / event.message：iOS 侧原生只发 { error }，
+      // 那两个字段恒为 undefined（详见 playback-error-policy.ts 的说明）。
+      const failure = normalizePlaybackError(event)
+      console.warn('播放失败', {
+        code: failure.code,
+        message: failure.message,
+        index,
+        qid: item?.qid,
+        title: item?.title,
+        format: item?.format,
+        raw: failure.raw,
       })
+      if (!item) return
+
+      /**
+       * 如果这首是从「转码产物缓存」播的，先作废缓存再走后面的重试逻辑。
+       * 不作废的话，重试会再次命中同一个坏文件 → 反复失败，而且跳歌预算会把队列烧掉。
+       * 作废之后回落服务端转码，一次就能自愈。
+       */
+      if (cachedTranscodeUri(item.serverId, item.trackId)) {
+        invalidateTranscodeProduct(item.serverId, item.trackId)
+        console.warn('转码产物缓存播放失败，已作废并回落服务端转码', { qid: item.qid, title: item.title })
+      }
+
+      // 网络类失败：往后跳一首同样是放不出来，只会把队列静默烧完。
+      // 原地停下并提示，让用户修网络后自己重试。
+      if (isNetworkFailure(failure)) {
+        toast('网络异常，播放失败，请检查网络后重试')
+        return
+      }
+
+      // 原生解不了（格式白名单没覆盖到）时，改走服务端转码重试一次
+      if (markForcedTranscode(item.qid)) {
+        toast('当前格式无法直接播放，尝试转码重试…')
+        void ensureTranscodeForIndex(index).catch((retryError: unknown) => {
+          console.warn('转码重试失败', retryError)
+          skipAfterFailure('转码重试失败，将跳过当前曲目')
+        })
+        return
+      }
+      // 已经重试过一次还是失败，跳过
+      skipAfterFailure('播放失败，将跳过当前曲目')
     }
   })
 
