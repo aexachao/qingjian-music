@@ -11,11 +11,23 @@ let lastKnownTab: 'home' | 'search' | 'library' = 'home'
  */
 export function useDetailHref() {
   const segments = useSegments()
-  if (segments[1] === 'search' || segments[1] === 'home' || segments[1] === 'library') {
-    lastKnownTab = segments[1]
+  /**
+   * 用 `at()` 而不是 `segments[i]`。
+   *
+   * `useSegments()` 的返回类型由 expo-router 生成的 `.expo/types/router.d.ts` 决定，
+   * 而那个文件在 `.gitignore` 里（Expo 的约定，且 `.expo/` 会被工具清空）——
+   * **干净检出和 CI 上都不存在**。缺它时类型退化成 1 元组 `[string]`，
+   * `segments[1]` 会直接报 TS2493，于是「干净检出跑不了类型检查」。
+   *
+   * `at()` 对元组和数组都返回 `string | undefined`，两种情况下都成立。
+   */
+  const first = segments.at(0)
+  const second = segments.at(1)
+  if (second === 'search' || second === 'home' || second === 'library') {
+    lastKnownTab = second
   }
 
-  const activeTab = segments[0] === 'player' ? lastKnownTab : segments[1]
+  const activeTab = first === 'player' ? lastKnownTab : second
   const inSearch = activeTab === 'search'
   const inHome = activeTab === 'home'
 

@@ -40,7 +40,7 @@ env:
   # 与本机一致的 Node 大版本（package.json engines: >=22）
   NODE_VERSION: '22'
 
-  # ── 发行版（见 apps/mobile/src/lib/edition.ts）─────────────────────────────
+  # ── 发行版（见 apps/mobile/src/lib/edition-policy.ts）───────────────────────
   # GitHub 上分发的构建一律是 `community`：**完整功能、不含任何购买链路**。
   #
   # 刻意放在顶层 env：Android 与 iOS 两个 job 都自动继承，不可能只给一个平台

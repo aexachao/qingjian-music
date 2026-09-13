@@ -225,6 +225,33 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 它们检查渲染期读写 ref 这类并发渲染隐患，判断本身是对的，但改起来要动交互时序，
 **必须真机验证**。先降级保证 CI 可用，**这 94 条是已知欠债，不是「没问题」**。
 
+### 干净检出为什么跑不了类型检查（生成文件陷阱）
+
+`apps/mobile/.expo/types/router.d.ts` 是 expo-router 生成的**路由类型**，被
+`.gitignore` 排除（`.expo/` 整个目录是 Expo 的约定，且会被工具清空）。
+`apps/mobile/tsconfig.json` 的 `include` 里显式列了它。
+
+**缺这个文件时，`useSegments()` 的返回类型会退化成 1 元组 `[string]`**，
+于是 `segments[1]` 报 `TS2493: Tuple type '[string]' of length '1' has no element at index '1'`。
+也就是说：**干净检出（以及 CI）根本过不了 `pnpm typecheck`** ——
+本地能过，只是因为跑过一次 `expo start` 把文件生成出来了。
+
+三条相关事实：
+
+1. **没有受支持的离线生成方式。** `setupTypedRoutes` 只被开发服务器
+   （`MetroBundlerDevServer`）调用；`expo export`、`expo prebuild` 都**不会**生成它
+   （已实测）。
+2. **`expo-env.d.ts` 与类型检查无关。** 它被 gitignore，但删掉它类型检查照样过
+   （已实测）—— 关键只有 `router.d.ts`。
+3. **所以索引 `segments` 要用 `.at(i)` 而不是 `segments[i]`。**
+   `at()` 对元组和数组都返回 `string | undefined`，两种情况都成立。
+   见 `src/lib/detail-href.ts` 的注释。
+
+> 代价要知道：CI 上没有这个文件时，expo-router 的 `Href` 联合类型是**宽松版**，
+> 也就是 CI 里 `router.push({ pathname: '/typo' })` 这类错误抓不到（本地能抓到）。
+> 另外 `scripts/guard-architecture.mjs` 的 `routes-typed` 规则在文件不存在时会
+> **显式报告跳过**（而不是静默通过）—— 这是刻意的，静默通过比不检查更糟。
+
 ### 测试环境（vitest）
 
 `apps/mobile/vitest.config.mts` 必须存在 —— 它只做一件事：把 tsconfig 的 `paths`
