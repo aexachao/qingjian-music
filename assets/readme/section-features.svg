@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="140" viewBox="0 0 1200 140"
+     width="1200" height="120" viewBox="0 0 1200 120"
      role="img" aria-labelledby="ftitle fdesc">
-  <title id="ftitle">功能特性</title>
-  <desc id="fdesc">绯红色装饰线与功能特性标题。</desc>
-  <rect width="1200" height="140" rx="16" fill="#0d0d12"/>
-  <rect x="64" y="54" width="4" height="32" rx="2" fill="#f62c55"/>
-  <text x="84" y="80"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
-        font-size="36" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
-    功能特性
+  <title id="ftitle">产品能力</title>
+  <desc id="fdesc">章节分隔条：产品能力，包含「这是什么」与「核心能力」两节。</desc>
+  <rect width="1200" height="120" rx="16" fill="#0d0d12"/>
+  <rect x="64" y="44" width="4" height="32" rx="2" fill="#f62c55"/>
+  <text x="84" y="71"
+        font-family="Montserrat, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
+        font-size="34" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
+    产品能力
   </text>
-  <text x="260" y="80"
+  <text x="244" y="71"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
-        font-size="18" font-weight="400" fill="#6b6b7b">
-    播放器 · 歌词 · 曲库 · 搜索 · 离线缓存
+        font-size="20" font-weight="400" fill="#6b6b7b">
+    这是什么 · 核心能力
   </text>
   <!-- 右侧装饰波形 -->
-  <g transform="translate(1020 55)" opacity="0.3">
+  <g transform="translate(1020 39)" opacity="0.3">
     <rect x="0"  y="12" width="6" height="18" rx="3" fill="#f62c55"/>
     <rect x="14" y="4"  width="6" height="34" rx="3" fill="#f62c55"/>
     <rect x="28" y="8"  width="6" height="26" rx="3" fill="#f62c55"/>

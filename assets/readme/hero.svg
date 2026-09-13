@@ -2,7 +2,7 @@
      width="1200" height="360" viewBox="0 0 1200 360"
      role="img" aria-labelledby="title desc">
   <title id="title">轻简音乐 — 为飞牛 fnOS 打造的精致移动端音乐播放器</title>
-  <desc id="desc">项目 hero：左侧展示名称与价值主张，右侧以绯红色音频波形条和音符图案呈现音乐播放意象。</desc>
+  <desc id="desc">项目 hero：左侧为名称与价值主张，右侧为 App 图标（绯红圆角方块上的白色音频波形条）。</desc>
 
   <defs>
     <!-- 背景微渐变 -->
@@ -15,11 +15,12 @@
       <stop offset="0%" stop-color="#f62c55" stop-opacity="0.18"/>
       <stop offset="100%" stop-color="#f62c55" stop-opacity="0"/>
     </radialGradient>
-    <!-- 波形条渐变 -->
-    <linearGradient id="barGrad" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#f62c55"/>
-      <stop offset="100%" stop-color="#ff6b8a"/>
-    </linearGradient>
+    <!-- 图标背后的柔光 -->
+    <radialGradient id="iconGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#f62c55" stop-opacity="0.35"/>
+      <stop offset="70%" stop-color="#f62c55" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#f62c55" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
   <!-- 背景 -->
@@ -76,39 +77,26 @@
     </g>
   </g>
 
-  <!-- 右侧：视觉证明区（手机轮廓 + 波形） -->
-  <g id="project-proof" transform="translate(720 48)">
-    <!-- 手机外框 -->
-    <rect x="0" y="0" width="200" height="264" rx="28" fill="#181824" stroke="#2a2a3a" stroke-width="2"/>
-    <!-- 屏幕 -->
-    <rect x="12" y="12" width="176" height="240" rx="20" fill="#0d0d12"/>
-
-    <!-- 波形条（模拟音频可视化） -->
-    <g transform="translate(88 96)">
-      <rect x="-56" y="24" width="10" height="40" rx="5" fill="url(#barGrad)"/>
-      <rect x="-40" y="8" width="10" height="72" rx="5" fill="url(#barGrad)"/>
-      <rect x="-24" y="20" width="10" height="48" rx="5" fill="url(#barGrad)"/>
-      <rect x="-8"  y="0"  width="10" height="88" rx="5" fill="url(#barGrad)"/>
-      <rect x="8"   y="16" width="10" height="56" rx="5" fill="url(#barGrad)"/>
-      <rect x="24"  y="28" width="10" height="32" rx="5" fill="url(#barGrad)"/>
-      <rect x="40"  y="12" width="10" height="64" rx="5" fill="url(#barGrad)"/>
-      <rect x="56"  y="22" width="10" height="44" rx="5" fill="url(#barGrad)"/>
-    </g>
-
-    <!-- 播放按钮 -->
-    <circle cx="100" cy="180" r="22" fill="#f62c55" fill-opacity="0.15" stroke="#f62c55" stroke-width="2"/>
-    <polygon points="94,172 94,188 110,180" fill="#f62c55"/>
-
-    <!-- 小音符装饰 -->
-    <g transform="translate(24 40)" opacity="0.25">
-      <ellipse cx="6" cy="14" rx="5" ry="4" fill="#f62c55"/>
-      <rect x="10" y="2" width="2" height="14" rx="1" fill="#f62c55"/>
-      <rect x="10" y="2" width="8" height="2" rx="1" fill="#f62c55"/>
-    </g>
-    <g transform="translate(156 200)" opacity="0.2">
-      <ellipse cx="6" cy="14" rx="5" ry="4" fill="#f62c55"/>
-      <rect x="10" y="2" width="2" height="14" rx="1" fill="#f62c55"/>
-      <rect x="10" y="2" width="8" height="2" rx="1" fill="#f62c55"/>
+  <!-- 右侧：App 图标（按 app 实际图标矢量重绘，非位图） -->
+  <circle cx="970" cy="180" r="190" fill="url(#iconGlow)"/>
+  <g id="app-icon" transform="translate(850 60) scale(0.234375)">
+    <rect width="1024" height="1024" rx="207.4" fill="#f62c55"/>
+    <g fill="#ffffff">
+      <rect x="224.4" y="619.8" width="20" height="78.4" rx="10"/>
+      <rect x="261.5" y="575.7" width="20" height="168.2" rx="10"/>
+      <rect x="300.7" y="536.5" width="20" height="244.2" rx="10"/>
+      <rect x="340.3" y="507.1" width="20" height="299.7" rx="10"/>
+      <rect x="379.9" y="488.3" width="20" height="337.3" rx="10"/>
+      <rect x="419.9" y="502.2" width="20" height="303.8" rx="10"/>
+      <rect x="459.1" y="525.9" width="20" height="254.8" rx="10"/>
+      <rect x="498.3" y="569.2" width="20" height="165.8" rx="10"/>
+      <rect x="533.0" y="280.9" width="20" height="383.8" rx="10"/>
+      <rect x="572.6" y="231.9" width="20" height="207.4" rx="10"/>
+      <rect x="612.6" y="191.9" width="20" height="282.5" rx="10"/>
+      <rect x="652.7" y="231.9" width="20" height="271.1" rx="10"/>
+      <rect x="692.7" y="273.6" width="20" height="262.9" rx="10"/>
+      <rect x="732.3" y="316.0" width="20" height="251.5" rx="10"/>
+      <rect x="772.3" y="362.6" width="20" height="205.0" rx="10"/>
     </g>
   </g>
 

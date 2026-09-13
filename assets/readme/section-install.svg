@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="140" viewBox="0 0 1200 140"
+     width="1200" height="120" viewBox="0 0 1200 120"
      role="img" aria-labelledby="ititle idesc">
-  <title id="ititle">安装</title>
-  <desc id="idesc">绯红色装饰线与安装标题。</desc>
-  <rect width="1200" height="140" rx="16" fill="#0d0d12"/>
-  <rect x="64" y="54" width="4" height="32" rx="2" fill="#f62c55"/>
-  <text x="84" y="80"
-        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
-        font-size="36" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
-    安装
+  <title id="ititle">开始使用</title>
+  <desc id="idesc">章节分隔条：开始使用，包含「前提」与「安装」两节。</desc>
+  <rect width="1200" height="120" rx="16" fill="#0d0d12"/>
+  <rect x="64" y="44" width="4" height="32" rx="2" fill="#f62c55"/>
+  <text x="84" y="71"
+        font-family="Montserrat, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
+        font-size="34" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
+    开始使用
   </text>
-  <text x="188" y="80"
+  <text x="244" y="71"
         font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
-        font-size="18" font-weight="400" fill="#6b6b7b">
-    下载即用，无需开发者账号
+        font-size="20" font-weight="400" fill="#6b6b7b">
+    前提 · 安装 · 自签
   </text>
   <!-- 右侧下载图标装饰 -->
-  <g transform="translate(1080 50)" opacity="0.25">
+  <g transform="translate(1080 46)" opacity="0.25">
     <rect x="4" y="0" width="24" height="28" rx="4" fill="none" stroke="#f62c55" stroke-width="2.5"/>
     <line x1="16" y1="16" x2="16" y2="24" stroke="#f62c55" stroke-width="2.5" stroke-linecap="round"/>
     <polyline points="12,20 16,24 20,20" fill="none" stroke="#f62c55" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
