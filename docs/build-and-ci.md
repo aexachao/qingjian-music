@@ -184,6 +184,11 @@ EXPO_PUBLIC_EDITION=store npx expo prebuild --platform ios
   生成后走 Secrets 注入，并**通过 config plugin** 写进 `android/app/build.gradle`
   （`expo prebuild` 会重写 `android/`，直接改文件会在下次 prebuild 丢失）。
 
+> **许可提醒**：社区版是 **GPL-3.0-only**，商店版走**单独的商业许可**（这就是「双许可」）。
+> 商店版能不受 GPL 约束的唯一依据是**版权集中在项目所有者手里** ——
+> 所以合并外部 PR 前必须先让对方同意 CLA，否则双轨许可从第一个 PR 起就失效了。
+> 详见 [`CONTRIBUTING.md`](../CONTRIBUTING.md) 与 README 的「许可」章节。
+
 ---
 
 ## 六、替代方案：EAS Build
