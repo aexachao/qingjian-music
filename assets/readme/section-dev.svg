@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="140" viewBox="0 0 1200 140"
+     role="img" aria-labelledby="dtitle ddesc">
+  <title id="dtitle">开发</title>
+  <desc id="ddesc">绯红色装饰线与开发标题。</desc>
+  <rect width="1200" height="140" rx="16" fill="#0d0d12"/>
+  <rect x="64" y="54" width="4" height="32" rx="2" fill="#f62c55"/>
+  <text x="84" y="80"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
+        font-size="36" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
+    开发
+  </text>
+  <text x="188" y="80"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
+        font-size="18" font-weight="400" fill="#6b6b7b">
+    架构守卫 · 类型安全 · 机械校验
+  </text>
+  <!-- 右侧代码装饰 -->
+  <g transform="translate(1040 52)" opacity="0.2">
+    <rect x="0"  y="0"  width="16" height="4" rx="2" fill="#f62c55"/>
+    <rect x="20" y="0"  width="28" height="4" rx="2" fill="#f62c55"/>
+    <rect x="0"  y="10" width="24" height="4" rx="2" fill="#f62c55"/>
+    <rect x="28" y="10" width="20" height="4" rx="2" fill="#f62c55"/>
+    <rect x="0"  y="20" width="12" height="4" rx="2" fill="#f62c55"/>
+    <rect x="16" y="20" width="32" height="4" rx="2" fill="#f62c55"/>
+    <rect x="0"  y="30" width="20" height="4" rx="2" fill="#f62c55"/>
+    <rect x="24" y="30" width="24" height="4" rx="2" fill="#f62c55"/>
+  </g>
+</svg>
