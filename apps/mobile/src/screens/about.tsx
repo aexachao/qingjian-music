@@ -12,13 +12,19 @@ import {
 } from 'react-native'
 import { useConfirm } from '@/components/confirm-modal'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
+import Constants from 'expo-constants'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useAppLogo } from '@/lib/appearance-preferences'
 import { EDITION_LABEL } from '@/lib/edition-policy'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
-const APP_VERSION = '0.1.0'
+/**
+ * 版本号**不硬编码**：从 app.json 读（构建期注入的 expoConfig）。
+ * 原先写死 `'0.1.0'`，一旦发新版本而忘了改这里，关于页就会显示一个错的版本号 ——
+ * 又一个「不报错、只是悄悄不对」。留兜底是为了拿不到 expoConfig 时仍能渲染。
+ */
+const APP_VERSION = Constants.expoConfig?.version ?? '—'
 /** iOS 上架后回填数字 ID（App Store Connect → App 信息）。留空则「五星好评」只展示说明弹窗，不会点了报错 */
 const APP_STORE_ID = ''
 /** Android 包名，与 app.json 的 android.package 保持一致 */
