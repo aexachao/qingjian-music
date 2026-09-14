@@ -70,6 +70,11 @@ headerShadowVisible 都没问题）。
 （把 `app/index.tsx` 的 Redirect 指到它），改夹具里的常量靠 Fast Refresh 就能换页面，
 验完删掉夹具并还原 index。手势类（左滑返回）只能真机验。
 
+模拟器 Debug 构建如果挂在链接期、报一堆 `facebook::react::Sealable` / `ShadowNode::getDebugName`
+之类的未定义符号（xcodebuild error 65），是 `ios/` 目录与当前依赖状态脱节 ——
+`npx expo prebuild --platform ios --clean && npx pod-install` 后重跑即可（2026-09-15 实测，
+清 DerivedData 没用）。
+
 再补两个可用的量化手段（都在 `.cache/tools/`）：
 
 - `xscan.swift <png> <y起> <y止>`：扫一条横带里的亮像素 x 聚簇，用来确认
