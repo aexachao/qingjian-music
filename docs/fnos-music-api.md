@@ -11,6 +11,30 @@ NOT working: Authorization Bearer, x-music-token, ?token=
 NAS OAuth: /sys/config -> nasOAuth.clientId ; POST /user/auth-login {code, deviceId}
 password change uses sha256(new). Account ban exists (/user/unbanned, admin only).
 
+### FN ID 中继：每个请求都必须带 `Cookie: mode=relay`（2026-09-15 实测）
+
+走 FN ID 时 base 是 `https://<fnid>.fnos.net`。这个域名**同时也是浏览器门户**：
+不带 `Cookie: mode=relay` 时 nginx 对**所有**路径返回 `302 → https://fnos.net/<fnid>/`，
+拿到的是一张 HTML 门户页而不是接口 JSON。带上之后一切照常。
+
+```
+带 Cookie: mode=relay   → 200 {"code":0,...,"serverGUID":"fde44845…"}
+不带                    → 302 / HTML 门户页
+```
+
+两个必须知道的行为：
+
+- **探测也得分带/不带**：`GET <base>/music/api/v1/sys/config` 不带 cookie 是 302，
+  所以「探测说不可达」不等于「FN ID 不通」——判定逻辑必须带着标记去探。
+- **失败长得像凭据错误**：门户页不是合法信封，客户端会翻成 `protocol`，
+  而登录页把 `protocol` 显示成「账号或密码不正确」。**看到的密码错，很可能其实是地址错。**
+
+另外 `https://fnos.net/api/v1/fn/con`（FN Connect 云端解析）**已失效**：
+签名头校验仍通过（错的 authx 会返回 `{"code":5000,"msg":"invalid sign"}`），
+但任何 fnId 都返回 `{"code":3000037,"msg":"Not Found Error"}`，空 body 也一样。
+所以现在只能回落到 `https://<fnid>.fnos.net` 穿透域名 —— 拿不到局域网候选，
+同网段下也会绕一圈公网中继。
+
 ## verified param names (2026-09-04, probe against live NAS)
 /track/album-detail/list?albumGUID=      (guid / albumGuid -> 100002)
 /track/artist-detail/list?artistGUID=

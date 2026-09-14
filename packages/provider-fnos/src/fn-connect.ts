@@ -103,9 +103,36 @@ function isValidHostname(value: string): boolean {
   return lower.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
 }
 
-function isOfficialRelayHostname(value: string): boolean {
+/**
+ * 是否飞牛官方中继域名（FN Connect 穿透）。
+ *
+ * 这个判断有两个用处，都是硬约束：
+ *   1. 解析时只接受官方域名的中继候选，避免把任意域名当成穿透入口；
+ *   2. **请求中继必须带 `Cookie: mode=relay`** —— 不带的话 nginx 会把请求
+ *      302 到 `https://fnos.net/<fnid>/` 的浏览器门户页，接口一个都调不通。
+ */
+export function isOfficialRelayHostname(value: string): boolean {
   const lower = value.toLowerCase()
   return lower === 'fnos.net' || lower.endsWith('.fnos.net')
+}
+
+/** 中继模式标记。FN Connect 的 nginx 只有看到它，才会把请求转发到 NAS 而不是门户页 */
+const FN_RELAY_COOKIE = 'mode=relay'
+
+/**
+ * 访问该地址时必须附带的中继请求头；非中继地址返回空对象。
+ *
+ * 判定收敛在**一处**：探测、登录、浏览、取流都从这里取。分开写迟早会漂移，
+ * 而漂移的表现是「探测说地址可用，真正请求却拿到一张门户页 HTML」。
+ */
+export function relayHeadersFor(url: string): Record<string, string> {
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname
+  } catch {
+    return {}
+  }
+  return isOfficialRelayHostname(hostname) ? { Cookie: FN_RELAY_COOKIE } : {}
 }
 
 function safeEndpoint(raw: string, defaultPort: number, expectedIp?: 4 | 6): { host: string; port: number } | null {
@@ -180,6 +207,9 @@ export async function probeUrl(url: string, timeoutMs = 1800, fetchImpl: typeof 
       method: 'GET',
       redirect: 'manual',
       signal: controller.signal,
+      // 中继地址必须带中继标记：不带的话 nginx 一律 302 到门户页，
+      // 于是**正确的穿透地址也会被这里判成不可达**。
+      headers: relayHeadersFor(url),
     })
     return response.status >= 200 && response.status < 500 && (response.status < 300 || response.status >= 400)
   } catch {

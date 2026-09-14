@@ -2,6 +2,7 @@ import { isMusicError, MusicError } from '@qj/core-domain'
 import { HttpClient, type QueryValue, type RequestOptions } from '@qj/provider-api'
 import type { z } from 'zod'
 import { FNOS_API_PREFIX, FNOS_CODES } from './endpoints'
+import { relayHeadersFor } from './fn-connect'
 import { envelopeSchema } from './schemas'
 
 export interface FnosClientOptions {
@@ -31,14 +32,25 @@ export class FnosClient {
   constructor(options: FnosClientOptions) {
     this.token = options.token
     this.reauthorize = options.reauthorize
+    const root = options.baseUrl.replace(/\/+$/, '')
+    /**
+     * FN ID 走的是 `https://<fnid>.fnos.net` 中继。这个域名同时也是浏览器门户，
+     * 不带 `Cookie: mode=relay` 时 nginx 会把**所有**请求 302 到 `https://fnos.net/<fnid>/`
+     * 的 HTML 门户页 —— 登录、浏览、取流全都会拿到一张网页，前端只能翻译成
+     * 「账号或密码不正确」这种和真实原因毫不相干的提示。
+     *
+     * 这里按 baseUrl 的域名判定，登录、浏览、取流、封面共用同一份头，
+     * 不会出现「某个入口忘了带」的漏网。
+     */
+    const relayHeaders = relayHeadersFor(root)
     this.http = new HttpClient({
-      baseUrl: `${options.baseUrl.replace(/\/+$/, '')}${FNOS_API_PREFIX}`,
+      baseUrl: `${root}${FNOS_API_PREFIX}`,
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl,
       headers: () => {
         const headers: Record<string, string> = {}
         if (this.token) headers['authorization'] = this.token
-        return headers
+        return { ...headers, ...relayHeaders }
       },
     })
   }
