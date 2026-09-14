@@ -2,6 +2,7 @@ import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-nati
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useRouter } from 'expo-router'
 import * as Clipboard from 'expo-clipboard'
+import Constants from 'expo-constants'
 import { useQuery } from '@tanstack/react-query'
 import { CollapsibleHeaderBar, LargeTitleHeader } from '@/components/collapsible-tab-header'
 import { useConfirm } from '@/components/confirm-modal'
@@ -17,6 +18,9 @@ import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
 const FEEDBACK_EMAIL = 'arieachao@163.com'
+
+/** 版本号从 app.json 读，不硬编码 —— 写死会在发新版后静默显示错版本 */
+const APP_VERSION = Constants.expoConfig?.version ?? '—'
 
 /**
  * 设置页：对齐 Apple Music 风格的一级页签。
@@ -58,7 +62,7 @@ export function SettingsScreen() {
   const onFeedback = async () => {
     const subject = encodeURIComponent('轻简音乐客户端 - 问题与建议')
     const body = encodeURIComponent(
-      `\n\n--------------------------\n设备系统: ${Platform.OS} ${Platform.Version}\n客户端版本: 0.1.0\n`,
+      `\n\n--------------------------\n设备系统: ${Platform.OS} ${Platform.Version}\n客户端版本: ${APP_VERSION}\n`,
     )
     const url = `mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`
 
@@ -81,6 +85,11 @@ export function SettingsScreen() {
   // 2. 关于
   const onAbout = () => {
     router.push('/(tabs)/settings/about')
+  }
+
+  // 3. 支持作者
+  const onSupport = () => {
+    router.push('/(tabs)/settings/support')
   }
 
   // 3. 退出登录
@@ -170,9 +179,15 @@ export function SettingsScreen() {
           />
           <View style={styles.divider} />
           <SettingsRow
+            icon="heart"
+            label="支持作者"
+            onPress={onSupport}
+          />
+          <View style={styles.divider} />
+          <SettingsRow
             icon="about"
             label="关于"
-            value="v0.1.0"
+            value={`v${APP_VERSION}`}
             onPress={onAbout}
           />
         </View>
