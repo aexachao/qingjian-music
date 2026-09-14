@@ -58,7 +58,6 @@
       "./plugins/with-ios-ldflags-dedupe",
       "./plugins/with-app-icons",
       "./plugins/with-android-cleartext",
-      "./plugins/with-android-legacy-arch",
       [
         "expo-splash-screen",
         {
