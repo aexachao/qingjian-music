@@ -81,3 +81,43 @@ describe('外观主题与 Logo 自定义选择规范', () => {
     expect(aboutSource).toContain('source={activeLogo.source}')
   })
 })
+
+describe('应用图标矩阵的排布契约', () => {
+  const prefsSource = readSource('lib/appearance-preferences.ts')
+  const screenSource = readSource('screens/appearance-settings.tsx')
+
+  /** 图标在 APP_LOGOS 里的声明顺序，也就是界面顺序 */
+  const logoOrder = [...prefsSource.matchAll(/id: '([a-z-]+)'/g)].map((match) => match[1])
+
+  it('顺序：默认（绯红声谱）第一，暗夜声律第二，流光金弦第三', () => {
+    expect(logoOrder).toEqual(['crimson-bars', 'dark-bars', 'gold-glow'])
+  })
+
+  it('默认图标必须排在第一位 —— 界面就是按数组顺序渲染的', () => {
+    const defaultId = /export const DEFAULT_LOGO_ID = '([a-z-]+)'/.exec(prefsSource)?.[1]
+    expect(defaultId).toBe('crimson-bars')
+    expect(logoOrder[0]).toBe(defaultId)
+  })
+
+  it('三款图标的名字都在', () => {
+    for (const name of ['绯红声谱', '暗夜声律', '流光金弦']) {
+      expect(prefsSource).toContain(name)
+    }
+  })
+
+  it('一行固定 4 格：只有 3 款时第 4 格留白，不能把 3 款拉伸铺满整行', () => {
+    // flexGrow 会让 3 个图标各自撑大填满一整行，第 4 格就不存在了；
+    // 用固定 width: '25%' 才能保证「不够四个也按四个排」。
+    expect(screenSource).toContain("width: '25%'")
+    expect(screenSource).not.toContain('flexGrow')
+  })
+
+  it('图标只显示名称，不显示下方描述小字', () => {
+    expect(screenSource).toContain('{logo.name}')
+    // 描述不再作为可见文本渲染（配对的样式也一并删掉）……
+    expect(screenSource).not.toMatch(/>\s*\{logo\.description\}/)
+    expect(screenSource).not.toContain('logoDesc')
+    // ……但仍留在无障碍标签里：视觉上省掉一行小字，读屏用户不该跟着丢信息
+    expect(screenSource).toContain('accessibilityLabel={`${logo.name}，${logo.description}')
+  })
+})

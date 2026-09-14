@@ -17,7 +17,7 @@ import { supportsAlternateIcons } from '../../modules/app-icon'
 /**
  * 外观主题设置页（二级页面）：
  * 1. 模块 1：应用主题（亮色、暗色、跟随系统）
- * 2. 模块 2：应用图标（4 款官方 Logo 矩阵选择，即时全局联动更新）
+ * 2. 模块 2：应用图标（一行 4 格的矩阵，只显示名称，即时全局联动更新）
  */
 export function AppearanceSettingsScreen() {
   const colors = useThemeColors()
@@ -156,9 +156,6 @@ export function AppearanceSettingsScreen() {
                           </View>
                         ) : null}
                       </View>
-                      <Text numberOfLines={1} style={styles.logoDesc}>
-                        {logo.description}
-                      </Text>
                     </View>
                   </Pressable>
                 )
@@ -249,24 +246,27 @@ const useStyles = createThemedStyles((colors) => ({
   logoGridCard: {
     backgroundColor: colors.bgCard,
     borderRadius: 20,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
+  /**
+   * 一行固定 4 个。用 `width: '25%'` 而不是 `flexGrow` + `gap`：
+   * 后者会把 3 个图标拉伸铺满整行，第 4 格就不存在了 —— 而需求是
+   * 「只有 3 个也按 4 个排」，第 4 格必须留白。
+   */
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
   },
   logoItem: {
-    width: '48%',
-    flexGrow: 1,
+    width: '25%',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
     backgroundColor: colors.bgListItemSoft,
     borderWidth: 1.5,
     borderColor: 'transparent',
-    gap: 10,
+    gap: 8,
   },
   logoItemSelected: {
     backgroundColor: 'rgba(246, 44, 85, 0.08)',
@@ -277,13 +277,13 @@ const useStyles = createThemedStyles((colors) => ({
   },
   logoImageWrapper: {
     position: 'relative',
-    width: 72,
-    height: 72,
+    width: 52,
+    height: 52,
   },
   logoImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 13,
   },
   logoImageActiveBorder: {
     shadowColor: colors.accent,
@@ -295,9 +295,9 @@ const useStyles = createThemedStyles((colors) => ({
     position: 'absolute',
     top: -3,
     right: -3,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -307,17 +307,16 @@ const useStyles = createThemedStyles((colors) => ({
   logoMeta: {
     alignItems: 'center',
     width: '100%',
-    gap: 2,
   },
   logoTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
   },
   logoName: {
-    ...typography.callout,
-    fontSize: 15,
+    ...typography.caption,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textPrimary,
   },
@@ -326,19 +325,13 @@ const useStyles = createThemedStyles((colors) => ({
   },
   defaultBadge: {
     backgroundColor: colors.badgeBg,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
     borderRadius: 4,
   },
   defaultBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     color: colors.textSecondary,
-  },
-  logoDesc: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textTertiary,
-    textAlign: 'center',
   },
 }))

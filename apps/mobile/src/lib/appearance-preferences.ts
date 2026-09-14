@@ -40,10 +40,19 @@ export interface AppLogoOption {
 }
 
 /**
- * 3 款官方精心设计的应用图标：
- * 默认选中「绯红声谱」（即用户指定的主视觉 Logo）。
+ * 3 款官方精心设计的应用图标，**顺序即界面顺序**：
+ * 默认的「绯红声谱」排第一，其后是暗夜声律、流光金弦。
+ *
+ * 界面按一行 4 个的网格渲染，所以这里的顺序直接决定用户看到的第一屏。
  */
 export const APP_LOGOS: readonly AppLogoOption[] = [
+  {
+    id: 'crimson-bars',
+    name: '绯红声谱',
+    description: '品牌绯红 · 动感声浪',
+    source: require('../../assets/images/logos/logo-crimson-bars.png'),
+    isDefault: true,
+  },
   {
     id: 'dark-bars',
     name: '暗夜声律',
@@ -55,13 +64,6 @@ export const APP_LOGOS: readonly AppLogoOption[] = [
     name: '流光金弦',
     description: '黑金流光 · 温暖透亮',
     source: require('../../assets/images/logos/logo-gold-glow.png'),
-  },
-  {
-    id: 'crimson-bars',
-    name: '绯红声谱',
-    description: '品牌绯红 · 动感声浪',
-    source: require('../../assets/images/logos/logo-crimson-bars.png'),
-    isDefault: true,
   },
 ] as const
 
