@@ -1,14 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const rntpPatchPath = fileURLToPath(
-  new URL('../../../../patches/react-native-track-player@4.1.2.patch', import.meta.url),
-)
-
-function modulePath(module: string, file: string) {
-  return fileURLToPath(new URL(`../../modules/${module}/${file}`, import.meta.url))
-}
+import { readPackageFile, readRepoFile } from '../support/source'
 
 // ── 平台与原生模块替身 ────────────────────────────────────────────────────────
 // 变量名必须以 `mock` 开头，否则 vi.mock 的工厂引用不到（vitest 的硬性要求）
@@ -111,14 +102,11 @@ describe('本地原生模块的平台隔离（行为断言）', () => {
   })
 
   it('Android 的原生侧确实实现了 AudioManager 音量读写', () => {
-    const moduleConfig = JSON.parse(readFileSync(modulePath('system-volume', 'expo-module.config.json'), 'utf8'))
+    const moduleConfig = JSON.parse(readPackageFile('modules/system-volume/expo-module.config.json'))
     expect(moduleConfig.platforms).toContain('android')
     expect(moduleConfig.android.modules).toEqual(['expo.modules.systemvolume.SystemVolumeModule'])
 
-    const kotlin = readFileSync(
-      modulePath('system-volume', 'android/src/main/java/expo/modules/systemvolume/SystemVolumeModule.kt'),
-      'utf8',
-    )
+    const kotlin = readPackageFile('modules/system-volume/android/src/main/java/expo/modules/systemvolume/SystemVolumeModule.kt')
     expect(kotlin).toContain('AudioManager.STREAM_MUSIC')
     // flags 传 0 才不会弹系统音量 HUD，与 iOS 的静默改音量对齐
     expect(kotlin).toContain('setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)')
@@ -126,7 +114,7 @@ describe('本地原生模块的平台隔离（行为断言）', () => {
   })
 
   it('RNTP iOS Bridge 不导出原生未实现的睡眠定时器方法', () => {
-    const patch = readFileSync(rntpPatchPath, 'utf8')
+    const patch = readRepoFile('patches/react-native-track-player@4.1.2.patch')
     for (const method of [
       'setSleepTimer',
       'clearSleepTimer',
@@ -138,7 +126,7 @@ describe('本地原生模块的平台隔离（行为断言）', () => {
   })
 
   it('SystemVolume 不在 Expo Module 构造期间创建 UIKit 视图', () => {
-    const source = readFileSync(modulePath('system-volume', 'ios/SystemVolumeModule.swift'), 'utf8')
+    const source = readPackageFile('modules/system-volume/ios/SystemVolumeModule.swift')
     const moduleSource = source.slice(source.indexOf('public class SystemVolumeModule'))
 
     // 声明期不创建 MPVolumeView（模块可能在非主线程初始化），首次设音量时才在主线程懒建

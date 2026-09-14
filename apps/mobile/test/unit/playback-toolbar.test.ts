@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readSource } from '../support/source'
 
-const controllerSource = readFileSync(resolve(__dirname, '../../src/player/controller.ts'), 'utf8')
-const bridgeSource = readFileSync(resolve(__dirname, '../../src/player/bridge.tsx'), 'utf8')
+const controllerSource = readSource('player/controller.ts')
+const bridgeSource = readSource('player/bridge.tsx')
 
 describe('播放工具栏：随机 / 循环 / 无限', () => {
   it('随机开关先翻转状态，重排用原位 move、不重新拉流', () => {
@@ -40,7 +39,7 @@ describe('播放工具栏：随机 / 循环 / 无限', () => {
   })
 
   it('歌词图标使用 1:1 Apple 风格的实心反白双引号气泡 SVG 绘制', () => {
-    const iconSource = readFileSync(resolve(__dirname, '../../src/components/icon.tsx'), 'utf8')
+    const iconSource = readSource('components/icon.tsx')
     expect(iconSource).toContain("name === 'lyrics'")
     expect(iconSource).toContain('fillRule="evenodd"')
     expect(iconSource).toContain('viewBox="0 0 24 24"')

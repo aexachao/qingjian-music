@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import type { QueueItem } from '@qj/core-domain'
 import { formatAudioSourceInfo } from '../../src/lib/audio-info'
 import { usePlayerStore } from '../../src/player/store'
-
-function source(path: string): string {
-  return readFileSync(resolve(__dirname, `../../src/${path}`), 'utf8')
-}
+import { readSource } from '../support/source'
 
 const baseItem: QueueItem = {
   qid: 'srv:track1:1',
@@ -72,26 +67,26 @@ describe('播放与转码 Loading 状态与 UI 契约', () => {
   })
 
   it('全屏播放器 (PlayerDeck) 将音源信息直接嵌入开始/结束时间中间，并为播放按钮接入 loading', () => {
-    const deckSource = source('components/player/player-deck.tsx')
+    const deckSource = readSource('components/player/player-deck.tsx')
     expect(deckSource).toContain('<ProgressBar')
     expect(deckSource).toContain('centerLabel={audioSourceInfo}')
     expect(deckSource).toContain('formatAudioSourceInfo(current)')
     expect(deckSource).toContain('loading={isAudioLoading}')
 
-    const progressSource = source('components/progress-bar.tsx')
+    const progressSource = readSource('components/progress-bar.tsx')
     expect(progressSource).toContain('centerLabel?: string')
     expect(progressSource).toContain('centerInfo')
     expect(progressSource).toContain('{centerLabel}')
   })
 
   it('迷你播放器 (MiniPlayer) 为播放/暂停按钮接入 loading', () => {
-    const miniSource = source('components/mini-player.tsx')
+    const miniSource = readSource('components/mini-player.tsx')
     expect(miniSource).toContain('useIsAudioLoading')
     expect(miniSource).toContain('loading={isAudioLoading}')
   })
 
   it('IconButton 支持 loading 态并渲染 ActivityIndicator', () => {
-    const iconSource = source('components/icon.tsx')
+    const iconSource = readSource('components/icon.tsx')
     expect(iconSource).toContain('loading?: boolean')
     expect(iconSource).toContain('<ActivityIndicator')
   })

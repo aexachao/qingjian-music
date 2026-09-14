@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
@@ -8,7 +6,7 @@ const plugin = require('../../plugins/with-android-cleartext') as {
   applyCleartext: (manifest: unknown) => unknown
 }
 
-const appConfig = JSON.parse(readFileSync(resolve(__dirname, '../../app.json'), 'utf8')) as {
+const appConfig = require('../../app.json') as {
   expo: { plugins: unknown[]; android: Record<string, unknown> }
 }
 

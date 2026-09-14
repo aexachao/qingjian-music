@@ -1,17 +1,12 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { isFnId } from '@qj/provider-fnos'
-
-function source(path: string) {
-  return readFileSync(fileURLToPath(new URL(`../../src/${path}`, import.meta.url)), 'utf8')
-}
+import { readSource } from '../support/source'
 
 describe('登录页布局与 FN ID 交互规范', () => {
-  const loginSource = source('app/login.tsx')
+  const loginSource = readSource('app/login.tsx')
 
   it('采用轻简音乐自身品牌资产与设计规范（去除冗余标题与标题栏）', () => {
-    const layoutSource = source('app/_layout.tsx')
+    const layoutSource = readSource('app/_layout.tsx')
     expect(layoutSource).toContain('<Stack.Screen name="login" options={{ headerShown: false }} />')
     expect(loginSource).toContain('assets/images/icon.png')
     expect(loginSource).not.toContain('连接你的飞牛音乐服务器')

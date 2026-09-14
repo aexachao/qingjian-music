@@ -1,11 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { getThemeColors, palette, themeColors } from '../../src/theme/tokens'
-
-function source(relPath: string): string {
-  return readFileSync(resolve(__dirname, `../../src/${relPath}`), 'utf8')
-}
+import { readSource } from '../support/source'
 
 describe('运行时主题 token 架构', () => {
   it('深浅色 palette 键完整对齐且返回稳定主题对象', () => {
@@ -18,7 +13,7 @@ describe('运行时主题 token 架构', () => {
   })
 
   it('AppThemeProvider 提供颜色 hook 与响应式 StyleSheet 工厂', () => {
-    const provider = source('theme/theme-provider.tsx')
+    const provider = readSource('theme/theme-provider.tsx')
     expect(provider).toContain('export function AppThemeProvider')
     expect(provider).toContain('export function useThemeColors')
     expect(provider).toContain('export function createThemedStyles')
@@ -26,7 +21,7 @@ describe('运行时主题 token 架构', () => {
   })
 
   it('根布局同时驱动应用主题、导航主题和状态栏', () => {
-    const layout = source('app/_layout.tsx')
+    const layout = readSource('app/_layout.tsx')
     expect(layout).toContain('<AppThemeProvider mode={effectiveTheme} followsSystem={followsSystem}>')
     expect(layout).toContain('getNavigationTheme(effectiveTheme)')
     expect(layout).toContain('useStackScreenOptions()')
@@ -34,7 +29,7 @@ describe('运行时主题 token 架构', () => {
   })
 
   it('导航 options 动态生成且不写 headerStyle', () => {
-    const stack = source('lib/stack-options.ts')
+    const stack = readSource('lib/stack-options.ts')
     expect(stack).toContain('export function useStackScreenOptions')
     expect(stack).toContain('contentStyle: { backgroundColor: colors.bgPrimary }')
     expect(stack).not.toContain('headerStyle:')
@@ -51,7 +46,7 @@ describe('运行时主题 token 架构', () => {
       'screens/appearance-settings.tsx',
     ]
     for (const file of candidates) {
-      expect(source(file)).not.toMatch(/import \{[^\n]*\bcolors\b[^\n]*\} from ['"]@\/theme\/tokens['"]/)
+      expect(readSource(file)).not.toMatch(/import \{[^}]*\bcolors\b[^}]*\} from ['"]@\/theme\/tokens['"]/)
     }
   })
 })

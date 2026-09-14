@@ -1,19 +1,14 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-
-function source(relPath: string): string {
-  return readFileSync(resolve(__dirname, `../../src/${relPath}`), 'utf8')
-}
+import { readSource } from '../support/source'
 
 describe('外观主题与 Logo 自定义选择规范', () => {
-  const appearancePrefsSource = source('lib/appearance-preferences.ts')
-  const appearanceScreenSource = source('screens/appearance-settings.tsx')
-  const settingsScreenSource = source('screens/settings.tsx')
-  const layoutSource = source('app/_layout.tsx')
-  const stackOptionsSource = source('lib/stack-options.ts')
-  const loginSource = source('app/login.tsx')
-  const aboutSource = source('screens/about.tsx')
+  const appearancePrefsSource = readSource('lib/appearance-preferences.ts')
+  const appearanceScreenSource = readSource('screens/appearance-settings.tsx')
+  const settingsScreenSource = readSource('screens/settings.tsx')
+  const layoutSource = readSource('app/_layout.tsx')
+  const stackOptionsSource = readSource('lib/stack-options.ts')
+  const loginSource = readSource('app/login.tsx')
+  const aboutSource = readSource('screens/about.tsx')
 
   it('外观配置中心：默认主题为跟随系统，默认 Logo 为绯红声谱', () => {
     expect(appearancePrefsSource).toContain("themeMode: 'system'")

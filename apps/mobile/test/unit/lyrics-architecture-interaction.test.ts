@@ -1,11 +1,10 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readSource } from '../support/source'
 
 describe('播放器歌词页极简常驻架构与交互规范验证', () => {
-  const playerSource = readFileSync(resolve(__dirname, '../../src/app/player.tsx'), 'utf8')
-  const lyricViewSource = readFileSync(resolve(__dirname, '../../src/components/lyric-view.tsx'), 'utf8')
-  const queueSource = readFileSync(resolve(__dirname, '../../src/components/player/player-queue.tsx'), 'utf8')
+  const playerSource = readSource('app/player.tsx')
+  const lyricViewSource = readSource('components/lyric-view.tsx')
+  const queueSource = readSource('components/player/player-queue.tsx')
 
   it('播放列表导出 CurrentTrackCard，并在歌词页吸顶固定复用', () => {
     // CurrentTrackCard 设为 export
@@ -36,7 +35,7 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('封面、播放列表与歌词之间采用统一景深 scale 与微位移过渡，且禁用 layout 尺寸动画', () => {
-    const deckSource = readFileSync(resolve(__dirname, '../../src/components/player/player-deck.tsx'), 'utf8')
+    const deckSource = readSource('components/player/player-deck.tsx')
     // PlayerDeck 标题收起禁用 maxHeight 与 marginBottom 破坏性布局动画，保证播放控制按钮绝对稳定
     expect(deckSource).not.toContain('maxHeight')
     expect(deckSource).not.toContain('marginBottom')
@@ -91,7 +90,7 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('播放列表视口占满舞台直达控制区：PlayerTitleRow 归入 coverStage，PlayerDeck 无幽灵高度', () => {
-    const deckSource = readFileSync(resolve(__dirname, '../../src/components/player/player-deck.tsx'), 'utf8')
+    const deckSource = readSource('components/player/player-deck.tsx')
     expect(deckSource).toContain('export function PlayerTitleRow')
     expect(playerSource).toContain('PlayerTitleRow')
     expect(playerSource).toContain('hideTitle={true}')

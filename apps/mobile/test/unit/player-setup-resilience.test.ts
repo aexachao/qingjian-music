@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readPackageFile } from '../support/source'
 
 /**
  * 播放器初始化（`src/player/setup.ts`）的**行为**测试。
@@ -257,10 +256,7 @@ describe('播放器初始化：容错条件与 RNTP 文案对齐', () => {
   const MESSAGE = 'The player has already been initialized via setupPlayer.'
 
   const rntpSource = (relativePath: string) =>
-    readFileSync(
-      fileURLToPath(new URL(`../../node_modules/react-native-track-player/${relativePath}`, import.meta.url)),
-      'utf8',
-    )
+    readPackageFile(`node_modules/react-native-track-player/${relativePath}`)
 
   it('iOS 的「已初始化」文案与容错条件对得上', () => {
     const swift = rntpSource('ios/RNTrackPlayer/RNTrackPlayer.swift')

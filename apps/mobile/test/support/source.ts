@@ -59,3 +59,15 @@ export function readSources<T extends Record<string, string>>(map: T): Record<ke
   }
   return out
 }
+
+const PKG_ROOT = resolve(__dirname, '../..')
+
+/** src/ 以外的包内文件（modules/、plugins/ 等），原文读取 —— 这些不是「写法断言」，不需要去注释 */
+export function readPackageFile(relativePath: string): string {
+  return readFileSync(resolve(PKG_ROOT, relativePath), 'utf8')
+}
+
+/** 仓库根下的文件（如 patches/），原文读取 */
+export function readRepoFile(relativePath: string): string {
+  return readFileSync(resolve(PKG_ROOT, '../..', relativePath), 'utf8')
+}

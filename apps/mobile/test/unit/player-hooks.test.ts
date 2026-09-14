@@ -1,10 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-
-const playerPath = fileURLToPath(new URL('../../src/app/player.tsx', import.meta.url))
-const setupPath = fileURLToPath(new URL('../../src/player/setup.ts', import.meta.url))
+import { hasNoCode, readRawSource } from '../support/source'
 
 function isHookCall(node: ts.Node): boolean {
   return (
@@ -26,13 +22,13 @@ function hookCallsWithin(node: ts.Node): string[] {
 
 describe('PlayerScreen Hook 顺序', () => {
   it('不启用无人监听的原生进度事件', () => {
-    expect(readFileSync(setupPath, 'utf8')).not.toContain('progressUpdateEventInterval')
+    expect(hasNoCode('player/setup.ts', 'progressUpdateEventInterval')).toBe(true)
   })
 
   it('空队列分支之后不再调用 Hook', () => {
     const source = ts.createSourceFile(
-      playerPath,
-      readFileSync(playerPath, 'utf8'),
+      'player.tsx',
+      readRawSource('app/player.tsx'),
       ts.ScriptTarget.Latest,
       true,
       ts.ScriptKind.TSX,

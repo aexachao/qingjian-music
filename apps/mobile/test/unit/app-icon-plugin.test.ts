@@ -3,9 +3,10 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readPackageFile } from '../support/source'
 
 const root = resolve(__dirname, '../..')
-const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
+const read = readPackageFile
 
 const require_ = createRequire(import.meta.url)
 const plugin = require_(resolve(root, 'plugins/with-app-icons.js')) as {
