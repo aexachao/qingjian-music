@@ -2,7 +2,7 @@
   "expo": {
     "name": "轻简音乐",
     "slug": "qingjian-music",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/images/app-icons/ios/crimson-bars.png",
     "scheme": "qingjianmusic",
