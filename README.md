@@ -127,16 +127,14 @@ pnpm android        # 本机跑 Android
 
 ## 自己构建
 
-本机不需要装 JDK / Android SDK —— 出包交给 GitHub Actions：
+本机不需要装 JDK / Android SDK —— 出包交给 GitHub Actions。
+
+**发布是自动的**：把 `apps/mobile/app.json` 的版本号改掉并推到 `master`，工作流会自动打 tag、构建双端安装包并发布到 Release。版本号没变时不会重复构建。
+
+也可以在 Actions 页面手动触发（勾 `force` 可强制重发当前版本）：
 
 ```
 Actions → Build → Run workflow
-```
-
-打 tag 会自动出包并挂到 Release：
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
 ```
 
 完整的构建说明见 [`docs/build-and-ci.md`](docs/build-and-ci.md)。

@@ -7,18 +7,29 @@
 
 ## 一、怎么触发
 
+**发布是自动的：改 `apps/mobile/app.json` 里的版本号并推到 `master`，就会自动打 tag、构建、发布 Release。**
+版本号没变时不会重复构建（只跑一个几秒的 `version` job），所以日常推 master 不会白烧 macOS 分钟数。
+
 | 方式 | 操作 | 结果 |
 | --- | --- | --- |
-| 手动 | Actions → **Build** → Run workflow | 出一版包（artifact） |
-| 打 tag | `git tag v0.1.0 && git push origin v0.1.0` | 出包并自动挂到 GitHub Release |
-| 日常推送 | `git push` | 跑 **CI**：完整 JS/TS 校验 + SwiftLint 0 warning + iOS Release 编译与产物校验；不出包 |
+| **改版本号** | 把 `app.json` 的 `expo.version` 改成 `0.1.1` 并推 `master` | **自动**打 tag `v0.1.1` → 构建 → 发布 Release |
+| 手动推 tag | `git tag v0.1.1 && git push origin v0.1.1` | 同上（tag 已存在则只构建发布） |
+| 手动重发 | Actions → **Build** → Run workflow，勾 **force** | 强制重发当前版本（产物 `--clobber` 覆盖） |
+| 日常推送 | `git push`（版本号没变） | 只跑 **CI**：完整 JS/TS 校验 + SwiftLint + iOS Release 编译与产物校验；不出包 |
+
+> **tag 名必须等于 `app.json` 的版本号**，否则构建直接失败。
+> 这条校验防的是「发了 v0.2.0，但包里装的还是 0.1.0」—— 一个不报错、只静默坑用户的问题。
+
+> **为什么打 tag 与发布必须在同一个 workflow run 里做完**：用 `GITHUB_TOKEN` 推出去
+> 的 tag **不会再触发其它 workflow**（GitHub 防递归的既定行为）。所以「自动打 tag →
+> 靠 tag push 触发构建」这条路是不通的，`build.yml` 的 `version` job 一次做完两件事。
 
 两个工作流分工：
 
 | 文件 | 触发 | 内容 |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | push / PR / 手动 | 架构守卫、ESLint、类型检查、单测、SwiftLint、iOS Release 编译与产物校验；（可选）契约测试 |
-| `.github/workflows/build.yml` | 手动 / tag | 校验 → JS 打包检查 → Android APK → iOS 未签名 IPA |
+| `.github/workflows/ci.yml` | push / PR / 手动 | 架构守卫、文档事实守卫、ESLint、类型检查、单测、SwiftLint、iOS Release 编译与产物校验；（可选）契约测试 |
+| `.github/workflows/build.yml` | push `master` / tag / 手动 | 解析版本与 tag → 校验 → JS 打包检查 → Android APK + iOS 未签名 IPA → **发布 Release** |
 
 ---
 

@@ -1,31 +1,51 @@
 name: Build
 
-# 在 GitHub 上构建可分发的安装包，本机不需要装 JDK / Android SDK / Xcode。
+# 在 GitHub 上构建可分发的安装包，并发布到 GitHub Release。
+# 本机不需要装 JDK / Android SDK / Xcode。
 #
-# 触发方式：
-#   · 手动：Actions → Build → Run workflow
-#   · 打 tag：git tag v0.1.0 && git push origin v0.1.0（产物会自动挂到 GitHub Release）
+# ── 触发与发布规则 ─────────────────────────────────────────────────────────
+#   · 推到 master：读取 apps/mobile/app.json 的版本号，若 `v<版本号>` 这个 tag
+#     还不存在，就**自动打 tag → 构建 → 发布 Release**；版本号没变则只跑一个
+#     几秒的 version job 就结束，不白烧 macOS 分钟数。
+#   · 手动：Actions → Build → Run workflow，勾 force 可强制重发当前版本。
+#   · 手动推 tag（`git push origin v0.1.0`）：同样构建并发布，用于补发或重发。
 #
-# 产物：
-#   · android-apk        —— **可直装**的 release APK（JS 已内嵌，装到手机上不需要 Metro）
-#   · ios-unsigned-ipa   —— **未签名**的 iOS 设备版 IPA，供用户用 Apple ID 自签
-#                           （Sideloadly / AltStore / ESign 等），无需付费开发者账号
+#   ⚠️ tag 名必须与 app.json 的版本号一致，否则直接失败。
+#   防的是「发了 v0.2.0，但包里装的还是 0.1.0」—— 不报错、只静默坑用户的问题。
+#
+#   ⚠️ 为什么 tag 与发布必须在**同一个 workflow run** 里做完：
+#   用 `GITHUB_TOKEN` 推出去的 tag 不会再触发其它 workflow（GitHub 防递归的既定
+#   行为），所以「自动打 tag → 靠 tag push 触发构建」这条路走不通，必须一轮做完。
+#
+# ── 产物 ───────────────────────────────────────────────────────────────────
+#   · qingjian-music-android.apk   —— 可直装的 release APK（JS 已内嵌，无需 Metro）
+#   · qingjian-music-unsigned.ipa  —— 未签名 iOS 设备版 IPA，供用户自签
+#                                     （Sideloadly / AltStore / ESign 等）
 #
 # 为什么 Android 用 release 而不是 debug：debug 包在 RN 下默认**不打包 JS**，
-# 装到手机上会连 Metro 才跑得起来，等于没法分发给别人。release 包会内嵌 bundle，
-# 且工程的 release 构建类型本来就指向 debug keystore（Expo 模板默认），
-# 所以既不需要任何 secret，又可以直接安装。
+# 装到手机上要连 Metro 才跑得起来，等于没法分发给别人。release 包会内嵌 bundle。
 #
-# 为什么 iOS 要显式关签名：真机 IPA 如果走正常签名，需要证书 + 描述文件 + 付费账号。
-# 用 CODE_SIGNING_ALLOWED=NO 编出来的 .app 不带签名、不带描述文件，
-# 用户拿到后用**自己的** Apple ID 自签即可 —— 这条路完全不需要我们持有凭据，
-# 因此 CI 里一个 Secrets 都不用配。
+# ⚠️ 已知取舍：Android 目前用 Expo 模板自带的 **debug keystore** 签名，因此 CI 里
+# 一个 Secrets 都不用配。代价是 debug 密钥是公开的（任何人都能伪造更新包）、包与
+# 别处构建的同名应用互盖、Play Protect 会提示未知来源。**正式签名待办**：密钥一旦
+# 丢失就永远无法给已安装用户发更新，所以这个决定与密钥托管要单独规划，不在本次范围。
+#
+# 为什么 iOS 要显式关签名：真机 IPA 走正常签名需要证书 + 描述文件 + 付费账号。
+# 用 CODE_SIGNING_ALLOWED=NO 编出来的 .app 不带签名、不带描述文件，用户拿到后用
+# **自己的** Apple ID 自签即可 —— 这条路完全不需要我们持有凭据。
 #
 # 本地构建（含上架 App Store 的商店版）见 docs/build-and-ci.md。
 
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: '强制构建并发布（即使版本号没变）'
+        type: boolean
+        default: false
   push:
+    branches:
+      - master
     tags:
       - 'v*'
 
@@ -46,16 +66,90 @@ env:
   # 刻意放在顶层 env：Android 与 iOS 两个 job 都自动继承，不可能只给一个平台
   # 设了、另一个漏掉。要改发行版只改这一行。
   #
-  # 商店版（含永久会员购买、上架 App Store）不走这个工作流，在本地 Xcode 归档时
-  # 显式 `EXPO_PUBLIC_EDITION=store`，详见 docs/build-and-ci.md。
+  # 商店版（含永久会员购买、上架 App Store）不走这个工作流；等第一个版本上线后
+  # 再单独接 IAP，届时本地归档显式 `EXPO_PUBLIC_EDITION=store`，见 docs/build-and-ci.md。
   EXPO_PUBLIC_EDITION: community
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
+  # 0. 决定这一轮要不要发布，并把 tag 打出来
+  #    版本号没变时后续 job 全部跳过，避免每次推 master 都烧一次 macOS 构建
+  # ───────────────────────────────────────────────────────────────────────────
+  version:
+    name: 解析版本与 tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要看到已有 tag，浅克隆里 tags 不全
+
+      - id: resolve
+        name: 解析 tag 并（必要时）创建
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          APP_VERSION=$(node -p "require('./apps/mobile/app.json').expo.version")
+          echo "app.json 版本：$APP_VERSION"
+
+          # force 只对手动触发有意义；其它事件里 inputs 是空的
+          FORCE="${{ inputs.force }}"
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            FORCE=false
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # 手动推 tag 的路径：tag 是既成事实，只校验一致性
+            TAG="$GITHUB_REF_NAME"
+            SHOULD_RELEASE=true
+          else
+            TAG="v$APP_VERSION"
+            # 注意顺序：force 必须先判，否则「tag 已存在」会把重发请求直接短路掉，
+            # 而重发（--clobber 覆盖产物）正是 force 存在的理由。
+            if [ "$FORCE" = "true" ]; then
+              SHOULD_RELEASE=true
+            elif git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              echo "tag $TAG 已存在，且未勾 force —— 本轮不发布（只跑这一个 job，几秒钟）"
+              SHOULD_RELEASE=false
+            else
+              SHOULD_RELEASE=true
+            fi
+          fi
+
+          # 两个分支都要校验：防「发了 v0.2.0，但包里装的还是 0.1.0」
+          if [ "$TAG" != "v$APP_VERSION" ]; then
+            echo "::error::tag「$TAG」与 app.json 的版本号「$APP_VERSION」不一致。"
+            echo "::error::这会导致「发了新版本，但包里装的还是旧版本」。"
+            echo "::error::请把 app.json 的版本改成 ${TAG#v}，或改用正确的 tag。"
+            exit 1
+          fi
+
+          # 只在真要发布、且 tag 还不存在时补 tag。
+          # 用 GITHUB_TOKEN 推出去的 tag 不会再触发其它 workflow（GitHub 防递归），
+          # 所以发布必须在**本轮**做完。
+          if [ "$SHOULD_RELEASE" = "true" ] && ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            git config user.name  'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" -m "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+            echo "已创建并推送 tag $TAG → $GITHUB_SHA"
+          fi
+
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "结论：tag=$TAG, should_release=$SHOULD_RELEASE"
+
+  # ───────────────────────────────────────────────────────────────────────────
   # 1. 先把校验跑绿，坏提交不给出包
   # ───────────────────────────────────────────────────────────────────────────
   verify:
-    name: 校验（守卫 / ESLint / 类型 / 单测）
+    name: 校验（守卫 / 文档 / ESLint / 类型 / 单测）
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +167,11 @@ jobs:
       - name: 架构守卫
         run: pnpm guard
 
+      # 校验文档里的事实：引用的脚本是否真在版本库里、索引是否完整、
+      # docs/现状基线.md 的生成块是否与代码一致
+      - name: 文档事实守卫
+        run: pnpm check:docs
+
       - name: ESLint
         run: pnpm lint
 
@@ -87,7 +186,8 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   bundle:
     name: JS 打包检查
-    needs: verify
+    needs: [version, verify]
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,7 +217,8 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   android:
     name: Android APK（可直装）
-    needs: verify
+    needs: [version, verify]
+    if: needs.version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -201,24 +302,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # 打 tag 时自动挂到 Release，省得去 Actions 页面下载
-      - name: 挂到 GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/qingjian-music-android.apk" \
-            --clobber
-
   # ───────────────────────────────────────────────────────────────────────────
   # 4. iOS 未签名 IPA（供用户自签）
   # ───────────────────────────────────────────────────────────────────────────
   ios:
     name: iOS 未签名 IPA
-    needs: verify
+    needs: [version, verify]
+    if: needs.version.outputs.should_release == 'true'
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -293,13 +383,66 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: 挂到 GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+  # ───────────────────────────────────────────────────────────────────────────
+  # 5. 发布：等两个平台都出完包，由一个 job 统一建 Release 并挂产物
+  #
+  #    为什么不让 android / ios 各自去挂（原实现就是这么做的）：
+  #    两个 job 并行，各自 `gh release view || gh release create` —— 同时发现
+  #    「不存在」就会同时 create，其中一个必然撞 422。而且第一个失败的 create
+  #    会被后续的 upload 掩盖掉，属于「看起来能跑、偶尔抽风」的形态。
+  # ───────────────────────────────────────────────────────────────────────────
+  release:
+    name: 发布到 GitHub Release
+    needs: [version, android, ios]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/dist
+          merge-multiple: true
+
+      - name: 列出待发布产物
+        run: ls -lh "$RUNNER_TEMP/dist"
+
+      - name: 创建 Release 并挂上两个安装包
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/qingjian-music-unsigned.ipa" \
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          ## 下载
+
+          | 平台 | 文件 | 说明 |
+          | --- | --- | --- |
+          | Android | `qingjian-music-android.apk` | 传到手机点击安装（需允许「安装未知来源应用」） |
+          | iOS | `qingjian-music-unsigned.ipa` | **未签名**，用你自己的 Apple ID 自签：Sideloadly / AltStore / ESign 等，免费 Apple ID 签的有效期 7 天，到期重签即可 |
+
+          ## 前提
+
+          一台装了「音乐」应用的飞牛 NAS，且手机与它同一网络（或已做内网穿透）。
+          首次打开后在登录页填入服务器地址，例如 `http://192.168.1.10:5666`。
+
+          ## 关于这个包
+
+          - **社区版**：完整功能，不含任何购买链路，以 **GPL-3.0-only** 授权。
+          - 本应用仅作为播放控制与流媒体连接工具，**不提供、不存储、不分发任何音频资源** ——
+            你播放的内容全部来自你自己部署的 NAS。
+          - 仓库发布的是**未签名** iOS 包，签名由你在本地完成，我们不接触你的凭据。
+
+          遇到问题或想自己出包，见仓库的 [README](../../../blob/master/README.md) 与
+          [`docs/build-and-ci.md`](../../../blob/master/docs/build-and-ci.md)。
+          NOTES
+
+          # 幂等：已存在就只补产物（重发同版本时走这条）
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+
+          gh release upload "$TAG" \
+            "$RUNNER_TEMP/dist/qingjian-music-android.apk" \
+            "$RUNNER_TEMP/dist/qingjian-music-unsigned.ipa" \
             --clobber
+
+          echo "已发布：${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
