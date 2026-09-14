@@ -432,8 +432,7 @@ jobs:
             你播放的内容全部来自你自己部署的 NAS。
           - 仓库发布的是**未签名** iOS 包，签名由你在本地完成，我们不接触你的凭据。
 
-          遇到问题或想自己出包，见仓库的 [README](../../../blob/master/README.md) 与
-          [`docs/build-and-ci.md`](../../../blob/master/docs/build-and-ci.md)。
+          遇到问题或想自己出包，见仓库的 README 与 `docs/build-and-ci.md`。
           NOTES
 
           # 幂等：已存在就只补产物（重发同版本时走这条）
