@@ -2,7 +2,7 @@
   "expo": {
     "name": "轻简音乐",
     "slug": "qingjian-music",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "orientation": "portrait",
     "icon": "./assets/images/app-icons/ios/crimson-bars.png",
     "scheme": "qingjianmusic",
@@ -13,7 +13,9 @@
       "supportsTablet": false,
       "infoPlist": {
         "CFBundleDisplayName": "轻简音乐",
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "NSLocalNetworkUsageDescription": "用于连接局域网内的飞牛音乐服务器，读取你的音乐库并播放。",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -56,6 +58,7 @@
       "./plugins/with-ios-ldflags-dedupe",
       "./plugins/with-app-icons",
       "./plugins/with-android-cleartext",
+      "./plugins/with-android-legacy-arch",
       [
         "expo-splash-screen",
         {

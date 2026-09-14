@@ -47,7 +47,14 @@ vi.mock('react-native-track-player', () => ({
     SkipToPrevious: 'skip-to-previous',
     SeekTo: 'seek-to',
     Stop: 'stop',
-    Like: 'like',
+    // ⚠️ 与真实原生保持一致：RNTP 的 Android `getConstants()` 里**没有**
+    // `CAPABILITY_LIKE`（只有 PLAY / PAUSE / STOP / SEEK_TO / SKIP* /
+    // SET_RATING / JUMP*），所以安卓上这个值是 `undefined`。
+    // 早先把 mock 写成两端都有 'like'，于是这个坑测不出来 —— mock 与真实不符时，
+    // 测试绿灯只是自欺。
+    get Like() {
+      return hoisted.platform === 'ios' ? 'like' : undefined
+    },
   },
   IOSCategoryMode: { Default: 'default' },
 }))
@@ -182,6 +189,31 @@ describe('播放器初始化：系统播放控制选项', () => {
     expect(options.capabilities).toEqual(
       expect.arrayContaining(['play', 'pause', 'skip-to-next', 'skip-to-previous', 'seek-to', 'stop', 'like']),
     )
+  })
+
+  it('Android 的能力列表里绝不能有 undefined / null —— 原生没定义 CAPABILITY_LIKE', async () => {
+    hoisted.platform = 'android'
+    const { ensurePlayer } = await loadSetup()
+
+    await ensurePlayer()
+
+    // 这个 null 会被序列化发到原生，而 RNTP 的
+    // `Capability.values()[it]` 对它解包时抛无 message 的 NPE，直接闪退。
+    const capabilities = lastUpdateOptions().capabilities as unknown[]
+    expect(capabilities).not.toContain(undefined)
+    expect(capabilities).not.toContain(null)
+  })
+
+  it('Android 不带收藏能力，iOS 才带（Like 是 iOS 独有的 MPFeedbackCommand）', async () => {
+    hoisted.platform = 'android'
+    const android = await loadSetup()
+    await android.ensurePlayer()
+    expect(lastUpdateOptions().capabilities).not.toContain('like')
+
+    hoisted.platform = 'ios'
+    const ios = await loadSetup()
+    await ios.ensurePlayer()
+    expect(lastUpdateOptions().capabilities).toContain('like')
   })
 
   it('收藏状态变化时重发的是整份选项，不会把其它能力清掉', async () => {

@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   expo-crypto@57.0.2: 2d15a80a3862f6288e5c23e616a5bfc5eb4db64a96237015c90a726bc8135bbc
-  react-native-track-player@4.1.2: ad894875efc7d10c6b5849005ff7ffc6454887ff404700eb8750ce35eaae582d
+  react-native-track-player@4.1.2: 7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a
 
 importers:
 
@@ -143,7 +143,7 @@ importers:
         version: 15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       react-native-track-player:
         specifier: 4.1.2
-        version: 4.1.2(patch_hash=ad894875efc7d10c6b5849005ff7ffc6454887ff404700eb8750ce35eaae582d)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12)
+        version: 4.1.2(patch_hash=7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12)
       react-native-web:
         specifier: ~0.21.0
         version: 0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -8473,7 +8473,7 @@ snapshots:
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
       warn-once: 0.1.1
 
-  react-native-track-player@4.1.2(patch_hash=ad894875efc7d10c6b5849005ff7ffc6454887ff404700eb8750ce35eaae582d)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12):
+  react-native-track-player@4.1.2(patch_hash=7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12):
     dependencies:
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)

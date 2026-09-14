@@ -81,8 +81,13 @@ function buildOptions(): UpdateOptions {
       Capability.SkipToPrevious,
       Capability.SeekTo,
       Capability.Stop,
-      // 收藏：iOS 走 MPFeedbackCommand（车机与系统播放控制上的「喜欢」）
-      Capability.Like,
+      // 收藏：**只有 iOS 有**。RNTP 的 Android getConstants() 里没有
+      // `CAPABILITY_LIKE`（它只有 PLAY / PAUSE / STOP / SEEK_TO / SKIP* /
+      // SET_RATING / JUMP*），所以安卓上 `Capability.Like` 解析出来是
+      // `undefined`。传过去会序列化成 `null`，而原生侧
+      // `Capability.values()[it]` 对这个 null 解包时直接抛无 message 的 NPE
+      // —— 表现为「点开就闪退」，且崩溃点在第三方库里，极难定位。
+      ...(Platform.OS === 'ios' ? [Capability.Like] : []),
     ],
     compactCapabilities: [Capability.Play, Capability.Pause, Capability.SkipToNext],
     notificationCapabilities: [
