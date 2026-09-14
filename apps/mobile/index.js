@@ -3,15 +3,15 @@
  * 所以不能直接用 expo-router/entry 当 main。
  */
 import { installGlobalErrorHandler } from './src/lib/fatal-error-capture'
-
-// 必须最先执行：模块初始化阶段抛的错发生在 React 挂载之前，那时还没有任何组件，
-// Error Boundary 无从谈起。装晚了就只能看到一个什么都不留下的闪退。
-installGlobalErrorHandler()
-
-// eslint-disable-next-line import/first -- 必须排在 installGlobalErrorHandler() 之后才能生效
+import { installFatalErrorAlert } from './src/lib/fatal-error-alert'
 import TrackPlayer from 'react-native-track-player'
-// eslint-disable-next-line import/first -- 同上，这些 import 的位置是刻意的
 import { playbackService } from './src/player/service'
+
+// 顺序是刻意的，两步都要在 expo-router/entry 之前：
+//   1. 先装全局处理器，才能捕获到模块初始化阶段抛的错（那时还没有任何组件）
+//   2. 再订阅原生弹窗，让错误在 React 挂载失败时仍能显示出来
+installGlobalErrorHandler()
+installFatalErrorAlert()
 
 TrackPlayer.registerPlaybackService(() => playbackService)
 
