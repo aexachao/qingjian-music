@@ -26,8 +26,11 @@ const APP_VERSION = Constants.expoConfig?.version ?? '—'
  * 设置页：对齐 Apple Music 风格的一级页签。
  * 1. 顶部用户卡：圆形字母头像 + 账号名 +「管理员/普通用户」胶囊徽章 + 归属系统（fnOS）
  * 2. 偏好设置卡片（3项）：外观主题、音质（Wi-Fi/蜂窝/下载）、缓存（自动缓存/容量上限/歌曲首数/清理）
- * 3. 帮助与关于卡片（2项）：问题反馈、关于
+ * 3. 帮助与关于卡片（3项）：问题反馈、支持作者、关于
  * 4. 账号退出卡片（1项）：退出登录
+ *
+ * **本页不提供服务器管理**：客户端不支持服务器切换，换服务器只能退出登录后
+ * 在登录页用「历史服务器」重新登录（见 `app/login.tsx`）。
  */
 export function SettingsScreen() {
   const styles = useStyles()
@@ -138,15 +141,8 @@ export function SettingsScreen() {
           </View>
         </View>
 
-        {/* 卡片 1：服务器与偏好设置 */}
+        {/* 卡片 1：偏好设置 */}
         <View style={styles.card}>
-          <SettingsRow
-            icon="server"
-            label="服务器"
-            value={connection?.displayName}
-            onPress={() => router.push('/(tabs)/settings/servers' as never)}
-          />
-          <View style={styles.divider} />
           <SettingsRow
             icon="appearance"
             label="外观主题"

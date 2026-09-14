@@ -37,8 +37,7 @@ export default function LoginScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { activeLogo } = useAppLogo()
-  const { signIn, servers, status } = useServerSession()
-  const isAddingServer = status === 'signedIn'
+  const { signIn, servers } = useServerSession()
 
   const [address, setAddress] = useState('')
   const [username, setUsername] = useState('')
@@ -159,7 +158,7 @@ export default function LoginScreen() {
         displayName: isFnId(rawInput) ? rawInput : undefined,
         rememberPassword,
       })
-      router.replace(isAddingServer ? '/(tabs)/settings/servers' as never : '/library')
+      router.replace('/library')
     } catch (caught) {
       if (isMusicError(caught)) {
         // protocol = 飞牛对错误密码返回的 payload 形态异常；unauthorized = token/凭据被拒
@@ -211,16 +210,6 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {isAddingServer ? (
-            <Pressable
-              hitSlop={10}
-              onPress={() => router.back()}
-              accessibilityRole="button"
-              accessibilityLabel="取消添加服务器"
-            >
-              <Icon name="back" size={24} color={colors.textPrimary} />
-            </Pressable>
-          ) : null}
           {/* 品牌区域 */}
           <View style={styles.brandSection}>
             <View style={styles.logoWrapper}>

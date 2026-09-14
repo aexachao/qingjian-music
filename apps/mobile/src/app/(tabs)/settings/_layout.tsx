@@ -7,7 +7,6 @@ export default function StackLayout() {
     <Stack screenOptions={stackScreenOptions}>
       {/* 页签根页用 iOS 大标题，二级页面用普通标题 */}
       <Stack.Screen name="index" options={{ ...tabRootOptions, title: '设置' }} />
-      <Stack.Screen name="servers" options={{ title: '服务器' }} />
       <Stack.Screen name="audio-quality" options={{ title: '音质偏好' }} />
       <Stack.Screen name="cache" options={{ title: '缓存' }} />
       <Stack.Screen name="appearance" options={{ title: '外观主题' }} />

@@ -22,7 +22,6 @@ import {
   saveSession,
   setActiveServerId,
   upsertServer,
-  removeServer as removeStoredServer,
 } from './storage'
 
 export interface SignInInput {
@@ -41,10 +40,6 @@ interface ServerSessionValue {
   servers: ServerConnection[]
   signIn(input: SignInInput): Promise<void>
   signOut(): Promise<void>
-  /** 切到已保存的另一台服务器：优先用存的 token，失效则用 Keychain 里的密码重登 */
-  switchServer(serverId: string): Promise<void>
-  /** 删除非当前服务器及其本地凭据 */
-  removeServer(serverId: string): Promise<void>
 }
 
 const ServerSessionContext = createContext<ServerSessionValue | null>(null)
@@ -171,50 +166,6 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
     [activate, connection],
   )
 
-  const switchServer = useCallback(
-    async (serverId: string) => {
-      if (serverId === connection?.id) return
-      const target = (await listServers()).find((item) => item.id === serverId)
-      if (!target) throw new Error('找不到这台服务器')
-      await ensureRegistry()
-      const stored = await getSession(serverId)
-      let targetSession = stored
-      if (!targetSession) {
-        const password = await getPassword(serverId)
-        if (!password) throw new Error('这台服务器需要重新登录')
-        const instance = providerRegistry.get(target.providerId).create(target)
-        targetSession = await instance.login({ password })
-        await saveSession(serverId, targetSession)
-      }
-
-      // 新服务器已具备可用会话后，再清旧播放域，避免认证失败把当前播放白白清掉。
-      await clearQueue()
-      queryClient.clear()
-      await upsertServer(target)
-      await setActiveServerId(serverId)
-      const rememberedPassword = await getPassword(serverId)
-      await saveLastServer({
-        serverId: target.id,
-        baseUrl: target.baseUrl,
-        username: target.username,
-        displayName: target.displayName,
-        rememberPassword: Boolean(rememberedPassword),
-      })
-      setServers(await listServers())
-      await activate(target, targetSession)
-    },
-    [activate, connection],
-  )
-
-  const removeServer = useCallback(
-    async (serverId: string) => {
-      if (serverId === connection?.id) throw new Error('不能删除当前正在使用的服务器')
-      await removeStoredServer(serverId)
-      setServers(await listServers())
-    },
-    [connection],
-  )
-
   const signOut = useCallback(async () => {
     let shouldKeepPassword = false
     if (connection) {
@@ -269,8 +220,8 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   }, [connection, provider])
 
   const value = useMemo<ServerSessionValue>(
-    () => ({ status, connection, session, provider, servers, signIn, signOut, switchServer, removeServer }),
-    [status, connection, session, provider, servers, signIn, signOut, switchServer, removeServer],
+    () => ({ status, connection, session, provider, servers, signIn, signOut }),
+    [status, connection, session, provider, servers, signIn, signOut],
   )
 
   return <ServerSessionContext value={value}>{children}</ServerSessionContext>
