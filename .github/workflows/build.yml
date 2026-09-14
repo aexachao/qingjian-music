@@ -405,10 +405,14 @@ jobs:
       - name: 列出待发布产物
         run: ls -lh "$RUNNER_TEMP/dist"
 
+      # 本 job 刻意不做 checkout（不需要源码，只搬产物），代价是**没有 .git**，
+      # 而 gh 默认要靠本地 git remote 推断是哪个仓库 —— 不显式 --repo 就会报
+      # 「fatal: not a git repository」。所以下面每条 gh 命令都带 --repo。
       - name: 创建 Release 并挂上两个安装包
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -436,10 +440,10 @@ jobs:
           NOTES
 
           # 幂等：已存在就只补产物（重发同版本时走这条）
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
 
-          gh release upload "$TAG" \
+          gh release upload "$TAG" --repo "$REPO" \
             "$RUNNER_TEMP/dist/qingjian-music-android.apk" \
             "$RUNNER_TEMP/dist/qingjian-music-unsigned.ipa" \
             --clobber
