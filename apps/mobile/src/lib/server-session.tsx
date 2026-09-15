@@ -22,6 +22,7 @@ import {
   saveSession,
   setActiveServerId,
   upsertServer,
+  removeServer as removeStoredServer,
 } from './storage'
 
 export interface SignInInput {
@@ -40,6 +41,12 @@ interface ServerSessionValue {
   servers: ServerConnection[]
   signIn(input: SignInInput): Promise<void>
   signOut(): Promise<void>
+  /**
+   * 删除一台已保存的服务器及其本地凭据。
+   * **只有删除，没有切换** —— 客户端不支持服务器切换（见 screens/settings.tsx 的说明），
+   * 换服务器只能退出登录后在登录页的历史里重新登录。
+   */
+  removeServer(serverId: string): Promise<void>
 }
 
 const ServerSessionContext = createContext<ServerSessionValue | null>(null)
@@ -166,6 +173,15 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
     [activate, connection],
   )
 
+  const removeServer = useCallback(
+    async (serverId: string) => {
+      if (serverId === connection?.id) throw new Error('不能删除当前正在使用的服务器')
+      await removeStoredServer(serverId)
+      setServers(await listServers())
+    },
+    [connection],
+  )
+
   const signOut = useCallback(async () => {
     let shouldKeepPassword = false
     if (connection) {
@@ -220,8 +236,8 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   }, [connection, provider])
 
   const value = useMemo<ServerSessionValue>(
-    () => ({ status, connection, session, provider, servers, signIn, signOut }),
-    [status, connection, session, provider, servers, signIn, signOut],
+    () => ({ status, connection, session, provider, servers, signIn, signOut, removeServer }),
+    [status, connection, session, provider, servers, signIn, signOut, removeServer],
   )
 
   return <ServerSessionContext value={value}>{children}</ServerSessionContext>

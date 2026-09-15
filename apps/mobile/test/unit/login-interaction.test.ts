@@ -23,7 +23,8 @@ describe('登录页布局与 FN ID 交互规范', () => {
     expect(loginSource).toContain('placeholder="请输入 IP 地址、域名或 FN ID"')
     expect(loginSource).toContain('placeholder="账号"')
     expect(loginSource).toContain('placeholder="密码"')
-    expect(loginSource).toContain('showHistoryModal')
+    // 历史服务器是二级页面（要能左滑删除），不是弹窗
+    expect(loginSource).toContain("router.push('/servers')")
     expect(loginSource).toContain('showPassword')
   })
 

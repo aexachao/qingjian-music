@@ -25,18 +25,39 @@ describe('设置页不提供服务器管理', () => {
     expect(hasNoCode('app/(tabs)/settings/_layout.tsx', 'name="servers"')).toBe(true)
   })
 
-  it('会话层不再暴露切换 / 删除服务器的能力 —— 没有 UI 的能力就是死代码', () => {
+  it('会话层不支持切换服务器；只保留「删掉一条历史记录」的能力', () => {
     expect(hasNoCode('lib/server-session.tsx', 'switchServer')).toBe(true)
-    expect(hasNoCode('lib/server-session.tsx', 'removeServer')).toBe(true)
+    // removeServer 留着 —— 历史页要用它清理不再需要的记录，这和「切换」是两回事
+    expect(hasCode('lib/server-session.tsx', 'removeServer')).toBe(true)
   })
 })
 
-describe('换服务器的唯一路径：登录页历史记录', () => {
-  it('登录页保留历史服务器入口', () => {
+describe('换服务器的唯一路径：登录页 → 历史服务器二级页面', () => {
+  it('登录页的历史入口指向二级页面，不再用弹窗', () => {
     const login = readSource('app/login.tsx')
     expect(login).toContain('历史服务器')
-    expect(login).toContain('setShowHistoryModal(true)')
-    expect(login).toContain('选择历史服务器')
+    expect(login).toContain("router.push('/servers')")
+    expect(login).not.toContain('OptionPickerModal')
+    expect(login).not.toContain('showHistoryModal')
+  })
+
+  it('历史页用左滑删除，点一下则回登录页并带上选择', () => {
+    const history = readSource('screens/server-history.tsx')
+    // 左滑删除：复用队列行那套 Swipeable + 右侧动作
+    expect(history).toContain('Swipeable')
+    expect(history).toContain('renderRightActions')
+    expect(history).toContain('removeServer')
+    // 删除是破坏性动作，要有二次确认
+    expect(history).toContain('destructive: true')
+    // 选中后回登录页回填
+    expect(history).toContain("pathname: '/login'")
+    expect(history).toContain('params: { serverId }')
+  })
+
+  it('登录页认得带回来的 serverId 并据此回填', () => {
+    const login = readSource('app/login.tsx')
+    expect(login).toContain('useLocalSearchParams')
+    expect(login).toContain('requestedServerId')
   })
 
   it('登录成功后进音乐库，不再跳回已删除的服务器管理页', () => {

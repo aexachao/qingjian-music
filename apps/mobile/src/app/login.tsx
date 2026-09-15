@@ -11,16 +11,16 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { isMusicError } from '@qj/core-domain'
+import { isLoopbackOrPrivateHost } from '@qj/provider-api'
 import { isFnId, resolveFnIdToBaseUrl } from '@qj/provider-fnos'
 import { useServerSession } from '@/lib/server-session'
 import { getLastServer, getPassword } from '@/lib/storage'
 import { md5Hex, sha256Hex } from '@/lib/crypto'
 import { AuthGate } from '@/lib/auth-gate'
 import { Icon } from '@/components/icon'
-import { OptionPickerModal } from '@/components/option-picker-modal'
 import { useAppLogo } from '@/lib/appearance-preferences'
 import { radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
@@ -51,8 +51,11 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null)
   /** 凭据类失败时补一句「怎么重置密码」——只在真正失败的那一刻出现 */
   const [showResetHint, setShowResetHint] = useState(false)
-  const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [focusedField, setFocusedField] = useState<'address' | 'username' | 'password' | null>(null)
+
+  /** 从历史服务器页选好带回来的 serverId；有它就回填这一台 */
+  const params = useLocalSearchParams<{ serverId?: string }>()
+  const requestedServerId = typeof params.serverId === 'string' ? params.serverId : undefined
 
   const userEditedRef = useRef(false)
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -81,35 +84,53 @@ export default function LoginScreen() {
 
   useEffect(() => {
     let cancelled = false
+
+    const applyServer = async (
+      target: { id?: string; baseUrl: string; username: string },
+      remember: boolean,
+    ) => {
+      if (cancelled) return
+      setAddress(target.baseUrl)
+      setUsername(target.username)
+      setUseHttps(target.baseUrl.startsWith('https://'))
+      setRememberPassword(remember)
+      if (!remember) {
+        setPassword('')
+        return
+      }
+      if (!target.id) return
+      const savedPassword = await getPassword(target.id)
+      if (!cancelled && savedPassword) setPassword(savedPassword)
+    }
+
     void (async () => {
+      // 从历史服务器页选好回来：无条件回填。这是用户的明确选择，
+      // 不该被下面那条「已经手工改过地址就别覆盖」的守卫挡掉。
+      if (requestedServerId) {
+        const requested = servers.find((server) => server.id === requestedServerId)
+        if (requested) {
+          await applyServer(requested, true)
+          return
+        }
+      }
+      if (userEditedRef.current) return
       const last = await getLastServer()
       if (cancelled || userEditedRef.current) return
       const target = last ?? servers[0]
-      if (target) {
-        setAddress(target.baseUrl)
-        setUsername(target.username)
-        setUseHttps(target.baseUrl.startsWith('https://'))
-
-        const shouldRemember = last?.rememberPassword !== false
-        setRememberPassword(shouldRemember)
-
-        if (shouldRemember) {
-          const targetServerId =
-            last?.serverId ??
-            servers.find((s) => s.baseUrl === target.baseUrl && s.username === target.username)?.id
-          if (targetServerId) {
-            const savedPassword = await getPassword(targetServerId)
-            if (!cancelled && savedPassword) {
-              setPassword(savedPassword)
-            }
-          }
-        }
-      }
+      if (!target) return
+      const targetServerId =
+        last?.serverId ??
+        servers.find((s) => s.baseUrl === target.baseUrl && s.username === target.username)?.id
+      await applyServer(
+        { id: targetServerId, baseUrl: target.baseUrl, username: target.username },
+        last?.rememberPassword !== false,
+      )
     })()
+
     return () => {
       cancelled = true
     }
-  }, [servers])
+  }, [servers, requestedServerId])
 
   const canSubmit = address.trim().length > 0 && username.trim().length > 0 && password.length > 0 && !busy
 
@@ -144,6 +165,17 @@ export default function LoginScreen() {
           sha256Hex,
           md5Hex,
           useHttps,
+          // 历史里的局域网地址也一起拿去探测：同一个 FN ID 在家走内网比走中继快得多。
+          // 是否真的是同一台设备由服务端的 serverGUID 确认，连错机器的风险由它兜住。
+          knownCandidates: servers
+            .map((server) => server.baseUrl)
+            .filter((baseUrl) => {
+              try {
+                return isLoopbackOrPrivateHost(new URL(baseUrl).hostname)
+              } catch {
+                return false
+              }
+            }),
           onStatusChange: (text) => setStatusMessage(text),
         })
       } else {
@@ -174,30 +206,6 @@ export default function LoginScreen() {
       setStatusMessage(null)
     }
   }
-
-  async function handleSelectHistory(serverId: string) {
-    const selected = servers.find((s) => s.id === serverId)
-    if (!selected) return
-    userEditedRef.current = true
-    setAddress(selected.baseUrl)
-    setUsername(selected.username)
-    setUseHttps(selected.baseUrl.startsWith('https://'))
-    const savedPassword = await getPassword(selected.id)
-    if (savedPassword) {
-      setPassword(savedPassword)
-      setRememberPassword(true)
-    } else {
-      setPassword('')
-      setRememberPassword(false)
-    }
-    setShowHistoryModal(false)
-  }
-
-  const historyOptions = servers.map((s) => ({
-    key: s.id,
-    title: s.displayName || s.baseUrl,
-    subtitle: `${s.baseUrl} (${s.username})`,
-  }))
 
   return (
     <AuthGate group="login" allowSignedIn>
@@ -259,7 +267,7 @@ export default function LoginScreen() {
               {servers.length > 0 ? (
                 <Pressable
                   hitSlop={10}
-                  onPress={() => setShowHistoryModal(true)}
+                  onPress={() => router.push('/servers')}
                   style={styles.fieldAction}
                   accessibilityLabel="历史服务器"
                   accessibilityRole="button"
@@ -413,15 +421,6 @@ export default function LoginScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* 历史服务器选择底栏 */}
-      <OptionPickerModal
-        visible={showHistoryModal}
-        title="选择历史服务器"
-        options={historyOptions}
-        onSelect={handleSelectHistory}
-        onClose={() => setShowHistoryModal(false)}
-      />
     </AuthGate>
   )
 }
