@@ -81,6 +81,8 @@ jobs:
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       should_release: ${{ steps.resolve.outputs.should_release }}
+      # 「本次更新」的正文。只有这个 job 有完整 git 历史，所以在这里算
+      changelog: ${{ steps.resolve.outputs.changelog }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,6 +140,23 @@ jobs:
             git push origin "refs/tags/$TAG"
             echo "已创建并推送 tag $TAG → $GITHUB_SHA"
           fi
+
+          # 「本次更新」：上一个 tag 到本次之间的提交主题，直接进 Release 正文。
+          # 放在这个 job 算，是因为只有它有完整 git 历史（fetch-depth: 0）——
+          # release job 刻意不 checkout，拿不到 git log。
+          # 首个版本没有可对比的 tag，留空由 release job 兜底。
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
+          {
+            echo 'changelog<<CHANGELOG_EOF'
+            if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+              echo "**对比 \`$PREV_TAG\` → \`$TAG\`**"
+              echo
+              # --no-merges：合并提交对用户没有信息量
+              git log --no-merges --pretty=format:'- %s' "$PREV_TAG..$GITHUB_SHA"
+              echo
+            fi
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
 
           echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -413,10 +432,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
           REPO: ${{ github.repository }}
+          # 用 env 传而不是直接插进脚本：提交信息是外部内容，
+          # 直接 `${{ }}` 插值进 shell 会被 `$(...)` 之类注入。
+          CHANGELOG: ${{ needs.version.outputs.changelog }}
         run: |
           set -euo pipefail
 
-          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          {
+            echo '## 本次更新'
+            echo
+            if [ -n "$CHANGELOG" ]; then
+              printf '%s\n' "$CHANGELOG"
+            else
+              echo '首个版本。'
+            fi
+            echo
+          } > "$RUNNER_TEMP/notes.md"
+
+          cat >> "$RUNNER_TEMP/notes.md" <<'NOTES'
           ## 下载
 
           | 平台 | 文件 | 说明 |
