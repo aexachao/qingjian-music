@@ -144,11 +144,15 @@ jobs:
           # 「本次更新」：上一个 tag 到本次之间的提交主题，直接进 Release 正文。
           # 放在这个 job 算，是因为只有它有完整 git 历史（fetch-depth: 0）——
           # release job 刻意不 checkout，拿不到 git log。
-          # 首个版本没有可对比的 tag，留空由 release job 兜底。
-          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
+          #
+          # 必须用 --exclude 排掉本次的 tag，且要在 GITHUB_SHA（不是 ^）上解析：
+          # tag 由本 job 创建、或上一次运行创建后停在**本次提交的父提交**上，
+          # 于是 `describe SHA^` 会直接返回本次的 tag 自己 → 区间变成空 → 正文空。
+          # （2026-09-15 踩过：v0.1.4 的正文就成了「首个版本。」）
+          PREV_TAG=$(git describe --tags --abbrev=0 --exclude="$TAG" "$GITHUB_SHA" 2>/dev/null || true)
           {
             echo 'changelog<<CHANGELOG_EOF'
-            if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+            if [ -n "$PREV_TAG" ]; then
               echo "**对比 \`$PREV_TAG\` → \`$TAG\`**"
               echo
               # --no-merges：合并提交对用户没有信息量
@@ -480,9 +484,14 @@ jobs:
           遇到问题或想自己出包，见仓库的 README 与 `docs/build-and-ci.md`。
           NOTES
 
-          # 幂等：已存在就只补产物（重发同版本时走这条）
-          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
-            || gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          # 幂等：已存在就补产物**并刷新正文**（重发同版本走这条）。
+          # 正文必须一起刷新 —— 只 upload 不 edit 的话，重发出来的 Release
+          # 会一直挂着上一次那份正文（可能正是空的那份）。
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$REPO" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
 
           gh release upload "$TAG" --repo "$REPO" \
             "$RUNNER_TEMP/dist/qingjian-music-android.apk" \
