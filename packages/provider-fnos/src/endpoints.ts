@@ -59,6 +59,8 @@ export const FNOS_ENDPOINTS = {
   },
   playlist: {
     list: '/playlist/list',
+    /** GET ?guids=g1,g2,… —— 批量拿歌单详情；listTrackCount 只有它准，见 provider 里的说明 */
+    batchDetail: '/playlist/batch-detail',
     detail: '/playlist/detail',
     create: '/playlist/create',
     edit: '/playlist/edit',

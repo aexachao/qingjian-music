@@ -137,6 +137,8 @@ const albumListSchema = fnListSchema(fnAlbumSchema)
 const artistListSchema = fnListSchema(fnArtistSchema)
 const genreListSchema = fnListSchema(fnGenreRefSchema)
 const playlistListSchema = fnListSchema(fnPlaylistSchema)
+/** batch-detail 一次最多带多少个 guid（飞牛网页面也是分批问的） */
+const PLAYLIST_COUNT_BATCH = 50
 
 const roamEntrySchema = z.object({
   track: fnTrackSchema.nullish(),
@@ -257,8 +259,15 @@ export class FnosProvider implements MusicProvider {
     return this.pagedList(FNOS_ENDPOINTS.track.genreDetailList, trackListSchema, request, mapTrack, 'track', { genreGUID: genreId })
   }
 
-  playlists(request: PageRequest): Promise<Page<Playlist>> {
-    return this.pagedList(FNOS_ENDPOINTS.playlist.list, playlistListSchema, request, mapPlaylist, 'playlist')
+  async playlists(request: PageRequest): Promise<Page<Playlist>> {
+    const page = await this.pagedList(
+      FNOS_ENDPOINTS.playlist.list,
+      playlistListSchema,
+      request,
+      mapPlaylist,
+      'playlist',
+    )
+    return { ...page, items: await this.fillPlaylistTrackCounts(page.items) }
   }
 
   playlistTracks(playlistId: string, request: PageRequest): Promise<Page<Track>> {
@@ -271,9 +280,12 @@ export class FnosProvider implements MusicProvider {
   // · create / edit / delete **确实生效**（改名后回读列表可确认），member 角色即可；
   // · create 成功返回**完整 playlist 对象**，`coverId` 可省略也可传空串（回写 null）；
   // · 重名返回 160001「playlist name already exists」；
-  // · 但 add-track **返回成功码却不生效**，且 `/playlist/detail`、`/track/playlist-detail/list`
-  //   一律返回 100002 —— 也就是说歌单曲目在这台服务器上不可用。
+  // · add-track **返回成功码却不生效**；
   // · 服务端对**未知参数静默忽略**（返回成功码），所以调用方不能只凭成功码判断结果。
+  //
+  // 2026-09-15 更正：当时记的「/playlist/detail 与 /track/playlist-detail/list 一律 100002」
+  // **已经不成立** —— 现在两者都正常，歌单详情能正确返回曲目（真机验过）。
+  // 另外 `/playlist/list` 的 trackCount 是陈旧的，用 fillPlaylistTrackCounts 补。
 
   async createPlaylist(input: PlaylistCreateInput): Promise<Playlist> {
     const data = await this.client.post(
@@ -358,8 +370,50 @@ export class FnosProvider implements MusicProvider {
     return this.pagedList(FNOS_ENDPOINTS.search.artist, artistListSchema, request, mapArtist, 'artist', { q: keyword })
   }
 
-  searchPlaylists(keyword: string, request: PageRequest): Promise<Page<Playlist>> {
-    return this.pagedList(FNOS_ENDPOINTS.search.playlist, playlistListSchema, request, mapPlaylist, 'playlist', { q: keyword })
+  async searchPlaylists(keyword: string, request: PageRequest): Promise<Page<Playlist>> {
+    const page = await this.pagedList(
+      FNOS_ENDPOINTS.search.playlist,
+      playlistListSchema,
+      request,
+      mapPlaylist,
+      'playlist',
+      { q: keyword },
+    )
+    return { ...page, items: await this.fillPlaylistTrackCounts(page.items) }
+  }
+
+  /**
+   * 补真实曲目数。
+   *
+   * 实测（2026-09-15）：`/playlist/list` 与 `/search/playlist` 里的 `trackCount` **是陈旧的**
+   * （新建后一个歌单明明有歌，列表里仍是 0）—— 飞牛网页面也是这么处理的：取完 list 再问
+   * `GET /playlist/batch-detail?guids=…`（逗号分隔，分批）拿权威的 `trackCount` 合并回去。
+   * 单个歌单的兵底是 `GET /playlist/purge-track-count`（返回 `{total}`），列表场景不用它。
+   *
+   * 拿不到（老服务端没有 batch-detail）就退回 list 里的值，**不让整页失败**。
+   */
+  private async fillPlaylistTrackCounts(items: Playlist[]): Promise<Playlist[]> {
+    const guids = items.map((item) => item.id).filter(Boolean)
+    if (guids.length === 0) return items
+    try {
+      const counts = new Map<string, number>()
+      for (let start = 0; start < guids.length; start += PLAYLIST_COUNT_BATCH) {
+        const chunk = guids.slice(start, start + PLAYLIST_COUNT_BATCH)
+        const data = await this.client.get(FNOS_ENDPOINTS.playlist.batchDetail, playlistListSchema, {
+          query: { guids: chunk.join(',') },
+        })
+        for (const raw of data.list ?? []) {
+          const playlist = mapPlaylist(raw)
+          if (typeof playlist.trackCount === 'number') counts.set(playlist.id, playlist.trackCount)
+        }
+      }
+      return items.map((item) => {
+        const count = counts.get(item.id)
+        return count === undefined ? item : { ...item, trackCount: count }
+      })
+    } catch {
+      return items
+    }
   }
 
   // ---- 媒体 ----

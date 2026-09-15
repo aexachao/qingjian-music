@@ -94,6 +94,41 @@ describe('搜索', () => {
   })
 })
 
+describe('歌单计数', () => {
+  it('list 里的 trackCount 是陈旧的，用 batch-detail 覆盖成真实值', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        if (url.includes('/playlist/batch-detail')) {
+          return { code: 0, msg: '', data: { list: [{ guid: 'p1', name: '我的歌单', trackCount: 3 }] } }
+        }
+        return { code: 0, msg: '', data: { list: [{ guid: 'p1', name: '我的歌单', trackCount: 0 }], total: 1, sort: '' } }
+      }),
+    )
+
+    const page = await provider.playlists({ page: 1, size: 50 })
+
+    expect(urls[0]).toContain('/music/api/v1/playlist/list')
+    expect(urls.some((url) => url.includes('/playlist/batch-detail?guids=p1'))).toBe(true)
+    expect(page.items[0]?.trackCount).toBe(3)
+  })
+
+  it('batch-detail 不可用时退回 list 里的值，不让整页失败', async () => {
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        if (url.includes('/playlist/batch-detail')) return { code: 50000, msg: 'unsupported', data: null }
+        return { code: 0, msg: '', data: { list: [{ guid: 'p1', name: '我的歌单', trackCount: 0 }], total: 1, sort: '' } }
+      }),
+    )
+
+    const page = await provider.playlists({ page: 1, size: 50 })
+
+    expect(page.items[0]?.name).toBe('我的歌单')
+    expect(page.items[0]?.trackCount).toBe(0)
+  })
+})
+
 describe('错误码翻译', () => {
   it('99999 变成 unauthorized', async () => {
     const provider = makeProvider(fakeFetch(() => ({ code: 99999, msg: 'INVALID TOKEN', data: null }), 401))
