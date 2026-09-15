@@ -76,7 +76,7 @@ export function TrackMenuButton({
       </MenuView>
       <PlaylistPickerSheet
         visible={menu.playlistPickerVisible}
-        trackId={menuOptions.subject.trackId}
+        trackIds={[menuOptions.subject.trackId]}
         onClose={menu.closePlaylistPicker}
       />
     </>

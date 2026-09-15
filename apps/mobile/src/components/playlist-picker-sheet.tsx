@@ -22,7 +22,8 @@ import { radius, spacing, typography } from '@/theme/tokens'
 
 interface PlaylistPickerSheetProps {
   visible: boolean
-  trackId: string
+  /** 要加进歌单的曲目（多选批量时是一条列表） */
+  trackIds: readonly string[]
   onClose: () => void
 }
 
@@ -47,7 +48,7 @@ async function readBackPlaylistTotal(
   }
 }
 
-export function PlaylistPickerSheet({ visible, trackId, onClose }: PlaylistPickerSheetProps) {
+export function PlaylistPickerSheet({ visible, trackIds, onClose }: PlaylistPickerSheetProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const [mounted, setMounted] = useState(visible)
@@ -114,7 +115,7 @@ export function PlaylistPickerSheet({ visible, trackId, onClose }: PlaylistPicke
     // 验证的假设当事实告诉用户。
     const before = playlist.trackCount ?? 0
     try {
-      await provider!.addTracksToPlaylist!(playlist.id, [trackId])
+      await provider!.addTracksToPlaylist!(playlist.id, [...trackIds])
       const evidence = await readBackPlaylistTotal(provider!, playlist.id, before)
       const verdict = judgePlaylistAdd(evidence)
       toast(playlistAddMessage(verdict, playlist.name))

@@ -41,6 +41,8 @@ interface ListToolbarProps {
   total: number
   selection: SortSelection | undefined
   onSelect: (selection: SortSelection) => void
+  /** 传了它就多一颗「批量选择」入口（在排序图标左侧） */
+  onStartSelection?: () => void
 }
 
 /**
@@ -53,7 +55,7 @@ interface ListToolbarProps {
  *
  * 间距由外面包一层控制（列表页固定条 / 详情页头部），这里只负责这一行。
  */
-export function ListToolbar({ kind, total, selection, onSelect }: ListToolbarProps) {
+export function ListToolbar({ kind, total, selection, onSelect, onStartSelection }: ListToolbarProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const buttonRef = useRef<View>(null)
@@ -75,8 +77,21 @@ export function ListToolbar({ kind, total, selection, onSelect }: ListToolbarPro
     <View style={styles.bar}>
       <Text style={styles.count}>{countText(kind, total)}</Text>
 
-      {canSort(kind) ? (
-        <Pressable
+      <View style={styles.actions}>
+        {onStartSelection ? (
+          <Pressable
+            hitSlop={12}
+            style={styles.sortButton}
+            onPress={onStartSelection}
+            accessibilityRole="button"
+            accessibilityLabel="批量选择"
+          >
+            <Icon name="select" size={iconSize.md} color={colors.textSecondary} />
+          </Pressable>
+        ) : null}
+
+        {canSort(kind) ? (
+          <Pressable
           ref={buttonRef}
           hitSlop={12}
           style={styles.sortButton}
@@ -84,13 +99,14 @@ export function ListToolbar({ kind, total, selection, onSelect }: ListToolbarPro
           accessibilityRole="button"
           accessibilityLabel={currentLabel ? `排序，当前按${currentLabel}` : '排序'}
         >
-          <Icon
-            name="sort"
-            size={iconSize.md}
-            color={menuOpen ? colors.textPrimary : colors.textSecondary}
-          />
-        </Pressable>
-      ) : null}
+            <Icon
+              name="sort"
+              size={iconSize.md}
+              color={menuOpen ? colors.textPrimary : colors.textSecondary}
+            />
+          </Pressable>
+        ) : null}
+      </View>
 
       <ListSortMenu
         visible={menuOpen}
@@ -112,6 +128,7 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
   },
   count: { ...typography.caption, color: colors.textTertiary },
+  actions: { flexDirection: 'row', alignItems: 'center' },
   sortButton: { alignItems: 'center', justifyContent: 'center', paddingLeft: 12 },
 }))
 

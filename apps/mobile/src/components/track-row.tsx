@@ -10,7 +10,7 @@ import { isGlobalMenuInteracting } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
 import { useToggleFavorite } from '@/lib/favorites'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
-import { createThemedStyles } from '@/theme/theme-provider'
+import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 interface TrackRowProps {
   track: Track
@@ -18,7 +18,13 @@ interface TrackRowProps {
   leading: 'index' | 'cover'
   index: number
   playing?: boolean
-  onPress: () => void
+  /** 选择态里不需要（点行是切换选中），所以可选 */
+  onPress?: () => void
+  /**
+   * 多选：传了它就进入「选择态」行 —— 最左多一颗圆形勾选框、
+   * 点整行 = 切换选中（不再播放），右侧的收藏与「···」都收起来。
+   */
+  selection?: { selected: boolean; onToggle: () => void }
 }
 
 
@@ -29,8 +35,9 @@ interface TrackRowProps {
  * - 正在播放时，音符动效位于歌曲标题左侧（11pt 小巧律动）；
  * - 歌曲名称下方仅展示歌手名称，并在歌手名称前显示音频格式 Tag（如 FLAC、MP3 等）。
  */
-export function TrackRow({ track, leading, index, playing = false, onPress }: TrackRowProps) {
+export function TrackRow({ track, leading, index, playing = false, onPress, selection }: TrackRowProps) {
   const styles = useStyles()
+  const colors = useThemeColors()
   const { provider } = useServerSession()
   const toggleFavorite = useToggleFavorite()
   const toast = useToast()
@@ -47,18 +54,44 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
 
   const handlePress = () => {
     if (isGlobalMenuInteracting()) return
-    onPress()
+    // 选择态里点整行 = 切换选中，不再播放（否则想多选就会误触播放）
+    if (selection) {
+      selection.onToggle()
+      return
+    }
+    onPress?.()
   }
 
   return (
     <View style={styles.row}>
+      {selection ? (
+        <Pressable
+          onPress={selection.onToggle}
+          hitSlop={8}
+          style={styles.checkSlot}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: selection.selected }}
+          accessibilityLabel={`${selection.selected ? '取消选择' : '选择'} ${track.title}`}
+        >
+          <Icon
+            name={selection.selected ? 'checkmarkCircle' : 'circle'}
+            size={22}
+            color={selection.selected ? colors.accent : colors.textTertiary}
+          />
+        </Pressable>
+      ) : null}
+
       {/* 主触控区：点击播放曲目 */}
       <Pressable
         style={({ pressed }) => [styles.trackMain, pressed && styles.trackMainPressed]}
         onPress={handlePress}
         accessibilityRole="button"
-        accessibilityLabel={`${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`}
-        accessibilityState={{ selected: playing }}
+        accessibilityLabel={
+          selection
+            ? `${selection.selected ? '已选中' : '未选中'} ${track.title}，${artistText}`
+            : `${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`
+        }
+        accessibilityState={selection ? { selected: selection.selected } : { selected: playing }}
       >
         {leading === 'index' ? (
           <View style={styles.trackNoSlot}>
@@ -97,8 +130,8 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
         </View>
       </Pressable>
 
-      {/* 右侧：收藏 + 快捷菜单 */}
-      {canFavorite ? (
+      {/* 右侧：收藏 + 快捷菜单（选择态里都收起来，避免与多选打架） */}
+      {!selection && canFavorite ? (
         <Pressable
           hitSlop={8}
           onPress={handleFavoritePress}
@@ -113,7 +146,7 @@ export function TrackRow({ track, leading, index, playing = false, onPress }: Tr
           />
         </Pressable>
       ) : null}
-      <TrackMoreButton track={track} />
+      {!selection ? <TrackMoreButton track={track} /> : null}
     </View>
   )
 }
@@ -124,6 +157,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     paddingVertical: 4,
   },
+  checkSlot: { width: 32, alignItems: 'center', justifyContent: 'center' },
   trackMain: {
     flex: 1,
     flexDirection: 'row',

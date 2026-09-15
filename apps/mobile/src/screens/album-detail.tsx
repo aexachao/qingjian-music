@@ -7,6 +7,7 @@ import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
+import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useIsMenuOpen } from '@/lib/menu-guard'
@@ -38,6 +39,8 @@ export function AlbumDetailScreen() {
   })
 
   const { selection, setSelection, sortKey, sort } = useListSort('albumTracks')
+  // 多选：与 TrackListScreen 同一套 —— 点工具条那颗图标弹模态
+  const [selecting, setSelecting] = useState(false)
   const { query, items, total, loadMore } = usePagedQuery({
     queryKey: ['album-tracks', connection?.id, id, sortKey],
     enabled: Boolean(provider && id),
@@ -66,7 +69,13 @@ export function AlbumDetailScreen() {
   if (!album) return <EmptyState text="专辑不存在" />
 
   const toolbar = (
-    <ListToolbar kind="albumTracks" total={total} selection={selection} onSelect={setSelection} />
+    <ListToolbar
+      kind="albumTracks"
+      total={total}
+      selection={selection}
+      onSelect={setSelection}
+      onStartSelection={() => setSelecting(true)}
+    />
   )
 
   return (
@@ -145,6 +154,23 @@ export function AlbumDetailScreen() {
       />
 
       {pinned && total > 0 ? <View style={styles.pinnedBar}>{toolbar}</View> : null}
+
+      <TrackSelectionModal
+        visible={selecting}
+        items={items}
+        source={{ kind: 'album', id, label: album?.name ? `专辑 · ${album.name}` : '专辑' }}
+        leading="index"
+        isPlaying={(trackId) => current?.serverId === connection?.id && current?.trackId === trackId}
+        onEndReached={loadMore}
+        footer={
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
+        }
+        onClose={() => setSelecting(false)}
+      />
 
       {isMenuOpen ? (
         <Pressable

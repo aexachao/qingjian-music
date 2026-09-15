@@ -1,10 +1,11 @@
-import type { ReactElement } from 'react'
+import { useState, type ReactElement } from 'react'
 import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
 import type { Page, PlaySource, SortSpec, Track } from '@qj/core-domain'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
+import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { useBottomSpace } from '@/lib/bottom-space'
 import type { ListKind } from '@/lib/list-sort-policy'
 import { useIsMenuOpen } from '@/lib/menu-guard'
@@ -46,6 +47,8 @@ export function TrackListScreen({
   const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
   const { selection, setSelection, sortKey, sort } = useListSort(listKind)
+  // 多选：列表页本身不进选择态，点工具条那颗图标弹模态（选择与批量动作都在弹窗里）
+  const [selecting, setSelecting] = useState(false)
   const { query, items, total, loadMore } = usePagedQuery<Track>({
     // sortKey 必须在 queryKey 里，否则换排序不会重新取数（只会换个本地顺序，而我们又不本地排序）
     queryKey: [...queryKey, sortKey],
@@ -61,7 +64,13 @@ export function TrackListScreen({
   return (
     <View style={styles.root}>
       {/* 计数与排序固定在导航栏下方，不随列表滚走 */}
-      <ListToolbarBar kind={listKind} total={total} selection={selection} onSelect={setSelection} />
+      <ListToolbarBar
+        kind={listKind}
+        total={total}
+        selection={selection}
+        onSelect={setSelection}
+        onStartSelection={() => setSelecting(true)}
+      />
 
       <FlatList
         data={items}
@@ -91,6 +100,23 @@ export function TrackListScreen({
           />
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
+      />
+
+      <TrackSelectionModal
+        visible={selecting}
+        items={items}
+        source={source}
+        leading={leading}
+        isPlaying={(trackId) => current?.serverId === connection?.id && current?.trackId === trackId}
+        onEndReached={loadMore}
+        footer={
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
+        }
+        onClose={() => setSelecting(false)}
       />
 
       {isMenuOpen ? (

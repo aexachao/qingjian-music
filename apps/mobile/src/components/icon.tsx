@@ -82,6 +82,7 @@ const ICONS = {
   add: 'add',
   more: 'ellipsis-horizontal',
   sort: 'swap-vertical',
+  select: 'checkmark-circle-outline',
   remove: 'remove',
   trash: 'trash',
   importPlaylist: 'add-circle',
@@ -90,6 +91,8 @@ const ICONS = {
   eyeOff: 'eye-off-outline',
   history: 'time-outline',
   circle: 'ellipse-outline',
+  // 半选（多选顶部条的三态图标用）
+  circleIndeterminate: 'remove-circle',
   checkmarkCircle: 'checkmark-circle',
   clear: 'close-circle',
 } satisfies Record<string, GlyphName>
