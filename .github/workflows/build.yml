@@ -258,6 +258,14 @@ jobs:
 
       # 保证 sdkmanager / 许可证就绪（gradle 需要时能自动补装 build-tools / NDK）
       - uses: android-actions/setup-android@v3
+        with:
+          # 必须显式指定包列表：该 action 的默认值是 'tools platform-tools'，
+          # 而 `tools` 已从 SDK 仓库移除，照默认跑会在这一步直接失败：
+          #   sdkmanager tools → Warning: Failed to find package 'tools' → exit 1
+          # （2026-09-15 上游变更导致，与项目代码无关。）
+          # 只装 platform-tools，其余（platform / build-tools / NDK）由 gradle 按需补装 ——
+          # 上面已 accept-android-sdk-licenses，agp 的 sdkDownload 能自动拉。
+          packages: 'platform-tools'
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
