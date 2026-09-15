@@ -96,6 +96,9 @@ export function SearchResultList({ type, keyword }: { type: SearchTabKey; keywor
 const PAGE_SIZE = 50
 
 const useStyles = createThemedStyles((colors) => ({
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  // flexGrow: 1 是给**空状态**用的：列表为空时让内容区撑满视窗，
+  // ListEmptyComponent（list-states 里的 EmptyState，flex: 1 + 居中）才能在视窗里上下居中。
+  // 有内容时它不产生任何视觉影响。
+  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   separator: { height: 1, marginLeft: 68, backgroundColor: colors.borderSubtle },
 }))

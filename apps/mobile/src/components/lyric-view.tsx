@@ -422,7 +422,7 @@ export function LyricView({
   if (query.isPending) {
     return (
       <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
-        <ActivityIndicator color={colors.accent} />
+        <ActivityIndicator color={colors.brandTint} />
       </View>
     )
   }

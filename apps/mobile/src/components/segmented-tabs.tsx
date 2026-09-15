@@ -77,7 +77,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textSecondary,
   },
   labelSelected: {
-    color: colors.accent,
+    color: colors.stateSelected,
     fontWeight: '600',
   },
   indicator: {
@@ -87,7 +87,7 @@ const useStyles = createThemedStyles((colors) => ({
     backgroundColor: 'transparent',
   },
   indicatorSelected: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.stateSelected,
   },
   // 让指示条在未选中时也占位，避免整行高度抖动
   hairline: {

@@ -227,7 +227,7 @@ function SettingsRow({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
     >
-      <Icon name={icon} size={22} color={colors.accent} />
+      <Icon name={icon} size={22} color={colors.brandTint} />
       <Text numberOfLines={1} style={styles.label}>
         {label}
       </Text>
@@ -260,7 +260,7 @@ const useStyles = createThemedStyles((colors) => ({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#3b5998',
+    backgroundColor: colors.bgAvatar,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -12,7 +12,7 @@ export default function BootScreen() {
   if (status === 'loading') {
     return (
       <View style={styles.container}>
-        <ActivityIndicator color={colors.accent} />
+        <ActivityIndicator color={colors.brandTint} />
       </View>
     )
   }

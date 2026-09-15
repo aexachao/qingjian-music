@@ -119,7 +119,7 @@ export function ListSortMenu({ visible, anchor, kind, selection, onSelect, onClo
               <Icon
                 name={item.arrow === 'up' ? 'arrowUp' : 'arrowDown'}
                 size={iconSize.sm}
-                color={item.active ? colors.accent : colors.textTertiary}
+                color={item.active ? colors.stateSelected : colors.textTertiary}
               />
             </Pressable>
           ))}
@@ -141,7 +141,7 @@ const useStyles = createThemedStyles((colors) => ({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderEmphasis,
     overflow: 'hidden',
-    shadowColor: '#000000',
+    shadowColor: colors.shadow,
     shadowOpacity: 0.28,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
@@ -163,7 +163,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   labelActive: {
-    color: colors.accent,
+    color: colors.stateSelected,
     fontWeight: '600',
   },
 }))

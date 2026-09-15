@@ -135,7 +135,7 @@ export function CacheSettingsScreen() {
               <Switch
                 value={autoCacheEnabled}
                 onValueChange={setAutoCacheEnabled}
-                trackColor={{ false: colors.bgCardHover, true: colors.accent }}
+                trackColor={{ false: colors.bgCardHover, true: colors.stateSelected }}
                 thumbColor={colors.textOnAccent}
               />
             </View>
@@ -379,7 +379,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.caption,
     fontSize: 13,
     fontWeight: '600',
-    color: colors.accent,
+    color: colors.stateSelected,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

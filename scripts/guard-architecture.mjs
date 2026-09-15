@@ -40,6 +40,14 @@ const ROUTER_TYPES = 'apps/mobile/.expo/types/router.d.ts'
 const HAPTICS_MODULE = `${MOBILE_SRC}/lib/haptics.ts`
 /** 允许出现 console.log 的调试自检页 */
 const CONSOLE_LOG_ALLOWLIST = [`${MOBILE_SRC}/app/dev-smoke.tsx`]
+/**
+ * 允许出现十六进制颜色字面量的文件。
+ * 只有致命错误屏 —— 它**刻意自我隔离**（主题 Provider 可能就是崩掉的那一环），
+ * 所以不能用 theme token。除此之外组件必须走 `colors.<角色>`。
+ */
+const HEX_LITERAL_ALLOWLIST = [`${MOBILE_SRC}/components/fatal-error-screen.tsx`]
+/** 颜色 token 的定义处（唯一允许直接写 L1 色值 / 直接用 accent 的地方） */
+const THEME_DIR = `${MOBILE_SRC}/theme/`
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 基础设施
@@ -202,6 +210,39 @@ const RULES = [
     run() {
       const files = MOBILE_CODE().filter((f) => !CONSOLE_LOG_ALLOWLIST.includes(f))
       return collect(files, /\bconsole\.log\s*\(/)
+    },
+  },
+  {
+    id: 'colors-via-theme-tokens',
+    title: '组件里不许出现十六进制颜色字面量（色值只能写在 theme/）',
+    why: [
+      '散落在组件里的 #rrggbb 就是「改不动」的根源：想统一调色时得全局搜索，',
+      '而且深/浅色两套值很容易只改一边。色值只许写在 theme/tokens.ts，',
+      '组件用 colors.<角色>。',
+      `白名单（${HEX_LITERAL_ALLOWLIST.length} 个）：致命错误屏 —— 它刻意不依赖主题。`,
+    ].join('\n    '),
+    ratchet: false,
+    run() {
+      const files = MOBILE_CODE().filter(
+        (f) => !f.startsWith(THEME_DIR) && !HEX_LITERAL_ALLOWLIST.includes(f),
+      )
+      return collect(files, /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{8}\b/)
+    },
+  },
+  {
+    id: 'accent-via-roles',
+    title: '品牌色只走语义角色（组件里禁止直接用 colors.accent）',
+    why: [
+      'accent 以前同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，',
+      '一屏出现三四处红就吵；而且它还和 danger / like 同值，改品牌色会连累它们。',
+      '现在组件一律用角色：stateSelected（选中/激活）、playing、like、danger、',
+      'primaryAction（每屏最多一处的主行动）、actionText / actionTextMuted / disabledText，',
+      '以及装饰位的 brandTint。accent 只留给 theme/ 里的映射。',
+    ].join('\n    '),
+    ratchet: false,
+    run() {
+      const files = MOBILE_CODE().filter((f) => !f.startsWith(THEME_DIR))
+      return collect(files, /\bcolors\.accent\b/)
     },
   },
   {

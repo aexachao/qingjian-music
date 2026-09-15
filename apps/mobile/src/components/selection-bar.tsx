@@ -50,7 +50,7 @@ export function SelectionToolbarBar({ state, countText, onToggleAll, onDone }: S
           <Icon
             name={STATE_ICON[state]}
             size={22}
-            color={selected ? colors.accent : colors.textTertiary}
+            color={selected ? colors.stateSelected : colors.textTertiary}
           />
           <Text style={styles.label}>{SELECT_ALL_LABEL}</Text>
         </Pressable>
@@ -138,7 +138,7 @@ const useStyles = createThemedStyles((colors) => ({
   selectAll: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   label: { ...typography.subhead, color: colors.textPrimary },
   count: { ...typography.subhead, color: colors.textTertiary },
-  done: { ...typography.subhead, color: colors.accent, fontWeight: '600' },
+  done: { ...typography.subhead, color: colors.primaryAction, fontWeight: '600' },
   actionBar: {
     position: 'absolute',
     left: 0,

@@ -7,7 +7,7 @@ import { useThemeColors } from '@/theme/theme-provider'
 
 export default function TabsLayout() {
   const colors = useThemeColors()
-  const activeColor = colors.accent
+  const activeColor = colors.stateSelected
   const inactiveColor = colors.iconDim
   // 搜索态（输入框在导航栏那一屏）要沉浸式：藏掉 Tab 栏。判断只有一处（tab-bar-policy）
   const hideTabBar = isTabBarHidden(useSegments())

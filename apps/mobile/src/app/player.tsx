@@ -368,7 +368,7 @@ export default function PlayerScreen() {
               <AirplayRouteButton
                 style={styles.airplayNative}
                 tintColor={colors.iconMid}
-                activeTintColor={colors.accent}
+                activeTintColor={colors.stateSelected}
               />
             </View>
             <IconButton

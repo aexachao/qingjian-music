@@ -344,7 +344,7 @@ export default function LoginScreen() {
                 <Icon
                   name={showPassword ? 'eye' : 'eyeOff'}
                   size={20}
-                  color={showPassword ? colors.accent : colors.textTertiary}
+                  color={showPassword ? colors.stateSelected : colors.textTertiary}
                 />
               </Pressable>
             </View>
@@ -361,7 +361,7 @@ export default function LoginScreen() {
                 <Icon
                   name={rememberPassword ? 'checkmarkCircle' : 'circle'}
                   size={19}
-                  color={rememberPassword ? colors.accent : colors.textTertiary}
+                  color={rememberPassword ? colors.stateSelected : colors.textTertiary}
                 />
                 <Text style={styles.rememberText}>记住密码</Text>
               </Pressable>
@@ -374,7 +374,7 @@ export default function LoginScreen() {
             <Switch
               value={useHttps}
               onValueChange={setUseHttps}
-              trackColor={{ false: colors.bgCardHover, true: colors.accent }}
+              trackColor={{ false: colors.bgCardHover, true: colors.stateSelected }}
               thumbColor={colors.textOnAccent}
               ios_backgroundColor={colors.bgCardHover}
             />
@@ -537,7 +537,7 @@ const useStyles = createThemedStyles((colors) => ({
     lineHeight: 18,
   },
   button: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primaryAction,
     borderRadius: radius.lg,
     height: 52,
     alignItems: 'center',

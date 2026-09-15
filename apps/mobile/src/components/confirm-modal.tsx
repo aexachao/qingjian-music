@@ -386,10 +386,10 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   confirmButton: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primaryAction,
   },
   destructiveButton: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.danger,
   },
   confirmText: {
     ...typography.body,

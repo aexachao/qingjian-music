@@ -49,6 +49,19 @@ xcrun devicectl device process launch --device <设备 UDID> com.chrisli.music
 另外：push 转场期间视图还没进 window，**单靠 `TextInput` 的 `autoFocus` 也常常不生效**。
 可靠做法是 `useFocusEffect`（expo-router 有导出）里延迟一拍再 `inputRef.current?.focus()`。
 
+# 颜色：只许走语义角色（组件里禁止 `#rrggbb` 与 `colors.accent`）
+
+规范与角色表在 [`docs/design-tokens.md`](../../docs/design-tokens.md)。要点：
+
+- 色值只写在 `src/theme/tokens.ts`（L1）；组件用 L2 语义角色：`primaryAction` /
+  `stateSelected` / `playing` / `like` / `danger` / `actionText` / `actionTextMuted` /
+  `disabledText` / `brandTint`。
+- `primaryAction` **每屏最多一处**；普通可点动作用 `actionText`（中性），不要用品牌红 ——
+  一屏出现三四处红就会吵（2026-09-15 验收时就是这个反馈）。
+- `danger` / `like` 是**独立色值**，不与品牌色联动：改品牌色不该把「删除」和「收藏心形」一起改掉。
+- 两条守卫是零容忍的：`colors-via-theme-tokens`（唯一白名单是致命错误屏）、`accent-via-roles`。
+- 加新的颜色用法时先问：这是**状态**、**主行动**，还是**装饰**？三者各有角色，别都塞给 accent。
+
 # @expo/ui（SwiftUI 组件）：两条会直接崩的规矩
 
 播放页「···」快捷菜单用的就是它（`Menu` / `Button` / `Section`，系统原生样式）。

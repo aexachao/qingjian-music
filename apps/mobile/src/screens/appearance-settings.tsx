@@ -89,7 +89,7 @@ export function AppearanceSettingsScreen() {
                       <Text style={styles.themeDescription}>{option.description}</Text>
                     </View>
                     {isSelected ? (
-                      <Icon name="check" size={iconSize.md} color={colors.accent} />
+                      <Icon name="check" size={iconSize.md} color={colors.stateSelected} />
                     ) : (
                       <View style={styles.checkPlaceholder} />
                     )}
@@ -263,7 +263,7 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
   },
   logoRingSelected: {
-    borderColor: colors.accent,
+    borderColor: colors.stateSelected,
   },
   logoImage: {
     width: 64,
@@ -277,6 +277,6 @@ const useStyles = createThemedStyles((colors) => ({
   },
   logoNameActive: {
     fontFamily: fonts.medium,
-    color: colors.accent,
+    color: colors.stateSelected,
   },
 }))

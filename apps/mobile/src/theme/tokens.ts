@@ -93,7 +93,12 @@ const darkPalette = {
   bgFloatingBlur: '#18181bd9',
   bgFloatingSolid: '#1f1f23',
   // --- 语义色 ---
-  danger: '#f62c55',
+  /**
+   * 破坏性动作。**刻意与品牌红拆开**（2026-09-15 第 3 轮）：
+   * 以前 danger 与 accent 是同一个值，改品牌色会把「删除/清空」这些危险动作一起改掉。
+   * 现在它是独立的 knob，用 iOS 的系统红。
+   */
+  danger: '#ff3b30',
   success: '#6bab45',
   warning: '#f8bf28',
   info: '#1b73fb',
@@ -109,6 +114,22 @@ const darkPalette = {
   badgeBg: '#ffffff14',
   badgeBorder: '#ffffff1f',
   badgeText: '#ffffffa6',
+  /** 收藏（喜欢）的粉色。同样与品牌红拆开，独立可改 */
+  like: '#f05672',
+  /**
+   * 二维码底色：永远白底（深色主题也一样）—— 反色就扫不出来了。
+   * 所以它是独立的 token，不跟 `bgPrimary` 走。
+   */
+  qrSurface: '#ffffff',
+  /** 阴影永远是黑，但也要有 token（组件里禁止出现十六进制字面量） */
+  shadow: '#000000',
+  /**
+   * 封面占位：**一个浅灰底 + 一个比底深一点的灰记号**（不用品牌色，免得整屏红）。
+   * 浅色下记号确实比底深；深色下如果还「更深」就看不见了，所以那一套反过来给「更浅」的灰 ——
+   * 关系是「比底色更有存在感」，不是死守方向。两个值都在 `theme-roles.test.ts` 里锁着。
+   */
+  coverPlaceholder: '#ffffff14',
+  coverPlaceholderMark: '#ffffff33',
 } as const
 
 export type PaletteKey = keyof typeof darkPalette
@@ -161,7 +182,7 @@ const lightPalette: Palette = {
   playerGlassBorder: '#0000001f',
   bgFloatingBlur: '#ffffffd9',
   bgFloatingSolid: '#f4f4f6',
-  danger: '#f62c55',
+  danger: '#ff3b30',
   success: '#6bab45',
   warning: '#f8bf28',
   info: '#1b73fb',
@@ -175,17 +196,58 @@ const lightPalette: Palette = {
   badgeBg: '#0000000d',
   badgeBorder: '#0000001a',
   badgeText: '#0000008c',
+  like: '#f05672',
+  qrSurface: '#ffffff',
+  shadow: '#000000',
+  /** 封面占位：浅灰底 + 更深的灰记号（见深色那套的注释） */
+  coverPlaceholder: '#0000000f',
+  coverPlaceholderMark: '#00000026',
 }
 
 export const palette: { dark: Palette; light: Palette } = { dark: darkPalette, light: lightPalette }
 
 export type ResolvedTheme = keyof typeof palette
+/**
+ * L2 语义角色（2026-09-15 第 3 轮加的）。
+ *
+ * ── 为什么要有这一层 ────────────────────────────────────────────────────────
+ * 以前 `accent` 一个 token 同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，
+ * 一屏里出现三四处红就会吵；而且 `accent`、`danger`、`like`、`playing` 四个 token
+ * **是同一个值** —— 「以后想改颜色」这件事在结构上其实做不到。
+ *
+ * 现在分三层：
+ *   L1 调色板（`palette` / `accents`）：具体色值，**只有本文件用**；
+ *   L2 角色（本类型）：`primaryAction` / `stateSelected` / `playing` / `like` / `danger` /
+ *       `actionText` / `actionTextMuted` / `disabledText` / `shadow` —— 组件只许用这些；
+ *   L3 组件：`colors.<角色>`。
+ *
+ * 想「少用红」「换品牌色」「收藏改黄」，只改 L2 的映射（几行），全 App 一起生效。
+ * `accent` 保留给**品牌标识**（应用图标预览、关于页 logo 这类非功能位），
+ * 组件里直接用 `colors.accent` 会被架构守卫拦下（存量已记基线，只减不增）。
+ */
 export type ThemeColors = Palette & {
+  /** 品牌色。**只用于品牌标识**；功能处一律用下面的角色 */
   accent: string
+  /** 每屏最多一处的主行动（确认按钮、页面主 CTA） */
+  primaryAction: string
+  /** 选中 / 激活：勾选框、页签、开关、开关型图标、导航高亮、光标 */
+  stateSelected: string
   /** 正在播放的高亮色 */
   playing: string
   /** 收藏（喜欢）色 */
   like: string
+  /** 普通可点动作的图标与文字（中性，不再是品牌红） */
+  actionText: string
+  /** 次要动作（比 actionText 弱一级） */
+  actionTextMuted: string
+  /** 不可点状态 */
+  disabledText: string
+  /**
+   * 品牌色的**装饰性**用法：加载指示器、设置入口的小图标、Hub 卡、封面占位……
+   * 单独立一个角色，是为了让「品牌色太抢眼」这件事有一个旋钮可拧
+   * （改这里一处就能把这些装饰位统一下调），而不必动状态色与主行动色。
+   */
+  brandTint: string
 }
 
 function createThemeColors(base: Palette): ThemeColors {
@@ -193,8 +255,14 @@ function createThemeColors(base: Palette): ThemeColors {
   return {
     ...base,
     accent,
+    primaryAction: accent,
+    stateSelected: accent,
     playing: accent,
-    like: accent,
+    like: base.like,
+    actionText: base.textPrimary,
+    actionTextMuted: base.textSecondary,
+    disabledText: base.textQuaternary,
+    brandTint: accent,
   }
 }
 

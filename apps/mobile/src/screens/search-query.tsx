@@ -157,8 +157,8 @@ export function SearchQueryScreen() {
             placeholderTextColor={colors.textTertiary}
             style={styles.input}
             // 光标与选择色走品牌色（默认是系统蓝）
-            selectionColor={colors.accent}
-            cursorColor={colors.accent}
+            selectionColor={colors.stateSelected}
+            cursorColor={colors.stateSelected}
             autoCorrect={false}
             returnKeyType="search"
             clearButtonMode="while-editing"
@@ -290,12 +290,13 @@ const useStyles = createThemedStyles((colors) => ({
     backgroundColor: colors.bgPrimary,
   },
   input: { flex: 1, ...typography.callout, color: colors.textPrimary, padding: 0 },
-  cancel: { ...typography.callout, color: colors.accent },
+  cancel: { ...typography.callout, color: colors.actionText },
   tabsBar: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
-  historyList: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  // 同上：空历史时让内容区撑满，空状态在视窗里居中
+  historyList: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
   recentHeader: {
     flexDirection: 'row',
     alignItems: 'center',

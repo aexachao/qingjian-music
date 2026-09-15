@@ -73,7 +73,7 @@ export function PlaylistsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="新建歌单"
                 >
-                  <Icon name="add" size={iconSize.lg} color={colors.accent} />
+                  <Icon name="add" size={iconSize.lg} color={colors.primaryAction} />
                 </Pressable>
               )
             : undefined,
@@ -132,7 +132,10 @@ export function PlaylistsScreen() {
 
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  // flexGrow: 1 是给**空状态**用的：列表为空时让内容区撑满视窗，
+  // ListEmptyComponent（list-states 里的 EmptyState，flex: 1 + 居中）才能在视窗里上下居中。
+  // 有内容时它不产生任何视觉影响。
+  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   empty: { alignItems: 'center', gap: spacing.lg, paddingVertical: spacing.xl },
   emptyText: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center' },
   emptyButton: {
@@ -141,7 +144,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.pill,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primaryAction,
   },
   emptyButtonLabel: { ...typography.headline, color: colors.textOnAccent },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },

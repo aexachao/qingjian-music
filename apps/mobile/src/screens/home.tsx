@@ -192,7 +192,7 @@ export function HomeScreen() {
         scrollEventThrottle={16}
         onScroll={onScroll}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandTint} />
         }
       >
         <LargeTitleHeader title="首页" scrollY={scrollY} />

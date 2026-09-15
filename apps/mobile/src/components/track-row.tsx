@@ -76,7 +76,7 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
           <Icon
             name={selection.selected ? 'checkmarkCircle' : 'circle'}
             size={22}
-            color={selection.selected ? colors.accent : colors.textTertiary}
+            color={selection.selected ? colors.stateSelected : colors.textTertiary}
           />
         </Pressable>
       ) : null}
@@ -214,7 +214,7 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
   },
   favoriteActive: {
-    color: colors.accent,
+    color: colors.like,
   },
   favoriteInactive: {
     color: colors.textTertiary,

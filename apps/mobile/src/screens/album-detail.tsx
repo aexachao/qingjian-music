@@ -183,7 +183,10 @@ export function AlbumDetailScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => ({
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  // flexGrow: 1 是给**空状态**用的：列表为空时让内容区撑满视窗，
+  // ListEmptyComponent（list-states 里的 EmptyState，flex: 1 + 居中）才能在视窗里上下居中。
+  // 有内容时它不产生任何视觉影响。
+  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   // 计数与排序距离上方按钮留足间距，距离下方列表收窄
   headerRoot: { marginBottom: spacing.sm },
   coverBlock: { alignItems: 'center', gap: spacing.xs },
@@ -212,7 +215,7 @@ const useStyles = createThemedStyles((colors) => ({
     borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
   },
-  buttonPrimary: { backgroundColor: colors.accent },
+  buttonPrimary: { backgroundColor: colors.primaryAction },
   buttonLabel: { ...typography.headline, color: colors.textPrimary },
   buttonLabelPrimary: { color: colors.textOnAccent },
 }))

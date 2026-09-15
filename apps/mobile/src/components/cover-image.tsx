@@ -1,7 +1,7 @@
 import { Image } from 'expo-image'
 import { View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
-import { Icon } from '@/components/icon'
+import { BrandMark } from '@/components/brand-mark'
 import { radius } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { useServerSession } from '@/lib/server-session'
@@ -16,8 +16,16 @@ interface CoverImageProps {
   borderRadius?: number
 }
 
-/** 没有封面时的兜底：强调色底 + 音符，占位尺寸随封面大小缩放 */
-const PLACEHOLDER_ICON_RATIO = 0.4
+/**
+ * 没有封面时的兜底：**浅灰底 + 比底更深的灰记号**（默认应用图标「绯红声谱」里那 15 根竖条，
+ * 只取记号的形状）。记号宽度随封面尺寸缩放。
+ *
+ * 三个刻意的选择：
+ * ① 不用苹果音乐那种音符图标 —— 那是别人的图标语言；
+ * ② 记号**不用品牌红**，走中性灰（`coverPlaceholderMark`），否则一屏列表全是红的；
+ * ③ 固定取**默认**图标样式，不跟随设置里切换的启动图标（见 brand-mark.tsx 注释）。
+ */
+const PLACEHOLDER_MARK_RATIO = 0.46
 
 /** 飞牛的封面接口需要鉴权头，所以统一走 provider.image() 拿 url + headers */
 export function CoverImage({ coverId, resource, size, borderRadius = radius.md }: CoverImageProps) {
@@ -29,11 +37,7 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
   if (!target) {
     return (
       <View style={[styles.placeholder, { width: size, height: size, borderRadius }]}>
-        <Icon
-          name="tracks"
-          size={Math.round(size * PLACEHOLDER_ICON_RATIO)}
-          color={colors.textOnAccent}
-        />
+        <BrandMark width={Math.round(size * PLACEHOLDER_MARK_RATIO)} color={colors.coverPlaceholderMark} />
       </View>
     )
   }
@@ -52,5 +56,9 @@ export function CoverImage({ coverId, resource, size, borderRadius = radius.md }
 }
 
 const useStyles = createThemedStyles((colors) => ({
-  placeholder: { backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  placeholder: {
+    backgroundColor: colors.coverPlaceholder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 }))

@@ -75,7 +75,10 @@ export function AlbumsScreen() {
 
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1 },
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  // flexGrow: 1 是给**空状态**用的：列表为空时让内容区撑满视窗，
+  // ListEmptyComponent（list-states 里的 EmptyState，flex: 1 + 居中）才能在视窗里上下居中。
+  // 有内容时它不产生任何视觉影响。
+  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   name: { ...typography.subhead, color: colors.textPrimary, marginTop: spacing.sm },
   artist: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
 }))

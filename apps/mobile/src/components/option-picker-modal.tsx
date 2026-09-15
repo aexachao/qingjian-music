@@ -199,7 +199,7 @@ export function OptionPickerModal<T extends string = string>({
                   </View>
 
                   {selected ? (
-                    <Icon name="check" size={20} color={colors.accent} />
+                    <Icon name="check" size={20} color={colors.stateSelected} />
                   ) : null}
                 </Pressable>
               )

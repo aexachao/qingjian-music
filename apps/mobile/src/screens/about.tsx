@@ -205,7 +205,7 @@ function AboutRow({
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Icon name={icon} size={22} color={colors.accent} />
+      <Icon name={icon} size={22} color={colors.brandTint} />
       <Text numberOfLines={1} style={styles.rowLabel}>
         {label}
       </Text>

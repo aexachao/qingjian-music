@@ -17,9 +17,9 @@ export function getNavigationTheme(theme: ResolvedTheme) {
       background: colors.bgPrimary,
       card: colors.bgPrimary,
       text: colors.textPrimary,
-      primary: colors.accent,
+      primary: colors.stateSelected,
       border: colors.borderSubtle,
-      notification: colors.accent,
+      notification: colors.stateSelected,
     },
   }
 }

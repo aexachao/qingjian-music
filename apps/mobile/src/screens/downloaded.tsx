@@ -23,7 +23,7 @@ export function DownloadedScreen() {
     <View style={styles.container}>
       <View style={styles.card}>
         <View style={styles.iconSlot}>
-          <Icon name="downloaded" size={iconSize.lg} color={colors.accent} />
+          <Icon name="downloaded" size={iconSize.lg} color={colors.brandTint} />
         </View>
         <View style={styles.textCol}>
           <Text style={styles.title}>已离线缓存 {stats.files} 首歌曲</Text>

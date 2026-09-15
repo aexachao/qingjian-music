@@ -126,7 +126,7 @@ export function SearchBrowseScreen() {
                 <IconButton
                   name="play"
                   size={iconSize.md}
-                  color={colors.accent}
+                  color={colors.brandTint}
                   onPress={() => void playGenre(genre)}
                   accessibilityLabel={`播放流派 ${genre.name}`}
                 />
