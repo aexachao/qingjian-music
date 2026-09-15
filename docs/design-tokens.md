@@ -32,8 +32,42 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
   变量名沿用 web 端语义（`bgCard`↔`--ds-bg-card`、`borderDefault`↔`--ds-border-default` …）。
 - 颜色保留 web 端的 8 位十六进制（`#ffffff14` = 白 8%），RN 原生支持，方便和 CSS 逐字比对。
 - `accents` + `DEFAULT_ACCENT`：与 `[data-theme-accent=*]` 对齐，**固定 red `#f62c55`**（飞牛音乐后台主题色），
-  强调色切换留到主题设置一起做。注意 `--ds-special-danger` 与 `--ds-accent-red` 同值，web 端亦然，
-  破坏性操作靠文案（「退出登录」「清空」）而不是靠颜色区分。
+  强调色切换留到主题设置一起做。⚠️ web 端 `--ds-special-danger` 与 `--ds-accent-red` 同值，
+  **App 这边刻意拆开了** —— 见下面「三层 token」。
+
+## 三层 token 与颜色使用规范
+
+色值只写在 `apps/mobile/src/theme/tokens.ts`，组件一律用**语义角色**。这样「品牌色太抢眼」
+或者「换一套配色」只改映射，不用全局搜索替换。
+
+| 层 | 放什么 | 谁能用 |
+| --- | --- | --- |
+| L1 调色板 | 具体色值（`palette.dark` / `palette.light` / `accents`） | 只有 `theme/tokens.ts` |
+| L2 语义角色 | 见下表 | 组件（`colors.<角色>`） |
+| L3 组件 | `src/**` | —— |
+
+| 角色 | 用在哪 |
+| --- | --- |
+| `primaryAction` | **每屏最多一处**的主行动（确认按钮、页面主 CTA） |
+| `stateSelected` | 选中 / 激活：勾选框、页签、开关、导航高亮、输入光标 |
+| `playing` | 正在播放（标题、律动条） |
+| `like` | 收藏（心形）。**独立色值**，与品牌色无关 |
+| `danger` | 破坏性动作（删除 / 清空）。**独立色值**（`#ff3b30`），改品牌色不会连累它 |
+| `actionText` / `actionTextMuted` / `disabledText` | 普通可点动作 / 次要动作 / 不可点 |
+| `brandTint` | 品牌色的**装饰**用法：加载指示器、设置入口小图标等 |
+| `coverPlaceholder` / `coverPlaceholderMark` | 无封面时的占位**底**与**记号**：浅灰底 + 比底更有存在感的灰记号（不用品牌红）。记号形状取自默认应用图标「绯红声谱」的 15 根竖条，画成矢量（`components/brand-mark.tsx`），且**不跟随设置里切换的启动图标** |
+| `accent` | 品牌色本身，**只用于品牌标识**（应用图标预览、关于页）。组件里直接用会被架构守卫拦下 |
+
+三条纪律（`scripts/guard-architecture.mjs` 机械检查）：
+
+1. `src/**`（除 `theme/`）**不许出现十六进制颜色字面量**。唯一白名单是致命错误屏
+   `apps/mobile/src/components/fatal-error-screen.tsx` —— 它刻意不依赖主题（主题 Provider 可能就是崩掉的那一环）。
+2. 组件里**不许直接用 `colors.accent`**，必须走上面的角色。
+3. 「一屏最多一处 `primaryAction`」靠 review 与截图（品牌红像素占比）把关。
+
+> 背景：2026-09-15 之前 `accent` 同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，
+> 而 `accent`、`danger`、`like`、`playing` 是同一个值 —— 一屏出现三四处红就吵，
+> 且「改品牌色」在结构上做不到（会连累危险色与收藏色）。
 - `fonts`：Montserrat 四个字重，文件在 `apps/mobile/assets/fonts/`（OFL 授权，许可证同目录 `OFL.txt`），
   由 `expo-font` 配置插件在构建期嵌入，族名用 TTF 的 PostScript 名（`Montserrat-Regular` 等）。
   **改了字体配置必须重新 `npx expo prebuild --platform ios`**，直接 `expo run:ios` 不会重跑配置插件。
