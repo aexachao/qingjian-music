@@ -112,12 +112,17 @@ describe('应用图标矩阵的排布契约', () => {
     expect(screenSource).not.toContain('flexGrow')
   })
 
-  it('图标只显示名称，不显示下方描述小字', () => {
+  it('图标只显示名称，描述完全不进界面', () => {
     expect(screenSource).toContain('{logo.name}')
-    // 描述不再作为可见文本渲染（配对的样式也一并删掉）……
-    expect(screenSource).not.toMatch(/>\s*\{logo\.description\}/)
+    expect(screenSource).not.toContain('logo.description')
     expect(screenSource).not.toContain('logoDesc')
-    // ……但仍留在无障碍标签里：视觉上省掉一行小字，读屏用户不该跟着丢信息
-    expect(screenSource).toContain('accessibilityLabel={`${logo.name}，${logo.description}')
+  })
+
+  it('选中效果 = 描边圈 + 名称变强调色，不用勾选角标也不用整格铺底色', () => {
+    expect(screenSource).toContain('logoRing')
+    expect(screenSource).toContain('logoRingSelected')
+    expect(screenSource).toContain('logoNameActive')
+    expect(screenSource).not.toContain('selectedBadge')
+    expect(screenSource).not.toContain('logoItemSelected')
   })
 })

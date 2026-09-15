@@ -11,7 +11,7 @@ import {
   type ThemeMode,
 } from '@/lib/appearance-preferences'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { spacing, typography } from '@/theme/tokens'
+import { fonts, spacing, typography } from '@/theme/tokens'
 import { supportsAlternateIcons } from '../../modules/app-icon'
 
 /**
@@ -118,45 +118,25 @@ export function AppearanceSettingsScreen() {
                 return (
                   <Pressable
                     key={logo.id}
-                    style={({ pressed }) => [
-                      styles.logoItem,
-                      isSelected && styles.logoItemSelected,
-                      pressed && styles.logoItemPressed,
-                    ]}
+                    style={({ pressed }) => [styles.logoItem, pressed && styles.logoItemPressed]}
                     onPress={() => void onSelectLogo(logo)}
                     disabled={pendingLogoId !== null}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: isSelected, disabled: pendingLogoId !== null }}
-                    accessibilityLabel={`${logo.name}，${logo.description}${logo.isDefault ? '，默认图标' : ''}`}
+                    accessibilityLabel={`${logo.name}${logo.isDefault ? '，默认图标' : ''}`}
                   >
-                    <View style={styles.logoImageWrapper}>
-                      <Image
-                        source={logo.source}
-                        style={[
-                          styles.logoImage,
-                          isSelected && styles.logoImageActiveBorder,
-                        ]}
-                        resizeMode="cover"
-                      />
-                      {isSelected ? (
-                        <View style={styles.selectedBadge}>
-                          <Icon name="check" size={12} color={colors.textOnAccent} />
-                        </View>
-                      ) : null}
+                    {/*
+                      选中态 = 图标外面一圈描边 + 名称变成强调色。
+                      不用勾选角标、也不给整格铺底色：底格一上色，4 列下每格只有 80pt 宽，
+                      看起来像四个按钮而不是一排图标。外圈留 5pt 空隙（2pt 描边 + 3pt 间距），
+                      描边不贴着图标才像「选中的框」而不是「图标自带的边」。
+                    */}
+                    <View style={[styles.logoRing, isSelected && styles.logoRingSelected]}>
+                      <Image source={logo.source} style={styles.logoImage} resizeMode="cover" />
                     </View>
-
-                    <View style={styles.logoMeta}>
-                      <View style={styles.logoTitleRow}>
-                        <Text numberOfLines={1} style={[styles.logoName, isSelected && styles.logoNameActive]}>
-                          {logo.name}
-                        </Text>
-                        {logo.isDefault ? (
-                          <View style={styles.defaultBadge}>
-                            <Text style={styles.defaultBadgeText}>默认</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
+                    <Text numberOfLines={1} style={[styles.logoName, isSelected && styles.logoNameActive]}>
+                      {logo.name}
+                    </Text>
                   </Pressable>
                 )
               })}
@@ -260,78 +240,37 @@ const useStyles = createThemedStyles((colors) => ({
   logoItem: {
     width: '25%',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    backgroundColor: colors.bgListItemSoft,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-    gap: 8,
-  },
-  logoItemSelected: {
-    backgroundColor: 'rgba(246, 44, 85, 0.08)',
-    borderColor: colors.accent,
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+    gap: 7,
   },
   logoItemPressed: {
-    opacity: 0.8,
+    opacity: 0.65,
   },
-  logoImageWrapper: {
-    position: 'relative',
-    width: 52,
-    height: 52,
+  logoRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoRingSelected: {
+    borderColor: colors.accent,
   },
   logoImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 13,
-  },
-  logoImageActiveBorder: {
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-  },
-  selectedBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.bgPrimary,
-  },
-  logoMeta: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  logoTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    width: 64,
+    height: 64,
+    borderRadius: 16,
   },
   logoName: {
     ...typography.caption,
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textPrimary,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   logoNameActive: {
+    fontFamily: fonts.medium,
     color: colors.accent,
-  },
-  defaultBadge: {
-    backgroundColor: colors.badgeBg,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  defaultBadgeText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: colors.textSecondary,
   },
 }))
