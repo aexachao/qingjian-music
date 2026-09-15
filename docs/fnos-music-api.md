@@ -32,8 +32,15 @@ password change uses sha256(new). Account ban exists (/user/unbanned, admin only
 另外 `https://fnos.net/api/v1/fn/con`（FN Connect 云端解析）**已失效**：
 签名头校验仍通过（错的 authx 会返回 `{"code":5000,"msg":"invalid sign"}`），
 但任何 fnId 都返回 `{"code":3000037,"msg":"Not Found Error"}`，空 body 也一样。
-所以现在只能回落到 `https://<fnid>.fnos.net` 穿透域名 —— 拿不到局域网候选，
-同网段下也会绕一圈公网中继。
+所以现在只能探测**写死的中继域名** —— 官方一共三个，取自 NAS 自己的域配置：
+
+```
+https://<fnid>.fnos.net     https://<fnid>.5ddd.com     https://<fnid>.trzznas.com
+```
+
+代价：拿不到云端给的局域网/DDNS 候选，同网段下也会绕一圈公网中继。
+客户端目前的补偿办法是把**历史里存过的局域网地址**一起探测，用 `sys/config`
+的 `serverGUID` 确认是同一台设备后才改走内网（避免连到另一台 NAS 上）。
 
 ## verified param names (2026-09-04, probe against live NAS)
 /track/album-detail/list?albumGUID=      (guid / albumGuid -> 100002)

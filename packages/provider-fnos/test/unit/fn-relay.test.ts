@@ -91,7 +91,9 @@ describe('FN Connect 中继标记', () => {
         )
       }
       const cookie = (init?.headers as Record<string, string> | undefined)?.Cookie
-      return cookie === 'mode=relay' ? new Response('{}', { status: 200 }) : new Response('', { status: 302 })
+      return cookie === 'mode=relay'
+        ? new Response(JSON.stringify({ code: 0, msg: '', data: { serverGUID: 'guid-1' } }), { status: 200 })
+        : new Response('', { status: 302 })
     }) as unknown as typeof fetch
 
     const resolved = await resolveFnIdToBaseUrl({

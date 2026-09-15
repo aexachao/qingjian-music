@@ -1,3 +1,4 @@
+import { isLoopbackOrPrivateHost } from '@qj/provider-api'
 import { z } from 'zod'
 
 /** 飞牛 FN Connect 云解析接口。 */
@@ -199,7 +200,53 @@ export function parseCandidates(fnId: string, data: FnConnectRawData, useHttps: 
   return candidates.sort((a, b) => a.priority - b.priority)
 }
 
-export async function probeUrl(url: string, timeoutMs = 1800, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+/** 官方中继域名。取自 NAS 自己的域配置，只认这三个 */
+export const RELAY_DOMAINS = ['fnos.net', '5ddd.com', 'trzznas.com'] as const
+
+/** 一次探测为什么没成功 —— 用来给人一句能看懂的话，而不是笼统的「连接失败」 */
+export type ProbeFailure = 'network' | 'not-music-api' | 'http-error'
+
+export interface ProbeResult {
+  url: string
+  reachable: boolean
+  /**
+   * 只有真的连上音乐接口才有。用来确认「内网地址和穿透地址是同一台设备」——
+   * 历史里可能存着**另一台** NAS 的地址，光看「能不能连上」会连错机器。
+   */
+  serverGUID?: string
+  reason?: ProbeFailure
+}
+
+function isMusicEnvelope(payload: unknown): boolean {
+  return typeof payload === 'object' && payload !== null && 'code' in payload
+}
+
+function extractServerGuid(payload: unknown): string | undefined {
+  if (!isMusicEnvelope(payload)) return undefined
+  const data = (payload as { data?: unknown }).data
+  if (typeof data !== 'object' || data === null) return undefined
+  const guid = (data as { serverGUID?: unknown }).serverGUID
+  return typeof guid === 'string' && guid ? guid : undefined
+}
+
+/**
+ * 探测一个地址是不是可用的飞牛音乐服务。
+ *
+ * ── 为什么 2xx 还要再验一次内容 ──────────────────────────────────────────────
+ * FN Connect 的中继在**设备离线**时会返回一张 200 的 HTML 提示页。只看状态码
+ * 会把它当成「地址可用」，于是后续登录拿到 HTML、被翻译成 `protocol`，
+ * 用户看到的是「账号或密码不正确」—— 一个和真实原因毫不相干的提示。
+ *
+ * 判定分级：
+ *   · 4xx → 可达。服务在，只是拒绝了这次请求（探测只需要知道「这儿有服务」）
+ *   · 3xx → 不可达。中继不带中继标记时的门户跳转正是这个形状
+ *   · 2xx → 必须能解出音乐接口的信封，否则算「连上了但不是音乐接口」
+ */
+export async function probeSysConfig(
+  url: string,
+  timeoutMs = 1800,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ProbeResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -211,12 +258,29 @@ export async function probeUrl(url: string, timeoutMs = 1800, fetchImpl: typeof 
       // 于是**正确的穿透地址也会被这里判成不可达**。
       headers: relayHeadersFor(url),
     })
-    return response.status >= 200 && response.status < 500 && (response.status < 300 || response.status >= 400)
+    const status = response.status
+    if (status >= 300 && status < 400) return { url, reachable: false, reason: 'http-error' }
+    if (status >= 400 && status < 500) return { url, reachable: true }
+    if (status < 200 || status >= 300) return { url, reachable: false, reason: 'http-error' }
+
+    let payload: unknown
+    try {
+      payload = typeof response.json === 'function' ? await response.json() : JSON.parse(await response.text())
+    } catch {
+      return { url, reachable: false, reason: 'not-music-api' }
+    }
+    if (!isMusicEnvelope(payload)) return { url, reachable: false, reason: 'not-music-api' }
+    const serverGUID = extractServerGuid(payload)
+    return serverGUID ? { url, reachable: true, serverGUID } : { url, reachable: true }
   } catch {
-    return false
+    return { url, reachable: false, reason: 'network' }
   } finally {
     clearTimeout(timer)
   }
+}
+
+export async function probeUrl(url: string, timeoutMs = 1800, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  return (await probeSysConfig(url, timeoutMs, fetchImpl)).reachable
 }
 
 export interface ResolveFnIdOptions {
@@ -228,33 +292,127 @@ export interface ResolveFnIdOptions {
   onStatusChange?: (statusText: string) => void
   cloudTimeoutMs?: number
   probeTimeoutMs?: number
+  /**
+   * 已知属于同一台设备的候选地址（例如历史记录里保存的局域网地址）。
+   * 与中继一起探测；确认是同一台机器后**优先走内网** —— 中继要绕一圈公网，
+   * 浏览和封面都会明显变慢。
+   */
+  knownCandidates?: string[]
 }
 
-async function firstReachable(
+/**
+ * FN ID 一条线路都连不上时抛出。
+ *
+ * **故意继承普通 Error 而不是 MusicError**：上层拿到 MusicError 的 `protocol`
+ * 会把它显示成「账号或密码不正确」，而这里的问题和凭据毫无关系。
+ * 用普通 Error 才能把真实原因原样交到用户面前。
+ */
+export class FnIdUnreachableError extends Error {
+  constructor(
+    readonly fnId: string,
+    readonly probes: ProbeResult[],
+  ) {
+    super(describeUnreachable(fnId, probes))
+    this.name = 'FnIdUnreachableError'
+  }
+}
+
+function describeUnreachable(fnId: string, probes: ProbeResult[]): string {
+  const reasons = new Set(probes.map((probe) => probe.reason).filter(Boolean))
+  const detail = reasons.has('not-music-api')
+    ? '地址能连上，但返回的不是飞牛音乐接口（该设备可能没开机，或还没开启远程访问）'
+    : reasons.has('http-error')
+      ? '服务器返回了错误状态'
+      : '域名无法解析或网络不通'
+  return `无法连接到 FN ID「${fnId}」：${detail}。请确认 FN ID 没写错，并在飞牛的「远程访问」里确认 FN Connect 已开启。`
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 并发探测，**返回第一个可达的结果**，不为同组里最慢的那条买单。
+ * 全部不可达时返回 null，并把每条的原因一起带回去（错误信息要用）。
+ */
+async function firstReachableProbe(
   candidates: FnConnectCandidate[],
   timeoutMs: number,
   fetchImpl: typeof fetch,
-): Promise<string | null> {
-  if (candidates.length === 0) return null
+  accept: (result: ProbeResult) => boolean = (result) => result.reachable,
+): Promise<{ hit: ProbeResult | null; probes: ProbeResult[] }> {
+  if (candidates.length === 0) return { hit: null, probes: [] }
   return new Promise((resolve) => {
+    const probes: ProbeResult[] = []
     let remaining = candidates.length
     let settled = false
     for (const candidate of candidates) {
-      void probeUrl(candidate.url, timeoutMs, fetchImpl).then((ok) => {
-        if (settled) return
-        if (ok) {
+      void probeSysConfig(candidate.url, timeoutMs, fetchImpl).then((result) => {
+        probes.push(result)
+        if (!settled && accept(result)) {
           settled = true
-          resolve(candidate.url)
+          resolve({ hit: result, probes })
           return
         }
         remaining -= 1
-        if (remaining === 0) resolve(null)
+        if (remaining === 0 && !settled) resolve({ hit: null, probes })
       })
     }
   })
 }
 
-/** 将 FN ID 解析为首个实际可达的 BaseURL。 */
+function dedupe(candidates: FnConnectCandidate[]): FnConnectCandidate[] {
+  const seen = new Set<string>()
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.url)) return false
+    seen.add(candidate.url)
+    return true
+  })
+}
+
+/** 云端给出的候选 + 写死的三个官方中继域名（云端解析接口已失效，中继是唯一的兜底） */
+function trustedCandidatesFor(
+  fnId: string,
+  rawData: FnConnectRawData | null,
+  useHttps: boolean,
+): FnConnectCandidate[] {
+  const cloud = rawData ? parseCandidates(fnId, rawData, useHttps) : []
+  const relays: FnConnectCandidate[] = RELAY_DOMAINS.map((domain, index) => ({
+    url: `https://${fnId}.${domain}`,
+    isLan: false,
+    priority: 11 + index,
+  }))
+  return dedupe([...cloud, ...relays]).sort((a, b) => a.priority - b.priority)
+}
+
+/** 历史里存过的地址。**不是这台设备的权威来源**，采纳前必须靠 serverGUID 确认身份 */
+function untrustedCandidatesFor(urls: string[]): FnConnectCandidate[] {
+  return dedupe(
+    urls.map((url) => {
+      const normalized = url.replace(/\/+$/, '')
+      return {
+        url: normalized,
+        isLan: isLoopbackOrPrivateHost(hostnameOf(normalized)),
+        priority: 0,
+      }
+    }),
+  )
+}
+
+/**
+ * 把 FN ID 解析成一个**确认可用**的 BaseURL。
+ *
+ * 曾经这里是「解析不出来就悄悄回落到 `https://<fnid>.fnos.net`」——
+ * 看起来永远成功，实际把「FN ID 写错了」和「服务器不可达」都变成了后续登录时
+ * 一句莫名其妙的「账号或密码不正确」。现在解析不出来就抛 `FnIdUnreachableError`。
+ *
+ * 线路选择顺序：内网 → 云端候选 → 中继。**内网只在能证明是同一台设备时才用**
+ * （见下方 `lanMatch`）。
+ */
 export async function resolveFnIdToBaseUrl(options: ResolveFnIdOptions): Promise<string> {
   const {
     sha256Hex,
@@ -267,7 +425,6 @@ export async function resolveFnIdToBaseUrl(options: ResolveFnIdOptions): Promise
   } = options
   const fnId = normalizeFnId(options.fnId)
   if (!isFnId(fnId)) throw new Error('无效的 FN ID')
-  const defaultFallback = `https://${fnId}.fnos.net`
 
   onStatusChange?.('正在查询 FN ID 地址...')
   let rawData: FnConnectRawData | null = null
@@ -289,17 +446,52 @@ export async function resolveFnIdToBaseUrl(options: ResolveFnIdOptions): Promise
       if (parsed.success && parsed.data.code === 0 && parsed.data.data) rawData = parsed.data.data
     }
   } catch (error) {
-    console.warn('FN Connect 云端解析请求失败，将使用默认穿透域名', error)
+    // 云端拿不到候选不是致命错误：下面还有写死的中继域名兜底
+    console.warn('FN Connect 云端解析请求失败，改用中继域名直接探测', error)
   } finally {
     clearTimeout(cloudTimer)
   }
 
-  if (!rawData) return defaultFallback
-  const candidates = parseCandidates(fnId, rawData, useHttps)
+  const trusted = trustedCandidatesFor(fnId, rawData, useHttps)
+  const untrusted = untrustedCandidatesFor(options.knownCandidates ?? [])
   onStatusChange?.('正在探测最优连接...')
-  const lan = await firstReachable(candidates.filter((candidate) => candidate.isLan), probeTimeoutMs ?? 1200, fetchImpl)
-  if (lan) return lan
-  const remoteCandidates = candidates.filter((candidate) => !candidate.isLan)
-  const remote = await firstReachable(remoteCandidates, probeTimeoutMs ?? 2000, fetchImpl)
-  return remote ?? defaultFallback
+
+  // 先探内网：同一个 FN ID 在家走内网比绕公网中继快得多，探测也更快（局域网延迟低）
+  const lanRound = await firstReachableProbe(
+    trusted.filter((candidate) => candidate.isLan),
+    probeTimeoutMs ?? 1200,
+    fetchImpl,
+  )
+  if (lanRound.hit) return lanRound.hit.url
+
+  const remoteRound = await firstReachableProbe(
+    trusted.filter((candidate) => !candidate.isLan),
+    probeTimeoutMs ?? 2000,
+    fetchImpl,
+  )
+  const probes = [...lanRound.probes, ...remoteRound.probes]
+  if (!remoteRound.hit) {
+    // 内网地址也一起探一遍：虽然不一定采纳，但它们的失败原因同样值得报出来
+    if (untrusted.length > 0) {
+      const extra = await firstReachableProbe(untrusted, probeTimeoutMs ?? 1200, fetchImpl)
+      probes.push(...extra.probes)
+    }
+    throw new FnIdUnreachableError(fnId, probes)
+  }
+
+  const remote = remoteRound.hit
+  if (untrusted.length === 0) return remote.url
+
+  /**
+   * 内网优先，但**必须先证明是同一台设备**：历史里的局域网地址完全可能是另一台 NAS
+   * （用户有两台机器时很常见），连错了只会看到「别人的音乐库」而且看不出哪里不对。
+   * 判据用服务端自己的 `serverGUID` —— 比看起来像不像靠谱得多。
+   */
+  const knownRound = await firstReachableProbe(
+    untrusted,
+    probeTimeoutMs ?? 1200,
+    fetchImpl,
+    (result) => result.reachable && Boolean(result.serverGUID) && result.serverGUID === remote.serverGUID,
+  )
+  return knownRound.hit?.url ?? remote.url
 }
