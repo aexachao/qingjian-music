@@ -35,6 +35,20 @@ xcrun devicectl device process launch --device <设备 UDID> com.chrisli.music
   加上这个参数 xcodebuild 才能用已有的团队开发证书重新拉一份 `com.chrisli.music` 的描述文件。
 - 启动前手机必须解锁，否则报 `FBSOpenApplicationErrorDomain error 7 (Locked)`。
 
+# 原生导航栏的 headerTitle 不要放 TextInput（2026-09-15 实测）
+
+搜索态的输入框曾经写在 `Stack.Screen options.headerTitle` 里，结果是：
+
+- iOS 原生导航栏的 title 区域**不给自定义 View 分配宽度** —— 输入框被挤成 0 宽，
+  屏幕上只剩那颗放大镜图标（看起来像「一个小方块 + 图标」）；
+- header 不在屏幕的视图树里，**点也点不着、`autoFocus` 也拿不到焦点**，键盘弹不出来。
+
+做法：**页内自绘顶栏**（`paddingTop: insets.top` + 一行高 44 的输入框），
+并把该屏设成 `headerShown: false`。宽度与焦点都可控，视觉与导航栏同高同位。
+
+另外：push 转场期间视图还没进 window，**单靠 `TextInput` 的 `autoFocus` 也常常不生效**。
+可靠做法是 `useFocusEffect`（expo-router 有导出）里延迟一拍再 `inputRef.current?.focus()`。
+
 # @expo/ui（SwiftUI 组件）：两条会直接崩的规矩
 
 播放页「···」快捷菜单用的就是它（`Menu` / `Button` / `Section`，系统原生样式）。
@@ -69,6 +83,14 @@ headerShadowVisible 都没问题）。
 需要「跳到某个页面 / 触发某个动作」时，临时加一个 `src/app/dev-ui.tsx` 夹具页
 （把 `app/index.tsx` 的 Redirect 指到它），改夹具里的常量靠 Fast Refresh 就能换页面，
 验完删掉夹具并还原 index。手势类（左滑返回）只能真机验。
+
+**要看软键盘，先关掉模拟器的硬件键盘**（默认是连着的，此时聚焦输入框也不会显示软键盘 ——
+曾把它误判成「焦点拿不到」）：
+
+```bash
+defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+# 或在模拟器菜单里 I/O → Keyboard → Toggle Software Keyboard（⌘K）
+```
 
 模拟器 Debug 构建如果挂在链接期、报一堆 `facebook::react::Sealable` / `ShadowNode::getDebugName`
 之类的未定义符号（xcodebuild error 65），是 `ios/` 目录与当前依赖状态脱节 ——

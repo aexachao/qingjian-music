@@ -77,7 +77,8 @@ describe('临时交互层手势优先级', () => {
     expect(home).toContain('<CollapsibleHeaderBar title="首页"')
     expect(home).toContain('<LargeTitleHeader title="首页"')
 
-    const search = source('screens/search.tsx')
+    // 搜索页签的**浏览态**才是「四个 Tab 根页」里那个：输入态 / 结果态是二级页面（导航栏里放输入框）
+    const search = source('screens/search-browse.tsx')
     expect(search).toContain('<CollapsibleHeaderBar title="搜索"')
     expect(search).toContain('<LargeTitleHeader title="搜索"')
 

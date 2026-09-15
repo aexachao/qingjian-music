@@ -1,13 +1,16 @@
-import { Tabs } from 'expo-router'
+import { Tabs, useSegments } from 'expo-router'
 import { AuthGate } from '@/lib/auth-gate'
 import { Icon, iconSize } from '@/components/icon'
 import { MiniPlayerHost } from '@/components/mini-player-host'
+import { isTabBarHidden } from '@/lib/tab-bar-policy'
 import { useThemeColors } from '@/theme/theme-provider'
 
 export default function TabsLayout() {
   const colors = useThemeColors()
   const activeColor = colors.accent
   const inactiveColor = colors.iconDim
+  // 搜索态（输入框在导航栏那一屏）要沉浸式：藏掉 Tab 栏。判断只有一处（tab-bar-policy）
+  const hideTabBar = isTabBarHidden(useSegments())
 
   return (
     <AuthGate group="protected">
@@ -17,7 +20,9 @@ export default function TabsLayout() {
             headerShown: false,
             tabBarActiveTintColor: activeColor,
             tabBarInactiveTintColor: inactiveColor,
-            tabBarStyle: { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle },
+            tabBarStyle: hideTabBar
+              ? { display: 'none' }
+              : { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle },
             sceneStyle: { backgroundColor: colors.bgPrimary },
           }}
         >

@@ -1,6 +1,7 @@
 import { Platform } from 'react-native'
 import { useSegments } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { isTabBarHidden } from '@/lib/tab-bar-policy'
 import { usePlayerStore } from '@/player/store'
 import { spacing } from '@/theme/tokens'
 
@@ -10,6 +11,8 @@ export const MINI_PLAYER_HEIGHT = 68
 /** 当前是不是在四个页签里面（二级页面如播放页、队列页没有 Tab 栏） */
 function useInTabs(): boolean {
   const segments = useSegments()
+  // 搜索态把 Tab 栏藏了（tab-bar-policy），底边距也要按「没有 Tab 栏」算
+  if (isTabBarHidden(segments)) return false
   return segments[0] === '(tabs)' || segments[0] === 'player'
 }
 

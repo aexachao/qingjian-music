@@ -1,1 +1,1 @@
-export { SearchScreen as default } from '@/screens/search'
+export { SearchBrowseScreen as default } from '@/screens/search-browse'
