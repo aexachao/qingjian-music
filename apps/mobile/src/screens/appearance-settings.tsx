@@ -250,7 +250,13 @@ const useStyles = createThemedStyles((colors) => ({
   logoRing: {
     width: 74,
     height: 74,
-    borderRadius: 25,
+    /**
+     * 描边要和图标**同心**：
+     *   外圈内侧与图标之间有 3pt 空隙 → 内侧圆角 = 图标圆角 16 + 3 = 19
+     *   RN / CSS 的 borderRadius 量的是外沿 → 再补回描边宽度 19 + 2 = 21
+     * 随手写个大数（比如 25）会变成两个不同心的圆角，肉眼一眼就看出来对不上。
+     */
+    borderRadius: 21,
     borderWidth: 2,
     borderColor: 'transparent',
     alignItems: 'center',
