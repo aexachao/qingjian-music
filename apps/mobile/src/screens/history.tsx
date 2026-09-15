@@ -8,6 +8,7 @@ export function HistoryScreen() {
   return (
     <TrackListScreen
       queryKey={['history', connection?.id]}
+      listKind="recentPlayed"
       enabled={Boolean(provider?.history)}
       fetchPage={(page) => provider!.history!({ page, size: 50 })}
       source={{ kind: 'history', label: '最近播放' }}

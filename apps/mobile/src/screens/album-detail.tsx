@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
+import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
 import { TrackRow } from '@/components/track-row'
@@ -23,16 +25,23 @@ export function AlbumDetailScreen() {
   const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
 
+  // 封面头部滚过去之后，把计数与排序吸附到导航栏下方
+  const [headerHeight, setHeaderHeight] = useState(0)
+  const [barHeight, setBarHeight] = useState(0)
+  const [pinned, setPinned] = useState(false)
+  const pinAt = Math.max(0, headerHeight - barHeight)
+
   const albumQuery = useQuery({
     queryKey: ['album', connection?.id, id],
     enabled: Boolean(provider && id),
     queryFn: () => provider!.album(id),
   })
 
-  const { query, items, loadMore } = usePagedQuery({
-    queryKey: ['album-tracks', connection?.id, id],
+  const { selection, setSelection, sortKey, sort } = useListSort('albumTracks')
+  const { query, items, total, loadMore } = usePagedQuery({
+    queryKey: ['album-tracks', connection?.id, id, sortKey],
     enabled: Boolean(provider && id),
-    fetchPage: (page) => provider!.albumTracks(id, { page, size: 100 }),
+    fetchPage: (page) => provider!.albumTracks(id, { page, size: 100, sort }),
   })
 
   const album = albumQuery.data
@@ -56,6 +65,10 @@ export function AlbumDetailScreen() {
   if (albumQuery.isLoadingError) return <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
   if (!album) return <EmptyState text="专辑不存在" />
 
+  const toolbar = (
+    <ListToolbar kind="albumTracks" total={total} selection={selection} onSelect={setSelection} />
+  )
+
   return (
     <View style={{ flex: 1 }}>
       <Stack.Screen
@@ -69,35 +82,46 @@ export function AlbumDetailScreen() {
         data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const y = event.nativeEvent.contentOffset.y
+          const next = pinAt > 0 && y >= pinAt
+          setPinned((previous) => (previous === next ? previous : next))
+        }}
         ListHeaderComponent={
-          <View style={styles.header}>
-            <CoverImage coverId={album.coverId} size={220} borderRadius={radius.lg} />
-            <Text style={styles.name}>{album.name}</Text>
-            <Text style={styles.meta}>
-              {artistText}
-              {album.releaseDate ? ` · ${album.releaseDate.slice(0, 4)}` : ''}
-              {items.length > 0 ? ` · ${items.length} 首歌曲` : ''}
-            </Text>
+          <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+            <View style={styles.coverBlock}>
+              <CoverImage coverId={album.coverId} size={220} borderRadius={radius.lg} />
+              <Text style={styles.name}>{album.name}</Text>
+              <Text style={styles.meta}>
+                {artistText}
+                {album.releaseDate ? ` · ${album.releaseDate.slice(0, 4)}` : ''}
+              </Text>
 
-            <View style={styles.actions}>
-              <Pressable
-                style={[styles.button, styles.buttonPrimary]}
-                onPress={() => void play(0)}
-                accessibilityRole="button"
-                accessibilityLabel="播放专辑"
-              >
-                <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
-              </Pressable>
-              <Pressable
-                style={styles.button}
-                onPress={() => void play(0, true)}
-                accessibilityRole="button"
-                accessibilityLabel="随机播放专辑"
-              >
-                <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-                <Text style={styles.buttonLabel}>随机播放</Text>
-              </Pressable>
+              <View style={styles.actions}>
+                <Pressable
+                  style={[styles.button, styles.buttonPrimary]}
+                  onPress={() => void play(0)}
+                  accessibilityRole="button"
+                  accessibilityLabel="播放专辑"
+                >
+                  <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
+                  <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.button}
+                  onPress={() => void play(0, true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="随机播放专辑"
+                >
+                  <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+                  <Text style={styles.buttonLabel}>随机播放</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.toolbarSlot} onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}>
+              {toolbar}
             </View>
           </View>
         }
@@ -120,6 +144,8 @@ export function AlbumDetailScreen() {
         }
       />
 
+      {pinned && total > 0 ? <View style={styles.pinnedBar}>{toolbar}</View> : null}
+
       {isMenuOpen ? (
         <Pressable
           style={StyleSheet.absoluteFill}
@@ -132,7 +158,22 @@ export function AlbumDetailScreen() {
 
 const useStyles = createThemedStyles((colors) => ({
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  header: { alignItems: 'center', gap: spacing.xs, marginBottom: spacing.lg },
+  // 计数与排序距离上方按钮留足间距，距离下方列表收窄
+  headerRoot: { marginBottom: spacing.sm },
+  coverBlock: { alignItems: 'center', gap: spacing.xs },
+  toolbarSlot: { alignSelf: 'stretch', marginTop: spacing.lg },
+  pinnedBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.bgPrimary,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
   name: { ...typography.title, color: colors.textPrimary, textAlign: 'center', marginTop: spacing.md },
   meta: { ...typography.footnote, color: colors.textSecondary, textAlign: 'center' },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },

@@ -8,8 +8,9 @@ export function FavoritesScreen() {
   return (
     <TrackListScreen
       queryKey={['favorites', connection?.id]}
+      listKind="favorites"
       enabled={Boolean(provider?.favorites)}
-      fetchPage={(page) => provider!.favorites!({ page, size: 50 })}
+      fetchPage={(page, sort) => provider!.favorites!({ page, size: 50, sort })}
       source={{ kind: 'favorites', label: '我喜欢的音乐' }}
       emptyText="还没有收藏的歌曲"
     />

@@ -54,11 +54,10 @@ describe('临时交互层手势优先级', () => {
     expect(hook).toContain('router.back()')
   })
 
-  it('专辑与艺术家二级页面头部显式配置返回按钮', () => {
-    const album = source('screens/album-detail.tsx')
-    expect(album).toContain('headerLeft: () => <StackBackButton />')
-    const artist = source('screens/artist-detail.tsx')
-    expect(artist).toContain('headerLeft: () => <StackBackButton />')
+  it('专辑 / 艺术家 / 流派 / 歌单四个二级页头部显式配置返回按钮', () => {
+    for (const path of ['album-detail', 'artist-detail', 'genre-detail', 'playlist-detail']) {
+      expect(source(`screens/${path}.tsx`), path).toContain('headerLeft: () => <StackBackButton />')
+    }
   })
 
   it('二级页面全局返回按钮规范统一：均不显示「返回」文字，仅保留返回箭头', () => {

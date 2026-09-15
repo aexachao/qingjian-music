@@ -10,8 +10,9 @@ export function RecentTracksScreen() {
   return (
     <TrackListScreen
       queryKey={['recent-tracks', connection?.id]}
+      listKind="recentAdded"
       enabled={Boolean(provider)}
-      fetchPage={(page) => provider!.tracks({ page, size: PAGE_SIZE, sort: { field: 'createdAt', order: 'desc' } })}
+      fetchPage={(page, sort) => provider!.tracks({ page, size: PAGE_SIZE, sort })}
       source={{ kind: 'tracks', label: '最近添加' }}
       emptyText="音乐库里还没有歌曲"
     />

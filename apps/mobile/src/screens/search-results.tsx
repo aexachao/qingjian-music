@@ -56,8 +56,9 @@ export function SearchResultsScreen({ type }: { type: SearchResultType }) {
         {header}
         <TrackListScreen
           queryKey={['search-all-tracks', connection?.id, keyword]}
+          listKind="searchTracks"
           enabled={keyword.length > 0}
-          fetchPage={(page) => provider!.searchTracks(keyword, { page, size: PAGE_SIZE })}
+          fetchPage={(page, sort) => provider!.searchTracks(keyword, { page, size: PAGE_SIZE, sort })}
           source={{ kind: 'search', label: `搜索 · ${keyword}` }}
           emptyText="没有找到匹配的歌曲"
         />

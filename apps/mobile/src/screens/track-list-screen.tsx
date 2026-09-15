@@ -1,10 +1,12 @@
 import type { ReactElement } from 'react'
 import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
-import type { Page, PlaySource, Track } from '@qj/core-domain'
+import type { Page, PlaySource, SortSpec, Track } from '@qj/core-domain'
+import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { TrackRow } from '@/components/track-row'
 import { useBottomSpace } from '@/lib/bottom-space'
+import type { ListKind } from '@/lib/list-sort-policy'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
@@ -15,7 +17,10 @@ import { spacing } from '@/theme/tokens'
 
 interface TrackListScreenProps {
   queryKey: QueryKey
-  fetchPage: (page: number) => Promise<Page<Track>>
+  /** 排序由本组件内部管理：`sort` 为 undefined 表示该列表不排序（服务端不支持） */
+  fetchPage: (page: number, sort: SortSpec | undefined) => Promise<Page<Track>>
+  /** 决定工具条的计数单位与排序选项（见 list-sort-policy.ts） */
+  listKind: ListKind
   /** 播放来源：正在播放页顶部展示，队列页据此跳回来源 */
   source: PlaySource
   emptyText: string
@@ -29,6 +34,7 @@ interface TrackListScreenProps {
 export function TrackListScreen({
   queryKey,
   fetchPage,
+  listKind,
   source,
   emptyText,
   header,
@@ -39,10 +45,12 @@ export function TrackListScreen({
   const { provider, connection } = useServerSession()
   const current = usePlayerStore(selectCurrent)
   const bottom = useBottomSpace()
-  const { query, items, loadMore } = usePagedQuery<Track>({
-    queryKey,
+  const { selection, setSelection, sortKey, sort } = useListSort(listKind)
+  const { query, items, total, loadMore } = usePagedQuery<Track>({
+    // sortKey 必须在 queryKey 里，否则换排序不会重新取数（只会换个本地顺序，而我们又不本地排序）
+    queryKey: [...queryKey, sortKey],
     enabled: Boolean(provider) && enabled,
-    fetchPage,
+    fetchPage: (page) => fetchPage(page, sort),
   })
 
   const isMenuOpen = useIsMenuOpen()
@@ -52,6 +60,9 @@ export function TrackListScreen({
 
   return (
     <View style={styles.root}>
+      {/* 计数与排序固定在导航栏下方，不随列表滚走 */}
+      <ListToolbarBar kind={listKind} total={total} selection={selection} onSelect={setSelection} />
+
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}

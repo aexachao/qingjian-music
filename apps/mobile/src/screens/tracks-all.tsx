@@ -6,7 +6,8 @@ export function AllTracksScreen() {
   return (
     <TrackListScreen
       queryKey={['tracks', connection?.id]}
-      fetchPage={(page) => provider!.tracks({ page, size: 50, sort: { field: 'createdAt', order: 'desc' } })}
+      listKind="allTracks"
+      fetchPage={(page, sort) => provider!.tracks({ page, size: 50, sort })}
       source={{ kind: 'tracks', label: '全部歌曲' }}
       emptyText="曲库里还没有歌曲"
     />

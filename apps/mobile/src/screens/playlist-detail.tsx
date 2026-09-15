@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/icon'
 import { useConfirm } from '@/components/confirm-modal'
 import { usePrompt } from '@/components/prompt-modal'
+import { StackBackButton } from '@/components/stack-back-button'
 import { useToast } from '@/components/toast'
 import { useServerSession } from '@/lib/server-session'
 import { useThemeColors } from '@/theme/theme-provider'
@@ -72,6 +73,7 @@ export function PlaylistDetailScreen() {
       <Stack.Screen
         options={{
           title: name || '歌单',
+          headerLeft: () => <StackBackButton />,
           headerRight: canWrite
             ? () => (
                 <Pressable
@@ -99,6 +101,7 @@ export function PlaylistDetailScreen() {
       />
       <TrackListScreen
         queryKey={['playlist-tracks', connection?.id, id]}
+        listKind="playlistTracks"
         enabled={Boolean(provider && id)}
         fetchPage={(page) => provider!.playlistTracks(id, { page, size: 50 })}
         source={{ kind: 'playlist', id: id, label: name ? `歌单 · ${name}` : '歌单' }}

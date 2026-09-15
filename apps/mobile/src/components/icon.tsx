@@ -44,6 +44,9 @@ const ICONS = {
   back: 'chevron-back',
   chevronDown: 'chevron-down',
   chevronRight: 'chevron-forward',
+  // 排序菜单右侧的升降序箭头
+  arrowUp: 'arrow-up',
+  arrowDown: 'arrow-down',
   close: 'close',
   check: 'checkmark',
   // 音乐库分类
@@ -78,6 +81,7 @@ const ICONS = {
   // 通用动作
   add: 'add',
   more: 'ellipsis-horizontal',
+  sort: 'swap-vertical',
   remove: 'remove',
   trash: 'trash',
   importPlaylist: 'add-circle',

@@ -2,6 +2,7 @@ import { FlatList, Pressable, Text, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Artist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
@@ -16,52 +17,55 @@ export function ArtistsScreen() {
   const bottom = useBottomSpace()
   const href = useDetailHref()
 
+  const { selection, setSelection, sortKey, sort } = useListSort('artists')
   const { query, items, total, loadMore } = usePagedQuery<Artist>({
-    queryKey: ['artists', connection?.id],
+    queryKey: ['artists', connection?.id, sortKey],
     enabled: Boolean(provider),
-    fetchPage: (page) => provider!.artists({ page, size: 50 }),
+    fetchPage: (page) => provider!.artists({ page, size: 50, sort }),
   })
 
   if (query.isPending) return <LoadingState />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
-      ListHeaderComponent={total > 0 ? <Text style={styles.total}>共 {total} 位</Text> : null}
-      ListEmptyComponent={<EmptyState text="曲库里还没有艺术家" />}
-      renderItem={({ item }) => (
-        <Link href={href.artist(item.id)} asChild>
-          <Pressable style={styles.row} accessibilityRole="button" accessibilityLabel={`艺术家 ${item.name}`}>
-            <CoverImage coverId={item.coverId} size={52} borderRadius={26} />
-            <View style={styles.text}>
-              <Text numberOfLines={1} style={styles.name}>
-                {item.name}
-              </Text>
-              {item.trackCount ? <Text style={styles.meta}>{item.trackCount} 首</Text> : null}
-            </View>
-          </Pressable>
-        </Link>
-      )}
-      onEndReached={loadMore}
-      onEndReachedThreshold={0.4}
-      ListFooterComponent={
-        <PaginationFooter
-          loading={query.isFetchingNextPage}
-          error={query.isFetchNextPageError ? query.error : undefined}
-          onRetry={() => void query.fetchNextPage()}
-        />
-      }
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
-    />
+    <View style={styles.root}>
+      <ListToolbarBar kind="artists" total={total} selection={selection} onSelect={setSelection} />
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        ListEmptyComponent={<EmptyState text="曲库里还没有艺术家" />}
+        renderItem={({ item }) => (
+          <Link href={href.artist(item.id)} asChild>
+            <Pressable style={styles.row} accessibilityRole="button" accessibilityLabel={`艺术家 ${item.name}`}>
+              <CoverImage coverId={item.coverId} size={52} borderRadius={26} />
+              <View style={styles.text}>
+                <Text numberOfLines={1} style={styles.name}>
+                  {item.name}
+                </Text>
+                {item.trackCount ? <Text style={styles.meta}>{item.trackCount} 首</Text> : null}
+              </View>
+            </Pressable>
+          </Link>
+        )}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
+        }
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+      />
+    </View>
   )
 }
 
 const useStyles = createThemedStyles((colors) => ({
+  root: { flex: 1 },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  total: { ...typography.caption, color: colors.textTertiary, paddingBottom: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   text: { flex: 1, gap: 2 },
   name: { ...typography.callout, color: colors.textPrimary },
