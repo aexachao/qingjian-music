@@ -48,6 +48,8 @@ interface PlayerState {
   patchItem(trackId: string, patch: Partial<QueueItem>): void
   clear(): void
   clearHistory(): void
+  /** 队列页历史行左滑删除：只删这一条（按 qid 定位，同一曲目可能有多条历史） */
+  removeHistoryItem(qid: string): void
   /** 冷启动恢复上次会话：一次性把整套状态放回去 */
   restore(payload: RestorePayload): void
   /** 播放是否已在队尾自然播完停在 100% */
@@ -236,6 +238,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     }),
   clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined, isLoadingAudio: false }),
   clearHistory: () => set({ history: [] }),
+  removeHistoryItem: (qid) =>
+    set((state) => ({ history: state.history.filter((item) => item.qid !== qid) })),
 }))
 
 /** 当前曲目（没有则 undefined） */

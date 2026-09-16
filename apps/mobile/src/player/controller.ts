@@ -70,6 +70,8 @@ export function toQueueItem(track: Track, provider: MusicProvider, serverId: str
     ...(track.audio?.channels ? { channels: track.audio.channels } : {}),
     durationMs: track.durationMs,
     ...(artwork ? { coverId: artwork, artwork: provider.image(artwork, ARTWORK_SIZE) } : {}),
+    // 完整曲目留一份：队列页的历史行要用它做「加入队列 / 下一首播放」（见 QueueItem.track 注释）
+    track,
   }
 }
 
@@ -529,6 +531,16 @@ async function clearHistoryMutation(): Promise<void> {
 
 export function clearHistory(): Promise<void> {
   return queueMutations.run(clearHistoryMutation, { label: '清空历史' })
+}
+
+/** 历史行左滑删除单条。与「清空历史」共用同一条 mutation 队列，避免交错改同一份历史。 */
+export function removeHistoryItem(qid: string): Promise<void> {
+  return queueMutations.run(
+    async () => {
+      usePlayerStore.getState().removeHistoryItem(qid)
+    },
+    { label: '删除历史记录' },
+  )
 }
 
 /** 清空队列并停止播放；转码会话必须显式退出，否则服务端会留着转码进程 */

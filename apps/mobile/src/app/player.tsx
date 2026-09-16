@@ -176,11 +176,17 @@ export default function PlayerScreen() {
     [createDismissPan, menuOpen]
   )
 
+  // 动态圆角：有 Safe Area（iPhone X+）用适度圆角，无 Safe Area（旧机型/安卓）用直角
+  // 避免滑动时圆角渐变的视觉问题，同时在不同机型上都显得自然
+  const hasSafeArea = insets.top > 20
+  const topCornerRadius = hasSafeArea ? 20 : 0
+
   const rootAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
     flex: 1,
     overflow: 'hidden',
-    borderRadius: 32,
+    borderTopLeftRadius: topCornerRadius,
+    borderTopRightRadius: topCornerRadius,
   }))
 
   const maxCoverHeight = stageMeasuredHeight > 0 ? stageMeasuredHeight - 76 : 420

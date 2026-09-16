@@ -108,7 +108,8 @@ describe('播放器队列 Tab 交互', () => {
   it('待播行「···」菜单接上共享菜单组件，且与主触控区物理隔离', () => {
     // 条目规则与顺序在 lib/track-menu.ts 里单独跑行为单测，这里只锁接线与结构
     expect(queueSource).toContain('<TrackMenuButton')
-    expect(queueSource).toContain('context="upcoming"')
+    // 待播行与历史行共用这一个按钮：历史行走 list 上下文（就是普通曲目）
+    expect(queueSource).toContain("context={isHistory ? 'list' : 'upcoming'}")
     expect(queueSource).toContain('queueIndex,')
     expect(queueSource).toContain('upcomingCount,')
     // 左右是兄弟节点：否则「···」的点击会被外层 Pressable 抢走

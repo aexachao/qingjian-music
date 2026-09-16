@@ -35,6 +35,7 @@ import { isGlobalMenuInteracting } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
 import {
   clearHistory,
+  removeHistoryItem,
   clearUpcoming,
   cycleRepeat,
   extendWithRadio,
@@ -455,9 +456,18 @@ export function PlayerQueue({
 
     return (
       <Animated.View style={rowAnimatedStyle}>
-        <HistoryRow 
-          item={item.item} 
+        {/* 历史行与待播行共用 QueueRow：菜单守卫（点空白关菜单不触发播放）与左滑删除
+            都只有一份实现，不会再漂移 */}
+        <QueueRow
+          item={item.item}
+          queueIndex={-1}
+          upcomingCount={0}
+          playing={false}
+          isGloballyPlaying={!!isGloballyPlaying}
+          isHistory
           onSelect={() => void playHistoryItem(item.item)}
+          swipeEnabled={!dragging}
+          onActionOpenChange={setQueueActionOpen}
         />
       </Animated.View>
     )
@@ -593,12 +603,20 @@ export function PlayerQueue({
           </View>
 
           <View style={[styles.page, { width: screenWidth }]}>
-            <Animated.FlatList
+            {/*
+              历史列表也用 ReorderableList：行组件 QueueRow 内部要 useIsActive / useReorderableDrag
+              的上下文（拖拽把手只在待播行出现，所以这里 dragEnabled=false、onReorder 空实现）。
+              这样两种列表**共用同一个行组件** —— 菜单守卫（点空白关菜单不触发播放）、
+              左右物理隔离、左滑删除都只有一份实现，不会再各写一套然后漂移。
+            */}
+            <ReorderableList
               ref={historyListRef as any}
               data={historyData}
               keyExtractor={(item) => item.id}
               ListHeaderComponent={<View style={{ height: headerHeight }} />}
               contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
+              onReorder={() => {}}
+              dragEnabled={false}
               getItemLayout={getHistoryItemLayout}
               initialNumToRender={8}
               maxToRenderPerBatch={10}
@@ -1008,12 +1026,12 @@ function QueueRow({
       <RNAnimated.View style={{ transform: [{ translateX: trans }] }}>
         <Pressable
           style={styles.deleteAction}
-          onPress={() => void removeFromQueue(queueIndex)}
+          onPress={() => void (isHistory ? removeHistoryItem(item.qid) : removeFromQueue(queueIndex))}
           accessibilityRole="button"
-          accessibilityLabel={`从队列移除 ${item.title}`}
+          accessibilityLabel={isHistory ? `删除历史记录 ${item.title}` : `从队列移除 ${item.title}`}
         >
           <View style={styles.deleteIconBg}>
-            <Icon name="remove" size={20} color={colors.danger || 'red'} />
+            <Icon name="remove" size={20} color={colors.danger} />
           </View>
         </Pressable>
       </RNAnimated.View>
@@ -1075,44 +1093,55 @@ function QueueRow({
         </View>
       </Pressable>
 
-      {!isHistory && (
-        <View style={styles.rowRight}>
-          {playing ? (
-            <IconButton
-              name={isGloballyPlaying ? 'pause' : 'play'}
-              size={iconSize.md}
-              color={colors.bgPrimary}
-              style={styles.playingIconBg}
-              onPress={() => void togglePlay()}
-              accessibilityLabel={isGloballyPlaying ? '暂停' : '播放'}
-            />
-          ) : null}
-
-          <TrackMenuButton
-            context="upcoming"
-            color={colors.iconDim}
-            title="待播选项"
-            accessibilityLabel={`${item.title} 的更多操作`}
-            // 打开菜单前先收起已展开的左滑删除，避免两层操作面同时存在。
-            // 刻意不接 onMenuOpenChange：那是给播放页挂全屏拦截遮罩用的，
-            // 原生菜单自带窗口与点击外部关闭，再叠一层 RN 遮罩会白吞一次点击。
-            onBeforeOpen={() => {
-              closeOpenQueueAction()
-            }}
-            subject={{
-              trackId: item.trackId,
-              title: item.title,
-              artistText: item.artistText,
-              ...(item.albumId ? { albumId: item.albumId } : {}),
-              ...(item.albumText ? { albumText: item.albumText } : {}),
-              ...(item.artistId ? { artistId: item.artistId } : {}),
-              durationMs: item.durationMs,
-              ...(item.isFavorite === undefined ? {} : { isFavorite: item.isFavorite }),
-              queueIndex,
-              upcomingCount,
-            }}
+      <View style={styles.rowRight}>
+        {!isHistory && playing ? (
+          <IconButton
+            name={isGloballyPlaying ? 'pause' : 'play'}
+            size={iconSize.md}
+            color={colors.bgPrimary}
+            style={styles.playingIconBg}
+            onPress={() => void togglePlay()}
+            accessibilityLabel={isGloballyPlaying ? '暂停' : '播放'}
           />
+        ) : null}
 
+        {/*
+          两种模式共用这一个菜单按钮：
+          · 待播行 → `upcoming` 上下文，操作按队列下标走；
+          · 历史行 → `list` 上下文（就是普通曲目），并把 `QueueItem.track` 传下去，
+            有完整曲目才有「下一首播放 / 加入队列」，没有就自动少这两条（不摆假条目）。
+        */}
+        <TrackMenuButton
+          context={isHistory ? 'list' : 'upcoming'}
+          color={colors.iconDim}
+          title=""
+          accessibilityLabel={`${item.title} 的更多操作`}
+          // 打开菜单前先收起已展开的左滑删除，避免两层操作面同时存在。
+          // 刻意不接 onMenuOpenChange：那是给播放页挂全屏拦截遮罩用的，
+          // 原生菜单自带窗口与点击外部关闭，再叠一层 RN 遮罩会白吞一次点击。
+          onBeforeOpen={() => {
+            closeOpenQueueAction()
+          }}
+          subject={{
+            trackId: item.trackId,
+            title: item.title,
+            artistText: item.artistText,
+            ...(item.albumId ? { albumId: item.albumId } : {}),
+            ...(item.albumText ? { albumText: item.albumText } : {}),
+            ...(item.artistId ? { artistId: item.artistId } : {}),
+            durationMs: item.durationMs,
+            ...(item.isFavorite === undefined ? {} : { isFavorite: item.isFavorite }),
+            ...(isHistory
+              ? {
+                  isHistory: true,
+                  qid: item.qid,
+                  ...(item.track ? { track: item.track } : {}),
+                }
+              : { queueIndex, upcomingCount }),
+          }}
+        />
+
+        {!isHistory && (
           <Pressable
             onPressIn={() => {
               dismissedSwipeOnHandlePress.current = closeOpenQueueAction()
@@ -1138,16 +1167,13 @@ function QueueRow({
           >
             <Icon name="drag" size={20} color={colors.iconDim} />
           </Pressable>
-        </View>
-      )}
+        )}
+      </View>
     </View>
     </Animated.View>
   )
 
-  if (isHistory) {
-    return content
-  }
-
+  // 两种模式都要左滑删除：待播行删队列、历史行删这条历史
   return (
     <Swipeable 
       ref={swipeableRef}
@@ -1163,51 +1189,6 @@ function QueueRow({
     >
       {content}
     </Swipeable>
-  )
-}
-
-function HistoryRow({
-  item,
-  onSelect,
-}: {
-  item: QueueItem
-  onSelect: () => void
-}) {
-  const styles = useStyles()
-  const startX = useRef(0)
-  const startY = useRef(0)
-  const moved = useRef(false)
-
-  return (
-    <Pressable
-      onTouchStart={(event) => {
-        startX.current = event.nativeEvent.pageX
-        startY.current = event.nativeEvent.pageY
-        moved.current = false
-      }}
-      onTouchMove={(event) => {
-        const { pageX, pageY } = event.nativeEvent
-        if (Math.abs(pageX - startX.current) > TAP_SLOP || Math.abs(pageY - startY.current) > TAP_SLOP) {
-          moved.current = true
-        }
-      }}
-      onPress={() => {
-        if (moved.current) return
-        if (closeOpenQueueAction()) return
-        onSelect()
-      }}
-      style={styles.row}
-      accessibilityRole="button"
-      accessibilityLabel={`播放 ${item.title}，${item.artistText}`}
-    >
-      <CoverImage resource={item.artwork} size={48} borderRadius={radius.sm} />
-      <View style={styles.rowText}>
-        <View style={styles.rowTitleLine}>
-          <Text style={[styles.rowTitle]} numberOfLines={1}>{item.title}</Text>
-        </View>
-        <Text style={styles.rowMeta} numberOfLines={1}>{item.artistText}</Text>
-      </View>
-    </Pressable>
   )
 }
 

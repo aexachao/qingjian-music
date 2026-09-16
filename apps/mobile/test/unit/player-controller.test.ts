@@ -521,6 +521,11 @@ describe('toQueueItem 映射领域曲目', () => {
     expect(result.qid).toMatch(/^srv:t1:/)
   })
 
+  it('把完整曲目留在队列元素上（队列页历史行要用它做「加入队列 / 下一首播放」）', () => {
+    // 队列元素本身只存展示字段；没有这份 Track，历史行的菜单就只能少两条操作
+    expect(toQueueItem(track, provider, 'srv').track).toBe(track)
+  })
+
   it('没有艺术家时给出兜底文案而不是空字符串', () => {
     expect(toQueueItem({ ...track, artists: [] }, provider, 'srv').artistText).toBe('未知艺术家')
   })

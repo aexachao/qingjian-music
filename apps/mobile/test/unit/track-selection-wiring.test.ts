@@ -49,15 +49,41 @@ describe('多选是模态弹窗，列表页自己不进入选择态', () => {
   })
 })
 
+describe('队列页的历史行与待播行共用一套行组件（第 4 轮）', () => {
+  it('历史行用 QueueRow（isHistory），菜单用 list 上下文并把完整曲目传下去', () => {
+    const queue = readSource('components/player/player-queue.tsx')
+    expect(queue).toContain('<QueueRow')
+    expect(queue).toContain('isHistory')
+    expect(queue).toContain('...(isHistory')
+    expect(queue).toContain("{ track: item.track }")
+    expect(queue).toContain("context={isHistory ? 'list' : 'upcoming'}")
+  })
+
+  it('点空白关菜单不会触发播放：行点按里有菜单冷却守卫', () => {
+    // 菜单关闭后 450ms 内的点按必须被吞掉，否则「点空白处收起菜单」会顺手播这一行
+    expect(hasCode('components/player/player-queue.tsx', 'if (isGlobalMenuInteracting()) return')).toBe(true)
+  })
+
+  it('历史行也支持左滑删除（删除的是这一条历史，不是队列项）', () => {
+    const queue = readSource('components/player/player-queue.tsx')
+    expect(queue).toContain('removeHistoryItem(item.qid)')
+    // 历史行不再被排除在 Swipeable 之外
+    expect(hasNoCode('components/player/player-queue.tsx', 'if (isHistory) return content')).toBe(true)
+  })
+})
+
 describe('选择态里的行与动作', () => {
   it('点行是「切换选中」，不是播放', () => {
     expect(hasCode('components/track-row.tsx', 'if (selection) {')).toBe(true)
     expect(hasCode('components/track-row.tsx', 'selection.onToggle()')).toBe(true)
   })
 
-  it('选择态里收起收藏与「···」，避免与多选打架', () => {
-    expect(hasCode('components/track-row.tsx', '{!selection ? <TrackMoreButton')).toBe(true)
-    expect(hasCode('components/track-row.tsx', '{!selection && canFavorite ?')).toBe(true)
+  it('列表行右侧只有「···」：收藏已挪进菜单（第 4 轮），选择态里连「···」也收起', () => {
+    const row = 'components/track-row.tsx'
+    expect(hasCode(row, '{!selection ? <TrackMoreButton')).toBe(true)
+    // 行里不该再有收藏按钮（收藏在「···」菜单里）
+    expect(hasNoCode(row, '加入收藏')).toBe(true)
+    expect(hasNoCode(row, 'favoriteBtn')).toBe(true)
   })
 
   it('顶部条：三态图标 + 「全选」+ 右侧「N 首」，没有「清除选择」那一颗', () => {

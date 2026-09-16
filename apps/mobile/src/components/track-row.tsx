@@ -5,10 +5,7 @@ import { FormatBadge } from '@/components/format-badge'
 import { Icon } from '@/components/icon'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { TrackMoreButton } from '@/components/track-more-button'
-import { useToast } from '@/components/toast'
 import { isGlobalMenuInteracting } from '@/lib/menu-guard'
-import { useServerSession } from '@/lib/server-session'
-import { useToggleFavorite } from '@/lib/favorites'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
@@ -38,19 +35,7 @@ interface TrackRowProps {
 export function TrackRow({ track, leading, index, playing = false, onPress, selection }: TrackRowProps) {
   const styles = useStyles()
   const colors = useThemeColors()
-  const { provider } = useServerSession()
-  const toggleFavorite = useToggleFavorite()
-  const toast = useToast()
-  const canFavorite = provider?.capabilities.favorites && track.isFavorite !== undefined
   const artistText = track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'
-
-  const handleFavoritePress = () => {
-    if (!canFavorite) return
-    const next = !track.isFavorite
-    void toggleFavorite(track.id, next)
-      .then(() => toast(next ? '已添加到我喜欢' : '已取消收藏'))
-      .catch((e) => toast(e instanceof Error ? e.message : '操作失败'))
-  }
 
   const handlePress = () => {
     if (isGlobalMenuInteracting()) return
@@ -130,22 +115,7 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
         </View>
       </Pressable>
 
-      {/* 右侧：收藏 + 快捷菜单（选择态里都收起来，避免与多选打架） */}
-      {!selection && canFavorite ? (
-        <Pressable
-          hitSlop={8}
-          onPress={handleFavoritePress}
-          accessibilityRole="button"
-          accessibilityLabel={track.isFavorite ? '取消收藏' : '加入收藏'}
-          style={styles.favoriteBtn}
-        >
-          <Icon
-            name={track.isFavorite ? 'heart' : 'heartOutline'}
-            size={20}
-            color={track.isFavorite ? styles.favoriteActive.color : styles.favoriteInactive.color}
-          />
-        </Pressable>
-      ) : null}
+      {/* 右侧只有「···」：收藏已挪进这个菜单（第 4 轮），行里不再摆第二个按钮 */}
       {!selection ? <TrackMoreButton track={track} /> : null}
     </View>
   )
@@ -206,18 +176,6 @@ const useStyles = createThemedStyles((colors) => ({
   },
   playing: {
     color: colors.playing,
-  },
-  favoriteBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  favoriteActive: {
-    color: colors.like,
-  },
-  favoriteInactive: {
-    color: colors.textTertiary,
   },
   subtitleRow: {
     flexDirection: 'row',

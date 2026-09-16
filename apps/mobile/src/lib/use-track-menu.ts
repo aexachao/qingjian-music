@@ -29,7 +29,7 @@ import {
   type TrackMenuContext,
   type TrackMenuId,
 } from '@/lib/track-menu'
-import { appendTracks, moveInQueue, playNext, removeFromQueue } from '@/player/controller'
+import { appendTracks, moveInQueue, playNext, removeFromQueue, removeHistoryItem } from '@/player/controller'
 import { useAppTheme } from '@/theme/theme-provider'
 
 /**
@@ -59,6 +59,10 @@ export interface TrackMenuSubject {
   queueIndex?: number
   /** 待播上下文必需：待播行总数 */
   upcomingCount?: number
+  /** 历史行标识：用于决定是显示「从队列移除」还是「从历史记录移除」 */
+  isHistory?: boolean
+  /** 历史行专用：QueueItem 的 qid（用于删除历史记录） */
+  qid?: string
 }
 
 export interface UseTrackMenuOptions {
@@ -119,9 +123,12 @@ export function useTrackMenu({
           hasAlbum: Boolean(subject.albumId),
           hasArtist: Boolean(subject.artistId),
           canAdjustLyricOffset: canAdjust,
+          // 队列类条目要完整曲目：列表行有，历史行看 QueueItem.track 有没有留下来
+          hasTrack: Boolean(subject.track),
         },
         ...(subject.queueIndex === undefined ? {} : { position: subject.queueIndex }),
         ...(subject.upcomingCount === undefined ? {} : { upcomingCount: subject.upcomingCount }),
+        ...(subject.isHistory ? { isHistory: true } : {}),
       }),
     [
       canAdjust,
@@ -130,8 +137,10 @@ export function useTrackMenu({
       subject.albumId,
       subject.artistId,
       subject.isFavorite,
+      subject.track,
       subject.queueIndex,
       subject.upcomingCount,
+      subject.isHistory,
     ],
   )
 
@@ -252,6 +261,10 @@ export function useTrackMenu({
 
         case 'remove-from-queue':
           if (subject.queueIndex !== undefined) void removeFromQueue(subject.queueIndex)
+          break
+
+        case 'remove-from-history':
+          if (subject.qid) void removeHistoryItem(subject.qid)
           break
 
         case 'share-song': {

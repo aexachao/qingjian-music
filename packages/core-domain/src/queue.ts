@@ -1,3 +1,4 @@
+import type { Track } from './entities'
 import type { HttpResource } from './media'
 import type { EntityId, ServerId } from './ids'
 
@@ -23,6 +24,15 @@ export interface QueueItem {
   artistId?: EntityId
   /** 收藏状态，随曲目载荷带下来，收藏按钮直接用 */
   isFavorite?: boolean
+  /**
+   * 完整领域曲目。
+   *
+   * 队列元素本身只存「播放与展示需要的那些字段」，但有些入口（队列页的**历史行**）
+   * 只能拿到 QueueItem，却要提供「加入队列 / 下一首播放」这类需要完整 `Track` 的操作
+   * （`playNext` / `appendTracks` 的入参是 `Track[]`）。所以入队时把曲目一并留下
+   * —— 否则那些入口只能摆一个点了没反应的条目。队列快照会一起持久化它。
+   */
+  track?: Track
   /** 漫游电台的上下文游标，普通队列为空 */
   radioCursor?: string
   /** 音频格式（flac / mp3 …），播放缓存靠它决定文件后缀与 contentType */

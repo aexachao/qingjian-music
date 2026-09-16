@@ -6,7 +6,9 @@ describe('关键交互无障碍语义', () => {
     const queue = readSource('components/player/player-queue.tsx')
     const lyrics = readSource('components/lyric-view.tsx')
     expect(queue).toContain('accessibilityLabel="清除播放历史"')
-    expect(queue).toContain('accessibilityLabel={`从队列移除 ${item.title}`}')
+    // 左滑删除的标签按模式分派：待播行「从队列移除」、历史行「删除历史记录」
+    expect(queue).toContain('`从队列移除 ${item.title}`')
+    expect(queue).toContain('`删除历史记录 ${item.title}`')
     expect(lyrics).toContain('accessibilityLabel="复制全部歌词"')
     expect(lyrics).toContain('accessibilityLabel="分享全部歌词"')
   })

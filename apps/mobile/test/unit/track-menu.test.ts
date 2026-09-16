@@ -20,6 +20,7 @@ const ALL: TrackMenuCapabilities = {
   hasAlbum: true,
   hasArtist: true,
   canAdjustLyricOffset: true,
+  hasTrack: true,
 }
 
 const NONE: TrackMenuCapabilities = {
@@ -29,6 +30,9 @@ const NONE: TrackMenuCapabilities = {
   hasAlbum: false,
   hasArtist: false,
   canAdjustLyricOffset: false,
+  // hasTrack 不是「后端能力」，而是「手上有没有完整曲目」——列表行恒为 true，
+  // 所以「能力全关」这套里它也照旧为 true；没有曲目的情况单独有用例。
+  hasTrack: true,
 }
 
 function idsOf(context: 'list' | 'upcoming' | 'current', capabilities = ALL, extra = {}) {
@@ -36,7 +40,7 @@ function idsOf(context: 'list' | 'upcoming' | 'current', capabilities = ALL, ext
 }
 
 describe('快捷菜单条目定义（按上下文）', () => {
-  it('列表上下文：排队三项 + 分享 + 信息 + 跳转', () => {
+  it('列表上下文：排队三项 + 分享 + 信息 + 跳转 + 收藏（收藏排最后）', () => {
     expect(idsOf('list')).toEqual([
       'play-next',
       'add-to-queue',
@@ -45,7 +49,24 @@ describe('快捷菜单条目定义（按上下文）', () => {
       'song-info',
       'goto-album',
       'goto-artist',
+      // 第 4 轮：收藏从列表行右侧的图标挪进菜单，并排**最后**一条
+      'toggle-favorite',
     ])
+  })
+
+  it('没有完整曲目时，不摆「下一首播放 / 加入队列」（历史行可能是老快照 / 电台项）', () => {
+    const ids = idsOf('list', { ...ALL, hasTrack: false })
+    expect(ids).toEqual([
+      'add-to-playlist',
+      'share-song',
+      'song-info',
+      'goto-album',
+      'goto-artist',
+      'toggle-favorite',
+    ])
+    // 有完整曲目时这两条才在
+    expect(idsOf('list')).toContain('play-next')
+    expect(idsOf('list')).toContain('add-to-queue')
   })
 
   it('列表上下文不出现「分享歌词」（列表行不预取歌词）与队列内操作', () => {
@@ -53,6 +74,15 @@ describe('快捷菜单条目定义（按上下文）', () => {
     expect(ids).not.toContain('share-lyrics')
     expect(ids).not.toContain('move-to-end')
     expect(ids).not.toContain('remove-from-queue')
+    expect(ids).not.toContain('remove-from-history')
+  })
+
+  it('历史行（isHistory=true）显示「从历史记录移除」而非「从队列移除」', () => {
+    const ids = idsOf('list', ALL, { isHistory: true })
+    expect(ids).toContain('remove-from-history')
+    expect(ids).not.toContain('remove-from-queue')
+    // 历史行应该排在最后
+    expect(ids[ids.length - 1]).toBe('remove-from-history')
   })
 
   it('当前上下文：歌单 + 分享（含歌词）+ 信息 + 跳转 + 歌词偏移', () => {
@@ -77,10 +107,12 @@ describe('快捷菜单条目定义（按上下文）', () => {
   it('能力全关时，可选项全部消失，只留无条件的条目', () => {
     expect(idsOf('list', NONE)).toEqual(['play-next', 'add-to-queue', 'share-song', 'song-info'])
     expect(idsOf('current', NONE)).toEqual(['share-song', 'share-lyrics', 'song-info'])
-    // 待播上下文的移动条目只跟位置有关，与能力无关；收藏被关掉后只剩三项
+    // 待播上下文的移动条目只跟位置有关，与能力无关；能力全关时：队列内操作 + 无条件的分享和信息 + 删除（排最后）
     expect(idsOf('upcoming', NONE, { position: 2, upcomingCount: 4 })).toEqual([
       'play-next',
       'move-to-end',
+      'share-song',
+      'song-info',
       'remove-from-queue',
     ])
   })
@@ -96,10 +128,15 @@ describe('快捷菜单条目定义（按上下文）', () => {
 })
 
 describe('待播行条目规则', () => {
-  it('处在中间位置时四个条目齐全', () => {
+  it('处在中间位置时条目齐全：队列内操作 + 完整菜单 + 收藏和删除排最后', () => {
     expect(idsOf('upcoming', ALL, { position: 2, upcomingCount: 4 })).toEqual([
       'play-next',
       'move-to-end',
+      'add-to-playlist',
+      'share-song',
+      'song-info',
+      'goto-album',
+      'goto-artist',
       'toggle-favorite',
       'remove-from-queue',
     ])
@@ -126,16 +163,35 @@ describe('待播行条目规则', () => {
     const ids = idsOf('upcoming', ALL, { position: 1, upcomingCount: 1 })
     expect(ids).not.toContain('play-next')
     expect(ids).not.toContain('move-to-end')
-    expect(ids).toEqual(['toggle-favorite', 'remove-from-queue'])
+    expect(ids).toEqual([
+      'add-to-playlist',
+      'share-song',
+      'song-info',
+      'goto-album',
+      'goto-artist',
+      'toggle-favorite',
+      'remove-from-queue',
+    ])
   })
 })
 
 describe('iOS 分组顺序', () => {
-  it('列表上下文固定三组', () => {
+  it('列表上下文固定四组，收藏那组排最后（第 4 轮）', () => {
     expect(trackMenuGroups(idsOf('list'), 'list', 'up')).toEqual([
       { id: 'group-queue', ids: ['play-next', 'add-to-queue', 'add-to-playlist'] },
       { id: 'group-share', ids: ['share-song'] },
       { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
+      { id: 'group-favorite', ids: ['toggle-favorite'] },
+    ])
+  })
+
+  it('历史行（isHistory=true）有五组，删除组排在最末（破坏性操作）', () => {
+    expect(trackMenuGroups(idsOf('list', ALL, { isHistory: true }), 'list', 'up')).toEqual([
+      { id: 'group-queue', ids: ['play-next', 'add-to-queue', 'add-to-playlist'] },
+      { id: 'group-share', ids: ['share-song'] },
+      { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
+      { id: 'group-favorite', ids: ['toggle-favorite'] },
+      { id: 'group-remove', ids: ['remove-from-history'] },
     ])
   })
 
@@ -159,9 +215,15 @@ describe('iOS 分组顺序', () => {
     ])
   })
 
-  it('待播上下文是平铺菜单，不分组', () => {
+  it('待播上下文也有分组：队列内操作 + 完整菜单 + 收藏和删除', () => {
     const ids = idsOf('upcoming', ALL, { position: 2, upcomingCount: 4 })
-    expect(trackMenuGroups(ids, 'upcoming', 'up')).toEqual(ids.map((id) => ({ id, ids: [id] })))
+    expect(trackMenuGroups(ids, 'upcoming', 'up')).toEqual([
+      { id: 'group-queue-ops', ids: ['play-next', 'move-to-end'] },
+      { id: 'group-actions', ids: ['add-to-playlist', 'share-song'] },
+      { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
+      { id: 'group-favorite', ids: ['toggle-favorite'] },
+      { id: 'group-remove', ids: ['remove-from-queue'] },
+    ])
   })
 
   it('能力关掉后空组会被丢掉，不留空分组', () => {
