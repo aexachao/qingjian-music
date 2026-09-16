@@ -32,6 +32,7 @@ const SUPPORTED_FIELDS: Record<ListKind, readonly string[]> = {
   artists: ['name', 'trackCount', 'albumCount'],
   genres: ['name', 'trackCount'],
   playlists: [],
+  artistTracks: ['createdAt'],
   albumTracks: ['title', 'trackNo'],
   genreTracks: ['createdAt'],
   // 实测只认 title（详见 list-sort-policy.ts 注释）；只有一个字段 → 不给按钮，options 为空
@@ -67,10 +68,21 @@ describe('不摆假按钮：支持不了的接口不放排序按钮', () => {
     expect(LIST_SORT.searchTracks.options).toHaveLength(0)
   })
 
-  it('流派详情支持升降序切换显示排序按钮，歌单详情不摆按钮', () => {
+  it('只有一个字段也摆按钮（能切升降序）：流派详情 / 艺术家详情', () => {
     expect(LIST_SORT.genreTracks.options).toHaveLength(1)
+    expect(LIST_SORT.artistTracks.options).toHaveLength(1)
     expect(canSort('genreTracks')).toBe(true)
+    expect(canSort('artistTracks')).toBe(true)
+    // 歌单详情是另一回事：连一个可排字段都没有（服务端只认 title，我们也不主动发 sort）
     expect(canSort('playlistTracks')).toBe(false)
+  })
+
+  it('艺术家详情只认 createdAt（实测），文案「加入时间」、默认升序', () => {
+    expect(LIST_SORT.artistTracks.options[0]).toEqual({
+      field: 'createdAt',
+      label: '加入时间',
+      defaultOrder: 'asc',
+    })
   })
 
   it.each(['recentPlayed', 'playlists', 'searchTracks', 'playlistTracks'] as const)(
@@ -80,7 +92,7 @@ describe('不摆假按钮：支持不了的接口不放排序按钮', () => {
     },
   )
 
-  it.each(['allTracks', 'recentAdded', 'favorites', 'albums', 'artists', 'genres', 'albumTracks', 'genreTracks'] as const)(
+  it.each(['allTracks', 'recentAdded', 'favorites', 'albums', 'artists', 'genres', 'artistTracks', 'albumTracks', 'genreTracks'] as const)(
     '%s 渲染排序按钮',
     (kind) => {
       expect(canSort(kind)).toBe(true)

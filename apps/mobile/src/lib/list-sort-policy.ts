@@ -37,6 +37,7 @@ export type ListKind =
   | 'artists' // 艺术家
   | 'genres' // 流派
   | 'playlists' // 歌单（服务端不支持排序）
+  | 'artistTracks' // 艺术家详情的「歌曲」页签
   | 'albumTracks' // 专辑详情
   | 'genreTracks' // 流派详情（只有一个可排字段）
   | 'playlistTracks' // 歌单详情（只有一个可排字段）
@@ -115,6 +116,12 @@ export const LIST_SORT: Record<ListKind, ListSortConfig> = {
   },
   // 实测 /playlist/list 连默认 sort 都不返回 —— 完全不支持排序
   playlists: { unit: '个', options: [] },
+  // 实测（2026-09-15，见「第 1 轮 · 探路结论」）：`/track/artist-detail/list` 只认 createdAt；
+  // title / trackNo / discNo / duration / trackAddedAt / year 都被忽略。默认方向是 asc。
+  artistTracks: {
+    unit: '首',
+    options: [{ field: 'createdAt', label: '加入时间', defaultOrder: 'asc' }],
+  },
   albumTracks: {
     unit: '首',
     options: [
@@ -137,11 +144,17 @@ export function listSortConfig(kind: ListKind): ListSortConfig {
   return LIST_SORT[kind]
 }
 
-/** 该列表是否值得渲染排序按钮：至少两个可选项才不是假按钮 */
+/**
+ * 该列表是否值得渲染排序按钮。
+ *
+ * 判据是「**有没有可排的字段**」而不是「有没有多个字段」：只有一个字段也**能切升降序**
+ * （两个方向是不同的结果），所以照样值得给按钮 —— 第 5 轮为流派详情开过一次特例
+ * （`if (kind === 'genreTracks')`），第 6 轮统一成这一条，特例删掉。
+ * 真正「不摆按钮」是 `options` 为空：服务端完全不支持排序（最近播放 / 歌单列表），
+ * 或者只有一个字段且我们刻意不主动发 sort（歌单详情，免得把服务端默认顺序改掉）。
+ */
 export function canSort(kind: ListKind): boolean {
-  // genreTracks 虽然只有一个字段，但可以切换升降序，所以也显示按钮
-  if (kind === 'genreTracks') return LIST_SORT[kind].options.length >= 1
-  return LIST_SORT[kind].options.length >= 2
+  return LIST_SORT[kind].options.length >= 1
 }
 
 /** 进页面的默认选择 = 第一项字段 + 它的默认方向；无可排字段时 undefined */
