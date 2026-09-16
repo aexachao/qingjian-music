@@ -80,8 +80,8 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
       <View style={styles.actions}>
         {onStartSelection ? (
           <Pressable
-            hitSlop={12}
-            style={styles.sortButton}
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 4 }}
+            style={styles.actionButton}
             onPress={onStartSelection}
             accessibilityRole="button"
             accessibilityLabel="批量选择"
@@ -92,13 +92,13 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
 
         {canSort(kind) ? (
           <Pressable
-          ref={buttonRef}
-          hitSlop={12}
-          style={styles.sortButton}
-          onPress={openMenu}
-          accessibilityRole="button"
-          accessibilityLabel={currentLabel ? `排序，当前按${currentLabel}` : '排序'}
-        >
+            ref={buttonRef}
+            hitSlop={{ top: 10, bottom: 10, left: 4, right: 8 }}
+            style={styles.actionButton}
+            onPress={openMenu}
+            accessibilityRole="button"
+            accessibilityLabel={currentLabel ? `排序，当前按${currentLabel}` : '排序'}
+          >
             <Icon
               name="sort"
               size={iconSize.md}
@@ -128,8 +128,8 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
   },
   count: { ...typography.caption, color: colors.textTertiary },
-  actions: { flexDirection: 'row', alignItems: 'center' },
-  sortButton: { alignItems: 'center', justifyContent: 'center', paddingLeft: 12 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actionButton: { width: 28, height: 24, alignItems: 'center', justifyContent: 'center' },
 }))
 
 /**
@@ -150,7 +150,7 @@ const useBarStyles = createThemedStyles((colors) => ({
   bar: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },

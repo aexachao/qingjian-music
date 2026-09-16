@@ -67,21 +67,21 @@ describe('不摆假按钮：支持不了的接口不放排序按钮', () => {
     expect(LIST_SORT.searchTracks.options).toHaveLength(0)
   })
 
-  it('只有一个可排字段的列表也不摆按钮（流派详情、歌单详情）', () => {
+  it('流派详情支持升降序切换显示排序按钮，歌单详情不摆按钮', () => {
     expect(LIST_SORT.genreTracks.options).toHaveLength(1)
-    expect(canSort('genreTracks')).toBe(false)
+    expect(canSort('genreTracks')).toBe(true)
     expect(canSort('playlistTracks')).toBe(false)
   })
 
-  it.each(['recentPlayed', 'playlists', 'searchTracks', 'playlistTracks', 'genreTracks'] as const)(
+  it.each(['recentPlayed', 'playlists', 'searchTracks', 'playlistTracks'] as const)(
     '%s 不渲染排序按钮',
     (kind) => {
       expect(canSort(kind)).toBe(false)
     },
   )
 
-  it.each(['allTracks', 'recentAdded', 'favorites', 'albums', 'artists', 'genres', 'albumTracks'] as const)(
-    '%s 有至少两个选项，渲染排序按钮',
+  it.each(['allTracks', 'recentAdded', 'favorites', 'albums', 'artists', 'genres', 'albumTracks', 'genreTracks'] as const)(
+    '%s 渲染排序按钮',
     (kind) => {
       expect(canSort(kind)).toBe(true)
     },

@@ -42,9 +42,9 @@ export function useDetailHref() {
       if (inHome) return { pathname: '/home/artist/[id]', params: { id } } as const
       return { pathname: '/library/artist/[id]', params: { id } } as const
     },
-    genre: (id: string, name = '') => {
-      if (inSearch) return { pathname: '/search/genre/[id]', params: { id, name } } as const
-      return { pathname: '/library/genre/[id]', params: { id, name } } as const
+    genre: (id: string, name = '', coverId = '') => {
+      if (inSearch) return { pathname: '/search/genre/[id]', params: { id, name, coverId } } as const
+      return { pathname: '/library/genre/[id]', params: { id, name, coverId } } as const
     },
     playlist: (id: string, name = '') => {
       if (inSearch) return { pathname: '/search/playlist/[id]', params: { id, name } } as const

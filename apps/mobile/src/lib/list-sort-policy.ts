@@ -139,6 +139,8 @@ export function listSortConfig(kind: ListKind): ListSortConfig {
 
 /** 该列表是否值得渲染排序按钮：至少两个可选项才不是假按钮 */
 export function canSort(kind: ListKind): boolean {
+  // genreTracks 虽然只有一个字段，但可以切换升降序，所以也显示按钮
+  if (kind === 'genreTracks') return LIST_SORT[kind].options.length >= 1
   return LIST_SORT[kind].options.length >= 2
 }
 

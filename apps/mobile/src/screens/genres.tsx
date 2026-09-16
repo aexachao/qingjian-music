@@ -1,6 +1,7 @@
-import { FlatList, Pressable, Text, View } from 'react-native'
+import { FlatList, Pressable, useWindowDimensions, View } from 'react-native'
 import { Link } from 'expo-router'
 import type { Genre } from '@qj/core-domain'
+import { GenreCard } from '@/components/genre-card'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -8,13 +9,18 @@ import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { createThemedStyles } from '@/theme/theme-provider'
-import { spacing, typography } from '@/theme/tokens'
+import { spacing } from '@/theme/tokens'
 
 export function GenresScreen() {
   const styles = useStyles()
   const { provider, connection } = useServerSession()
+  const { width } = useWindowDimensions()
   const bottom = useBottomSpace()
   const href = useDetailHref()
+
+  const columns = 2
+  const gap = spacing.md
+  const cardWidth = (width - spacing.lg * 2 - gap * (columns - 1)) / columns
 
   const { selection, setSelection, sortKey, sort } = useListSort('genres')
   const { query, items, total, loadMore } = usePagedQuery<Genre>({
@@ -31,14 +37,19 @@ export function GenresScreen() {
       <ListToolbarBar kind="genres" total={total} selection={selection} onSelect={setSelection} />
       <FlatList
         data={items}
+        numColumns={columns}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        columnWrapperStyle={{ gap }}
         ListEmptyComponent={<EmptyState text="曲库里还没有流派" />}
         renderItem={({ item }) => (
-          <Link href={href.genre(item.id, item.name)} asChild>
-            <Pressable style={styles.row} accessibilityRole="button" accessibilityLabel={`流派 ${item.name}`}>
-              <Text style={styles.name}>{item.name}</Text>
-              {item.trackCount ? <Text style={styles.meta}>{item.trackCount} 首</Text> : null}
+          <Link href={href.genre(item.id, item.name, item.coverId)} asChild>
+            <Pressable
+              style={{ width: cardWidth }}
+              accessibilityRole="button"
+              accessibilityLabel={`流派 ${item.name}`}
+            >
+              <GenreCard genre={item} coverId={item.coverId} width={cardWidth} />
             </Pressable>
           </Link>
         )}
@@ -50,7 +61,6 @@ export function GenresScreen() {
             onRetry={() => void query.fetchNextPage()}
           />
         }
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
     </View>
   )
@@ -58,12 +68,10 @@ export function GenresScreen() {
 
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1 },
-  // flexGrow: 1 是给**空状态**用的：列表为空时让内容区撑满视窗，
-  // ListEmptyComponent（list-states 里的 EmptyState，flex: 1 + 居中）才能在视窗里上下居中。
-  // 有内容时它不产生任何视觉影响。
-  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md },
-  name: { ...typography.callout, color: colors.textPrimary },
-  meta: { ...typography.caption, color: colors.textTertiary },
-  separator: { height: 1, backgroundColor: colors.borderSubtle },
+  list: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    gap: spacing.md,
+  },
 }))
