@@ -3,8 +3,8 @@ import { radius, spacing, themeColors, typography } from '../../src/theme/tokens
 import { readSource as source } from '../support/source'
 
 describe('首页 Apple Music 风格设计规范与架构契约', () => {
-  it('间距系统遵循 8pt 与 Apple 规范（20pt 页边距，24pt 分区呼吸感，10pt 组内吸附）', () => {
-    expect(spacing.pageMargin).toBe(20)
+  it('间距系统遵循 8pt 与 Apple 规范（16pt 页边距，24pt 分区呼吸感，10pt 组内吸附）', () => {
+    expect(spacing.pageMargin).toBe(16)
     expect(spacing.sectionGap).toBe(24)
     expect(spacing.titleGap).toBe(10)
     expect(spacing.shelfGap).toBe(16)
@@ -96,5 +96,20 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
     expect(home).toContain('isMenuOpen')
     expect(home).toContain('isGlobalMenuInteracting')
     expect(home).toContain('StyleSheet.absoluteFill')
+  })
+
+  it('四大主页签内容水平边距严格统一为 16pt（spacing.pageMargin / spacing.lg）', () => {
+    expect(spacing.pageMargin).toBe(16)
+    expect(spacing.lg).toBe(16)
+
+    const home = source('screens/home.tsx')
+    const search = source('screens/search-browse.tsx')
+    const library = source('screens/library-home.tsx')
+    const settings = source('screens/settings.tsx')
+
+    expect(home).toContain('paddingHorizontal: spacing.pageMargin')
+    expect(search).toContain('paddingHorizontal: spacing.lg')
+    expect(library).toContain('paddingHorizontal: spacing.lg')
+    expect(settings).toContain('paddingHorizontal: spacing.lg')
   })
 })

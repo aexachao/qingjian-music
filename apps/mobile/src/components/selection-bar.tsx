@@ -130,7 +130,7 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useInfiniteQuery, type QueryKey } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, type QueryKey } from '@tanstack/react-query'
 import { nextPageNumber, type Page } from '@qj/core-domain'
 
 /**
@@ -17,6 +17,7 @@ export function usePagedQuery<T>(options: {
     initialPageParam: 1,
     queryFn: ({ pageParam }) => options.fetchPage(pageParam),
     getNextPageParam: (lastPage) => nextPageNumber(lastPage),
+    placeholderData: keepPreviousData,
   })
 
   const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data])

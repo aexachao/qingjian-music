@@ -90,7 +90,7 @@ export function TrackSelectionModal({
             <TrackRow
               track={item}
               index={index}
-              leading={leading}
+              leading="cover"
               playing={isPlaying(item.id)}
               selection={{ selected: selection.isSelected(item.id), onToggle: () => selection.toggle(item.id) }}
             />

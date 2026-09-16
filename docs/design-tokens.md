@@ -35,6 +35,19 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
   强调色切换留到主题设置一起做。⚠️ web 端 `--ds-special-danger` 与 `--ds-accent-red` 同值，
   **App 这边刻意拆开了** —— 见下面「三层 token」。
 
+## 深浅色模式对比哲学与作用域隔离
+
+1. **暗色模式（Dark）**：
+   - 页面背景 `bgPrimary` 为纯黑底（`#0f0f0f`）；
+   - 卡片 `bgCard` 为微透浅黑/浮层白（`#ffffff14`），呈现黑底上微浮层的高级感。
+2. **浅色模式（Light）**：
+   - 页面背景 `bgPrimary` 为柔和系统浅灰（`#f2f2f7`，对齐 iOS systemGroupedBackground）；
+   - 卡片 `bgCard` 为纯白（`#ffffff`），按压态 `bgCardHover` 为 `#f0f0f5`；
+   - 配合发丝边框 `borderSubtle`（`#0000000f`），在浅灰底上形成清爽分明的内容卡片。
+3. **播放页作用域隔离（PlayerScreen）**：
+   - 全屏播放器（`/player`）常驻 Dark 作用域（`DarkThemeScope`），不随外层浅色/深色模式切换；
+   - 保证专辑模糊背景、发光歌词与白色控制按钮始终处于暗色沉浸式声学氛围中，顶层状态栏保持浅色高亮。
+
 ## 三层 token 与颜色使用规范
 
 色值只写在 `apps/mobile/src/theme/tokens.ts`，组件一律用**语义角色**。这样「品牌色太抢眼」
@@ -48,7 +61,7 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 
 | 角色 | 用在哪 |
 | --- | --- |
-| `primaryAction` | **每屏最多一处**的主行动（确认按钮、页面主 CTA） |
+| `primaryAction` | **每屏最多一处**的主行动（确认按钮、页面主 CTA）。**并列的同等重要动作不要用它** —— 那种情况下一律给 `bgButtonSecondary` + `textPrimary`（见下面第 4 条） |
 | `stateSelected` | 选中 / 激活：勾选框、页签、开关、导航高亮、输入光标 |
 | `playing` | 正在播放（标题、律动条） |
 | `like` | 收藏（心形）。**独立色值**，与品牌色无关 |
@@ -64,6 +77,10 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
    `apps/mobile/src/components/fatal-error-screen.tsx` —— 它刻意不依赖主题（主题 Provider 可能就是崩掉的那一环）。
 2. 组件里**不许直接用 `colors.accent`**，必须走上面的角色。
 3. 「一屏最多一处 `primaryAction`」靠 review 与截图（品牌红像素占比）把关。
+4. **同等重要的并列动作不给主次**：像详情页的「播放 / 随机播放」这类，用户需要的是**同等的选择机会**，
+   而不是被引导去点某一个。两个都用次要按钮（`bgButtonSecondary` + `textPrimary` 图标文案），
+   视觉上平级。`primaryAction` 只留给**真正唯一**的那一个行动（如弹窗的确认）。
+   （2026-09-16 确认：专辑 / 艺术家 / 流派三个详情页的播放与随机都按这条改平级。）
 
 > 背景：2026-09-15 之前 `accent` 同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，
 > 而 `accent`、`danger`、`like`、`playing` 是同一个值 —— 一屏出现三四处红就吵，

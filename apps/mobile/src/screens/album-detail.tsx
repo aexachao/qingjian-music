@@ -109,13 +109,13 @@ export function AlbumDetailScreen() {
 
               <View style={styles.actions}>
                 <Pressable
-                  style={[styles.button, styles.buttonPrimary]}
+                  style={styles.button}
                   onPress={() => void play(0)}
                   accessibilityRole="button"
                   accessibilityLabel="播放专辑"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                  <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
+                  <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                  <Text style={styles.buttonLabel}>播放</Text>
                 </Pressable>
                 <Pressable
                   style={styles.button}
@@ -138,7 +138,7 @@ export function AlbumDetailScreen() {
           <TrackRow
             track={item}
             index={index}
-            leading="index"
+            leading="cover"
             playing={current?.serverId === connection?.id && current?.trackId === item.id}
             onPress={() => void play(index)}
           />
@@ -159,7 +159,7 @@ export function AlbumDetailScreen() {
         visible={selecting}
         items={items}
         source={{ kind: 'album', id, label: album?.name ? `专辑 · ${album.name}` : '专辑' }}
-        leading="index"
+        leading="cover"
         isPlaying={(trackId) => current?.serverId === connection?.id && current?.trackId === trackId}
         onEndReached={loadMore}
         footer={
@@ -190,7 +190,13 @@ const useStyles = createThemedStyles((colors) => ({
   // 计数与排序距离上方按钮留足间距，距离下方列表收窄
   headerRoot: { marginBottom: spacing.sm },
   coverBlock: { alignItems: 'center', gap: spacing.xs },
-  toolbarSlot: { alignSelf: 'stretch', marginTop: spacing.lg },
+  toolbarSlot: {
+    alignSelf: 'stretch',
+    marginTop: spacing.lg,
+    paddingBottom: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
   pinnedBar: {
     position: 'absolute',
     top: 0,
@@ -198,7 +204,7 @@ const useStyles = createThemedStyles((colors) => ({
     right: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.xs,
     backgroundColor: colors.bgPrimary,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,

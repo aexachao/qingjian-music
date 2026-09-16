@@ -100,13 +100,13 @@ export function ArtistDetailScreen() {
 
             <View style={styles.actions}>
               <Pressable
-                style={[styles.button, styles.buttonPrimary]}
+                style={styles.button}
                 onPress={() => void playTop(0)}
                 accessibilityRole="button"
                 accessibilityLabel="播放热门歌曲"
               >
-                <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                <Text style={[styles.buttonLabel, styles.buttonLabelPrimary]}>播放</Text>
+                <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                <Text style={styles.buttonLabel}>播放</Text>
               </Pressable>
               <Pressable
                 style={styles.button}

@@ -8,7 +8,7 @@ describe('运行时主题 token 架构', () => {
     expect(getThemeColors('dark')).toBe(themeColors.dark)
     expect(getThemeColors('light')).toBe(themeColors.light)
     expect(themeColors.dark.bgPrimary).toBe('#0f0f0f')
-    expect(themeColors.light.bgPrimary).toBe('#ffffff')
+    expect(themeColors.light.bgPrimary).toBe('#f2f2f7')
     expect(themeColors.dark.accent).toBe(themeColors.light.accent)
   })
 

@@ -28,6 +28,19 @@ export function AppThemeProvider({
   return <AppThemeContext.Provider value={value}>{children}</AppThemeContext.Provider>
 }
 
+/**
+ * 恒定 Dark 模式作用域。用于像全屏播放器这类不论浅色/深色主题，
+ * 均始终保持沉浸式暗色调体验的场景。
+ */
+export function DarkThemeScope({ children }: PropsWithChildren) {
+  const value = useMemo<AppThemeContextValue>(
+    () => ({ mode: 'dark', isDark: true, colors: getThemeColors('dark') }),
+    [],
+  )
+
+  return <AppThemeContext.Provider value={value}>{children}</AppThemeContext.Provider>
+}
+
 export function useAppTheme(): AppThemeContextValue {
   const value = useContext(AppThemeContext)
   if (!value) throw new Error('useAppTheme must be used inside AppThemeProvider')

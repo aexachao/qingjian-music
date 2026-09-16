@@ -1,6 +1,6 @@
-import type { ComponentProps } from 'react'
-import { useMemo } from 'react'
+import { createElement, useMemo, type ComponentProps } from 'react'
 import { DarkTheme, DefaultTheme, type Stack } from 'expo-router'
+import { StackBackButton } from '@/components/stack-back-button'
 import { useThemeColors } from '@/theme/theme-provider'
 import { getThemeColors, type ResolvedTheme, type ThemeColors } from '@/theme/tokens'
 
@@ -32,6 +32,7 @@ export function getStackScreenOptions(colors: ThemeColors): ScreenOptions {
     headerShadowVisible: false,
     headerBackTitle: '',
     headerBackButtonDisplayMode: 'minimal',
+    headerLeft: (props) => (props.canGoBack ? createElement(StackBackButton) : null),
     contentStyle: { backgroundColor: colors.bgPrimary },
     gestureEnabled: true,
     fullScreenGestureEnabled: true,

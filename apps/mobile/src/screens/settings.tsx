@@ -175,7 +175,7 @@ export function SettingsScreen() {
           />
           <View style={styles.divider} />
           <SettingsRow
-            icon="heart"
+            icon="heartOutline"
             label="支持作者"
             onPress={onSupport}
           />

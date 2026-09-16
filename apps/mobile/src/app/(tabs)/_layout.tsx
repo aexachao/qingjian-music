@@ -3,6 +3,7 @@ import { AuthGate } from '@/lib/auth-gate'
 import { Icon, iconSize } from '@/components/icon'
 import { MiniPlayerHost } from '@/components/mini-player-host'
 import { isTabBarHidden } from '@/lib/tab-bar-policy'
+import { tap } from '@/lib/haptics'
 import { useThemeColors } from '@/theme/theme-provider'
 
 export default function TabsLayout() {
@@ -16,6 +17,11 @@ export default function TabsLayout() {
     <AuthGate group="protected">
       <>
         <Tabs
+          screenListeners={{
+            tabPress: () => {
+              tap()
+            },
+          }}
           screenOptions={{
             headerShown: false,
             tabBarActiveTintColor: activeColor,
@@ -24,6 +30,7 @@ export default function TabsLayout() {
               ? { display: 'none' }
               : { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle },
             sceneStyle: { backgroundColor: colors.bgPrimary },
+            animation: 'shift',
           }}
         >
           <Tabs.Screen

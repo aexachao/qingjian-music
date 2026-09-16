@@ -16,6 +16,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated'
 
+import { StatusBar } from 'expo-status-bar'
 import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverImage } from '@/components/cover-image'
@@ -25,16 +26,15 @@ import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { radius, spacing, typography } from '@/theme/tokens'
-import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { DarkThemeScope } from '@/theme/theme-provider'
+import { getThemeColors, radius, spacing, typography } from '@/theme/tokens'
 
 const LYRIC_TICK_MS = 200
 
 type PlayerMode = 'cover' | 'lyrics' | 'list'
 
 export default function PlayerScreen() {
-  const styles = useStyles()
-  const colors = useThemeColors()
+  const colors = darkColors
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
@@ -238,11 +238,18 @@ export default function PlayerScreen() {
   })
 
   if (!current) {
-    return <EmptyPlayerState onDismiss={dismiss} />
+    return (
+      <DarkThemeScope>
+        <StatusBar style="light" />
+        <EmptyPlayerState onDismiss={dismiss} />
+      </DarkThemeScope>
+    )
   }
 
   return (
-    <AuthGate group="protected">
+    <DarkThemeScope>
+      <StatusBar style="light" />
+      <AuthGate group="protected">
       <GestureDetector gesture={dismissGesture}>
         <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
           <CoverBackdrop artwork={current.artwork} />
@@ -397,12 +404,12 @@ export default function PlayerScreen() {
         </Animated.View>
       </GestureDetector>
     </AuthGate>
+  </DarkThemeScope>
   )
 }
 
 function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
-  const styles = useStyles()
-  const colors = useThemeColors()
+  const colors = darkColors
   return (
     <View style={[styles.root, styles.center]}>
       <Text style={styles.empty}>还没有正在播放的歌曲</Text>
@@ -432,7 +439,6 @@ function LyricPage({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
-  const styles = useStyles()
   const { playing } = useIsPlaying()
   const progress = useProgress(active ? LYRIC_TICK_MS : 1000)
   const current = usePlayerStore(selectCurrent)
@@ -458,10 +464,12 @@ function LyricPage({
   )
 }
 
-const useStyles = createThemedStyles((colors) => ({
-  root: { flex: 1, backgroundColor: colors.bgPrimary },
+const darkColors = getThemeColors('dark')
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: darkColors.bgPrimary },
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
-  empty: { ...typography.subhead, color: colors.textSecondary },
+  empty: { ...typography.subhead, color: darkColors.textSecondary },
   header: {
     height: 32,
     alignItems: 'center',
@@ -472,7 +480,7 @@ const useStyles = createThemedStyles((colors) => ({
     width: 36,
     height: 5,
     borderRadius: radius.pill,
-    backgroundColor: colors.iconDim,
+    backgroundColor: darkColors.iconDim,
   },
   stageViewport: {
     flex: 1,
@@ -510,4 +518,4 @@ const useStyles = createThemedStyles((colors) => ({
   airplayNative: { width: 44, height: 44 },
   bottomIcon: { borderRadius: 12 },
   menuScrim: { backgroundColor: 'rgba(0, 0, 0, 0.001)', zIndex: 9999 },
-}))
+})
