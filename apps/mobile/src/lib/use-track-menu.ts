@@ -53,6 +53,7 @@ export interface TrackMenuSubject {
   artistId?: string
   durationMs?: number
   isFavorite?: boolean
+  coverId?: string
   /** 列表上下文必需：playNext / appendTracks 需要完整曲目 */
   track?: Track
   /** 待播上下文必需：该行在队列里的下标 */
@@ -316,6 +317,7 @@ export function useTrackMenu({
               artist: subject.artistText,
               album: subject.albumText || '',
               duration: String(subject.durationMs || ''),
+              coverId: subject.coverId || subject.track?.coverId || subject.track?.album?.coverId || '',
             },
           })
           break

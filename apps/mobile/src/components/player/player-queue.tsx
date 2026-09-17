@@ -1130,6 +1130,7 @@ function QueueRow({
             ...(item.albumText ? { albumText: item.albumText } : {}),
             ...(item.artistId ? { artistId: item.artistId } : {}),
             durationMs: item.durationMs,
+            ...(item.coverId ? { coverId: item.coverId } : {}),
             ...(item.isFavorite === undefined ? {} : { isFavorite: item.isFavorite }),
             ...(isHistory
               ? {

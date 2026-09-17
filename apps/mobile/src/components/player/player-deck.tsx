@@ -307,6 +307,7 @@ export function DeckMoreButton({
         ...(current.albumText ? { albumText: current.albumText } : {}),
         ...(current.artistId ? { artistId: current.artistId } : {}),
         durationMs: current.durationMs,
+        ...(current.coverId ? { coverId: current.coverId } : {}),
         ...(current.isFavorite === undefined ? {} : { isFavorite: current.isFavorite }),
       }}
     />

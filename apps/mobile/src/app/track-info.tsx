@@ -27,12 +27,13 @@ function formatSampleRate(hz: number | undefined): string {
 }
 
 export default function TrackInfoScreen() {
-  const { trackId, title, artist, album, duration } = useLocalSearchParams<{
+  const { trackId, title, artist, album, duration, coverId } = useLocalSearchParams<{
     trackId: string
     title?: string
     artist?: string
     album?: string
     duration?: string
+    coverId?: string
   }>()
   const { provider, connection } = useServerSession()
   const styles = useStyles()
@@ -62,7 +63,9 @@ export default function TrackInfoScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         {/* 基本信息 */}
         <View style={styles.header}>
-          <CoverImage size={120} borderRadius={radius.lg} />
+          <View style={styles.coverShadowWrapper}>
+            <CoverImage coverId={coverId} size={130} borderRadius={radius.album} />
+          </View>
           <Text style={styles.title}>{title || '未知歌曲'}</Text>
           <Text style={styles.subtitle}>{artist || '未知艺术家'}</Text>
           {album ? <Text style={styles.album}>{album}</Text> : null}
@@ -106,6 +109,13 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.xl,
+  },
+  coverShadowWrapper: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 6,
   },
   title: {
     ...typography.title3,

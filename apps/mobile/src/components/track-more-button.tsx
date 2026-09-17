@@ -28,6 +28,7 @@ export function TrackMoreButton({ track, onMenuOpenChange }: TrackMoreButtonProp
         ...(track.album?.name ? { albumText: track.album.name } : {}),
         ...(track.artists[0]?.id ? { artistId: track.artists[0].id } : {}),
         durationMs: track.durationMs,
+        coverId: track.coverId ?? track.album?.coverId,
         ...(track.isFavorite === undefined ? {} : { isFavorite: track.isFavorite }),
         // 列表上下文需要完整曲目，用于「下一首播放 / 加入队列」
         track,
