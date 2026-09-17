@@ -1,3 +1,8 @@
+/**
+ * ⚠️ 2026-09-16：设置里的音质入口已撤掉（见 `lib/audio-quality-preferences.ts` 顶部注释）。
+ * 这个模块保留着：播放链路仍然按 `capabilities.qualityTiers` 决定音质 ——
+ * 能力为 false（飞牛）时恒返回 `original`，所以有没有 UI 都不会误上转码链路。
+ */
 import { getNetworkStateAsync, NetworkStateType } from 'expo-network'
 import type { QualityOption } from './audio-quality-preferences'
 

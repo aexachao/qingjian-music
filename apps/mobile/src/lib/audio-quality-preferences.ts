@@ -1,3 +1,10 @@
+/**
+ * ⚠️ 2026-09-16：**设置里的音质入口已撤掉**（连同设置页那一行与 `screens/audio-quality-settings.tsx`）。
+ * 原因：当前唯一的后端飞牛只有一档输出 —— 服务端忽略转码的 bitrate 参数、恒输出无损 FLAC
+ * （实测见 `docs/fnos-transcode.md` 的「实测校正」），所以「标准音质」既省不了流量，
+ * 又会让每一首歌都被判定为需要转码。等真有支持码率档位的后端（Emby / Jellyfin 那类），
+ * 再把 UI 放回来；**这里的三项偏好与下面的选择逻辑是为此保留的**，别顺手删。
+ */
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
 

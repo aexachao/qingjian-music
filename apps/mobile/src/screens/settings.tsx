@@ -9,7 +9,6 @@ import { useConfirm } from '@/components/confirm-modal'
 import { Icon, iconSize, type IconName } from '@/components/icon'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
-import { QUALITY_LABELS, useAudioQualityPreferences } from '@/lib/audio-quality-preferences'
 import { THEME_MODE_OPTIONS, useAppearancePreferences } from '@/lib/appearance-preferences'
 import { useServerSession } from '@/lib/server-session'
 import { audioCacheStats } from '@/player/audio-cache'
@@ -25,7 +24,10 @@ const APP_VERSION = Constants.expoConfig?.version ?? '—'
 /**
  * 设置页：对齐 Apple Music 风格的一级页签。
  * 1. 顶部用户卡：圆形字母头像 + 账号名 +「管理员/普通用户」胶囊徽章 + 归属系统（fnOS）
- * 2. 偏好设置卡片（3项）：外观主题、音质（Wi-Fi/蜂窝/下载）、缓存（自动缓存/容量上限/歌曲首数/清理）
+ * 2. 偏好设置卡片（2项）：外观主题、缓存（自动缓存/容量上限/歌曲首数/清理）
+ *    —— **不提供音质选项**：当前唯一的后端（飞牛）转码恒输出无损 FLAC、服务端忽略码率参数，
+ *    给了选项也不生效（详见 docs/fnos-transcode.md 与执行计划第 7 轮）。管线留着，
+ *    等真有支持码率档位的后端（Emby/Jellyfin 那类）再把入口放回来。
  * 3. 帮助与关于卡片（3项）：问题反馈、支持作者、关于
  * 4. 账号退出卡片（1项）：退出登录
  *
@@ -39,7 +41,6 @@ export function SettingsScreen() {
   const bottom = useBottomSpace()
   const themeMode = useAppearancePreferences((s) => s.themeMode)
   const currentThemeLabel = THEME_MODE_OPTIONS.find((t) => t.value === themeMode)?.label ?? '跟随系统'
-  const wifiQuality = useAudioQualityPreferences((s) => s.wifiQuality)
   const audioCache = audioCacheStats()
 
   const me = useQuery({
@@ -148,14 +149,6 @@ export function SettingsScreen() {
             label="外观主题"
             value={currentThemeLabel}
             onPress={() => router.push('/(tabs)/settings/appearance')}
-          />
-          <View style={styles.divider} />
-          <SettingsRow
-            icon="quality"
-            label="音质"
-            /* 后端只有一档输出时如实说明，别摆一个「看起来能选」的当前值 */
-            value={provider?.capabilities.qualityTiers === false ? '仅原始音质' : QUALITY_LABELS[wifiQuality]}
-            onPress={() => router.push('/(tabs)/settings/audio-quality')}
           />
           <View style={styles.divider} />
           <SettingsRow

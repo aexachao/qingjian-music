@@ -96,13 +96,14 @@ describe('临时交互层手势优先级', () => {
     expect(header).toContain('fontSize: 17')
   })
 
-  it('settings has feedback email, about, audio-quality, and cache screens with complete options', () => {
+  it('settings has feedback email, about, and cache screens with complete options', () => {
     const settings = source('screens/settings.tsx')
     expect(settings).toContain('arieachao@163.com')
     expect(settings).toContain('问题反馈')
     expect(settings).toContain('关于')
-    expect(settings).toContain('音质')
     expect(settings).toContain('缓存')
+    // 音质入口 2026-09-16 撤掉了（飞牛只有一档输出，见 test/unit/audio-quality-gating.test.ts）
+    expect(settings).not.toContain('音质')
 
     const about = source('screens/about.tsx')
     expect(about).toContain('轻简音乐')
@@ -110,11 +111,6 @@ describe('临时交互层手势优先级', () => {
     expect(about).toContain('用户协议')
     expect(about).toContain('隐私政策')
     expect(about).toContain('icon.png')
-
-    const qualityScreen = source('screens/audio-quality-settings.tsx')
-    expect(qualityScreen).toContain('Wi-Fi 播放')
-    expect(qualityScreen).toContain('移动网络播放')
-    expect(qualityScreen).not.toContain('下载音质')
 
     const cacheScreen = source('screens/cache-settings.tsx')
     expect(cacheScreen).toContain('自动缓存播放中的歌曲')
