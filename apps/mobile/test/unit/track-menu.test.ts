@@ -21,6 +21,8 @@ const ALL: TrackMenuCapabilities = {
   hasArtist: true,
   canAdjustLyricOffset: true,
   hasTrack: true,
+  canDownload: true,
+  isDownloaded: false,
 }
 
 const NONE: TrackMenuCapabilities = {
@@ -33,6 +35,8 @@ const NONE: TrackMenuCapabilities = {
   // hasTrack 不是「后端能力」，而是「手上有没有完整曲目」——列表行恒为 true，
   // 所以「能力全关」这套里它也照旧为 true；没有曲目的情况单独有用例。
   hasTrack: true,
+  canDownload: false,
+  isDownloaded: false,
 }
 
 function idsOf(context: 'list' | 'upcoming' | 'current', capabilities = ALL, extra = {}) {
@@ -45,6 +49,8 @@ describe('快捷菜单条目定义（按上下文）', () => {
       'play-next',
       'add-to-queue',
       'add-to-playlist',
+      // 第 7 轮：下载（没下过是「下载」，下过是「删除下载」）
+      'download',
       'share-song',
       'song-info',
       'goto-album',
@@ -176,18 +182,26 @@ describe('待播行条目规则', () => {
 })
 
 describe('iOS 分组顺序', () => {
-  it('列表上下文固定四组，收藏那组排最后（第 4 轮）', () => {
+  it('列表上下文固定五组：队列 → 下载 → 分享 → 信息 → 收藏（收藏排最后）', () => {
     expect(trackMenuGroups(idsOf('list'), 'list', 'up')).toEqual([
       { id: 'group-queue', ids: ['play-next', 'add-to-queue', 'add-to-playlist'] },
+      { id: 'group-download', ids: ['download'] },
       { id: 'group-share', ids: ['share-song'] },
       { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
       { id: 'group-favorite', ids: ['toggle-favorite'] },
     ])
   })
 
-  it('历史行（isHistory=true）有五组，删除组排在最末（破坏性操作）', () => {
+  it('已下载的那首歌，菜单里是「删除下载」而不是「下载」', () => {
+    const ids = idsOf('list', { ...ALL, isDownloaded: true })
+    expect(ids).toContain('remove-download')
+    expect(ids).not.toContain('download')
+  })
+
+  it('历史行（isHistory=true）把「从历史记录移除」放在最末（破坏性操作）', () => {
     expect(trackMenuGroups(idsOf('list', ALL, { isHistory: true }), 'list', 'up')).toEqual([
       { id: 'group-queue', ids: ['play-next', 'add-to-queue', 'add-to-playlist'] },
+      { id: 'group-download', ids: ['download'] },
       { id: 'group-share', ids: ['share-song'] },
       { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
       { id: 'group-favorite', ids: ['toggle-favorite'] },

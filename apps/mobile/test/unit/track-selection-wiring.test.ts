@@ -103,11 +103,12 @@ describe('选择态里的行与动作', () => {
     expect(hasCode(bar, 'bottom: 0')).toBe(true)
   })
 
-  it('底部动作栏四颗：播放 / 加入播放列表 / 下载 / 添加到歌单，下载默认不可点', () => {
+  it('底部动作栏四颗：播放 / 加入播放列表 / 下载 / 添加到歌单', () => {
     const bar = 'components/selection-bar.tsx'
     for (const label of ['播放', '加入播放列表', '下载', '添加到歌单']) {
       expect(hasCode(bar, `label: '${label}'`), label).toBe(true)
     }
-    expect(hasCode(bar, 'downloadEnabled = false')).toBe(true)
+    // 第 7 轮起「下载」真的接上了（不再是灰的占位）
+    expect(hasCode(bar, 'onPress: onDownload')).toBe(true)
   })
 })

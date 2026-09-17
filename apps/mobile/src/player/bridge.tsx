@@ -3,6 +3,7 @@ import TrackPlayer, { Event, State, useTrackPlayerEvents } from 'react-native-tr
 import { useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
+import { reconcileDownloads } from '@/player/downloads'
 import { useServerSession } from '@/lib/server-session'
 import {
   clearForcedTranscode,
@@ -54,6 +55,12 @@ export function PlayerBridge() {
   useEffect(() => {
     const sub = addVolumeListener(() => {})
     return () => sub.remove()
+  }, [])
+
+  // 启动对账：App 被杀死期间系统可能已经把下载下完（甚至拼好），
+  // 这里把它们补登记进登记表，否则会出现「文件在磁盘上、App 里却显示未下载」。
+  useEffect(() => {
+    void reconcileDownloads()
   }, [])
 
   // 当前曲目的收藏状态同步给系统播放控制，锁屏 / 车机上的心形按钮才有正确的开关态

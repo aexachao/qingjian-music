@@ -30,6 +30,8 @@ export const TRACK_MENU_IDS = [
   'add-to-playlist',
   'move-to-end',
   'toggle-favorite',
+  'download',
+  'remove-download',
   'remove-from-queue',
   'remove-from-history',
   'share-song',
@@ -47,6 +49,8 @@ export const TRACK_MENU_LABEL: Record<TrackMenuId, string> = {
   'add-to-queue': '加入队列',
   'add-to-playlist': '添加到歌单',
   'move-to-end': '移到队尾',
+  'download': '下载',
+  'remove-download': '删除下载',
   'toggle-favorite': '喜欢',
   'remove-from-queue': '从队列移除',
   'remove-from-history': '从历史记录移除',
@@ -64,6 +68,8 @@ export const TRACK_MENU_ICON: Record<TrackMenuId, { ios: string; android: string
   'add-to-queue': { ios: 'text.append', android: 'ic_menu_add' },
   'add-to-playlist': { ios: 'plus.circle', android: 'ic_menu_add' },
   'move-to-end': { ios: 'text.append', android: 'ic_menu_sort_by_size' },
+  'download': { ios: 'arrow.down.circle', android: 'ic_menu_save' },
+  'remove-download': { ios: 'trash', android: 'ic_menu_delete' },
   'toggle-favorite': { ios: 'heart', android: 'ic_menu_myplaces' },
   'remove-from-queue': { ios: 'trash', android: 'ic_menu_delete' },
   'remove-from-history': { ios: 'trash', android: 'ic_menu_delete' },
@@ -97,6 +103,10 @@ export interface TrackMenuCapabilities {
   hasArtist: boolean
   /** 有同步歌词（歌词偏移才有意义） */
   canAdjustLyricOffset: boolean
+  /** 后端支持音频流（能下载） */
+  canDownload: boolean
+  /** 这首歌已经下载到本地 */
+  isDownloaded: boolean
   /**
    * 手上有**完整曲目**（`Track`，不只是 trackId）。
    * 列表行从 `Track` 来，恒为 true；队列页的历史行看 `QueueItem.track` 有没有留下来。
@@ -152,6 +162,10 @@ export function trackMenuIds(input: TrackMenuInput): TrackMenuId[] {
   // 只有 trackId 时**不摆**这两条 —— 摆了就是点了没反应的假条目。
   if (capabilities.hasTrack) ids.push('play-next', 'add-to-queue')
   if (capabilities.canWritePlaylist) ids.push('add-to-playlist')
+  // 下载：没下过就是「下载」，下过就是「删除下载」（同一个位置二选一）
+  if (capabilities.canDownload && capabilities.hasTrack) {
+    ids.push(capabilities.isDownloaded ? 'remove-download' : 'download')
+  }
   ids.push('share-song', 'song-info')
   if (capabilities.hasAlbum) ids.push('goto-album')
   if (capabilities.hasArtist) ids.push('goto-artist')
@@ -177,6 +191,7 @@ const CURRENT_GROUPS: TrackMenuGroup[] = [
 
 const LIST_GROUPS: TrackMenuGroup[] = [
   { id: 'group-queue', ids: ['play-next', 'add-to-queue', 'add-to-playlist'] },
+  { id: 'group-download', ids: ['download', 'remove-download'] },
   { id: 'group-share', ids: ['share-song'] },
   { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
   // 收藏排最后一条（你的要求）

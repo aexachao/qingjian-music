@@ -106,6 +106,7 @@ export function TrackSelectionModal({
           onPlay={selection.playSelected}
           onAppend={selection.appendSelected}
           onAddToPlaylist={selection.openPlaylistPicker}
+          onDownload={selection.downloadSelected}
         />
 
         <PlaylistPickerSheet

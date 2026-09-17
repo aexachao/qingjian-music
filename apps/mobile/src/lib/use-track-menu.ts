@@ -15,7 +15,10 @@ import {
   OFFSET_STEP_MS,
   useLyricOffset,
 } from '@/lib/lyric-offset'
+import { downloadKey } from '@/lib/download-policy'
+import { useIsDownloaded } from '@/lib/use-downloads'
 import { useServerSession } from '@/lib/server-session'
+import { downloadTrack, removeDownload } from '@/player/downloads'
 import { setGlobalMenuOpen } from '@/lib/menu-guard'
 import {
   nextPlayTargetIndex,
@@ -29,7 +32,10 @@ import {
   type TrackMenuContext,
   type TrackMenuId,
 } from '@/lib/track-menu'
-import { appendTracks, moveInQueue, playNext, removeFromQueue, removeHistoryItem } from '@/player/controller'
+import { appendTracks, moveInQueue, playNext, removeFromQueue, removeHistoryItem,
+  shouldTranscode,
+  toQueueItem,
+} from '@/player/controller'
 import { useAppTheme } from '@/theme/theme-provider'
 
 /**
@@ -105,6 +111,8 @@ export function useTrackMenu({
   const queryClient = useQueryClient()
   const { provider, connection } = useServerSession()
   const toggleFavorite = useToggleFavorite()
+  // 下载状态跟着登记表变：下完再打开菜单就该显示「删除下载」
+  const downloaded = useIsDownloaded(connection?.id, subject.trackId)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [playlistPickerVisible, setPlaylistPickerVisible] = useState(false)
 
@@ -124,6 +132,8 @@ export function useTrackMenu({
           hasAlbum: Boolean(subject.albumId),
           hasArtist: Boolean(subject.artistId),
           canAdjustLyricOffset: canAdjust,
+          canDownload: Boolean(provider && connection && subject.track),
+          isDownloaded: downloaded,
           // 队列类条目要完整曲目：列表行有，历史行看 QueueItem.track 有没有留下来
           hasTrack: Boolean(subject.track),
         },
@@ -142,6 +152,9 @@ export function useTrackMenu({
       subject.queueIndex,
       subject.upcomingCount,
       subject.isHistory,
+      // 下载状态与连接：菜单条目按「是否已下载」二选一（第 7 轮）
+      connection,
+      downloaded,
     ],
   )
 
@@ -258,6 +271,27 @@ export function useTrackMenu({
           void toggleFavorite(subject.trackId, !subject.isFavorite)
             .then(() => toast(subject.isFavorite ? '已取消喜欢' : '已加入我喜欢'))
             .catch(() => toast('操作失败，请稍后再试'))
+          break
+
+        case 'download':
+          if (provider && connection && subject.track) {
+            const item = toQueueItem(subject.track, provider, connection.id)
+            void downloadTrack({
+              provider,
+              serverId: connection.id,
+              track: subject.track,
+              requiresTranscode: shouldTranscode(item),
+            })
+              .then(() => toast('已开始下载'))
+              .catch((error: unknown) => toast(error instanceof Error ? error.message : '下载失败'))
+          }
+          break
+
+        case 'remove-download':
+          if (connection) {
+            removeDownload(downloadKey(connection.id, subject.trackId))
+            toast('已删除下载')
+          }
           break
 
         case 'remove-from-queue':

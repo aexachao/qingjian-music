@@ -3,6 +3,7 @@ import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
+import { downloadedUri } from './downloads'
 import { contentTypeFor } from './audio-cache-policy'
 import { needsTranscode } from './format-support'
 import { GenerationToken } from './generation-token'
@@ -132,6 +133,14 @@ async function toRntpTrack(
     ...(item.albumText ? { album: item.albumText } : {}),
     duration: item.durationMs / 1000,
   }
+  // **下载优先**：用户显式下过的歌直接用本地文件，不走网络、也不进转码链路
+  // （下载时就已经按「能不能本地播」选好了内容，见 player/downloads.ts）
+  const downloaded = downloadedUri(item.serverId, item.trackId)
+  if (downloaded) {
+    const contentType = contentTypeFor(item.format)
+    return { ...base, url: downloaded, ...(contentType ? { contentType } : {}) }
+  }
+
   const quality = options.allowTranscode ? await getStreamQuality() : 'original'
   const transcode = Boolean(options.allowTranscode) && (shouldTranscode(item) || quality !== 'original')
   if (transcode) {

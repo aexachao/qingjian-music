@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { PlaySource, Track } from '@qj/core-domain'
 import { useToast } from '@/components/toast'
+import { batchDownloadMessage, summarizeBatch } from '@/lib/download-policy'
 import { isAllSelected, toggleAll, toggleSelected } from '@/lib/selection-policy'
 import { useServerSession } from '@/lib/server-session'
-import { appendTracks, playTrackList } from '@/player/controller'
+import { appendTracks, playTrackList, shouldTranscode, toQueueItem } from '@/player/controller'
+import { downloadTrack } from '@/player/downloads'
 
 /**
  * 曲目列表的「选择态」（多选）控制器。
@@ -27,6 +29,8 @@ export interface TrackSelectionController {
   clear: () => void
   playSelected: () => void
   appendSelected: () => void
+  /** 批量下载选中曲目（失败要说失败，见 lib/download-policy 的汇总口径） */
+  downloadSelected: () => void
   playlistPickerVisible: boolean
   openPlaylistPicker: () => void
   closePlaylistPicker: () => void
@@ -79,6 +83,38 @@ export function useTrackSelection({
       .catch(() => toast('加入队列失败，请稍后再试'))
   }, [clear, connection, provider, selectedTracks, toast])
 
+  /** 批量下载：逐首发起，最后用 summarizeBatch 给一句**如实**的反馈 */
+  const downloadSelected = useCallback(() => {
+    if (!provider || !connection || selectedTracks.length === 0) return
+    const serverId = connection.id
+    void (async () => {
+      const results = await Promise.all(
+        selectedTracks.map(async (track) => {
+          try {
+            const item = toQueueItem(track, provider, serverId)
+            await downloadTrack({
+              provider,
+              serverId,
+              track,
+              requiresTranscode: shouldTranscode(item),
+            })
+            return { trackId: track.id, ok: true }
+          } catch (error) {
+            return {
+              trackId: track.id,
+              ok: false,
+              reason: error instanceof Error ? error.message : '下载失败',
+            }
+          }
+        }),
+      )
+      const summary = summarizeBatch(results)
+      toast(batchDownloadMessage(summary))
+      // 有失败就留在选择态，让用户能重试；全成功才退出
+      if (summary.failed.length === 0) clear()
+    })()
+  }, [clear, connection, provider, selectedTracks, toast])
+
   return {
     ids,
     count: ids.length,
@@ -90,6 +126,7 @@ export function useTrackSelection({
     clear,
     playSelected,
     appendSelected,
+    downloadSelected,
     playlistPickerVisible,
     openPlaylistPicker: useCallback(() => setPlaylistPickerVisible(true), []),
     closePlaylistPicker: useCallback(() => setPlaylistPickerVisible(false), []),

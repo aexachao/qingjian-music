@@ -72,8 +72,8 @@ export interface SelectionActionBarProps {
   onPlay: () => void
   onAppend: () => void
   onAddToPlaylist: () => void
-  /** 下载：功能在第 6 轮，按 2026-09-15 的拍板「先摆上、不可点」，等下载做完再接 */
-  downloadEnabled?: boolean
+  /** 下载（第 7 轮接上）：批量下载选中曲目 */
+  onDownload: () => void
 }
 
 export function SelectionActionBar({
@@ -81,7 +81,7 @@ export function SelectionActionBar({
   onPlay,
   onAppend,
   onAddToPlaylist,
-  downloadEnabled = false,
+  onDownload,
 }: SelectionActionBarProps) {
   const colors = useThemeColors()
   const styles = useStyles()
@@ -93,7 +93,7 @@ export function SelectionActionBar({
   const items: { key: string; label: string; icon: IconName; enabled: boolean; onPress: () => void }[] = [
     { key: 'play', label: '播放', icon: 'play', enabled: !disabled, onPress: onPlay },
     { key: 'queue', label: '加入播放列表', icon: 'queue', enabled: !disabled, onPress: onAppend },
-    { key: 'download', label: '下载', icon: 'download', enabled: !disabled && downloadEnabled, onPress: () => {} },
+    { key: 'download', label: '下载', icon: 'download', enabled: !disabled, onPress: onDownload },
     { key: 'playlist', label: '添加到歌单', icon: 'importPlaylist', enabled: !disabled, onPress: onAddToPlaylist },
   ]
 
