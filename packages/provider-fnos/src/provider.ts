@@ -239,6 +239,10 @@ export class FnosProvider implements MusicProvider {
     return this.pagedList(FNOS_ENDPOINTS.artist.list, artistListSchema, request, mapArtist, 'artist')
   }
 
+  async artist(artistId: string): Promise<Artist> {
+    return mapArtist(await this.client.get(FNOS_ENDPOINTS.artist.detail, fnArtistSchema, { query: { guid: artistId } }))
+  }
+
   artistAlbums(artistId: string, request: PageRequest): Promise<Page<Album>> {
     return this.pagedList(FNOS_ENDPOINTS.album.artistDetailList, albumListSchema, request, mapAlbum, 'album', { artistGUID: artistId })
   }
@@ -253,6 +257,10 @@ export class FnosProvider implements MusicProvider {
 
   genres(request: PageRequest): Promise<Page<Genre>> {
     return this.pagedList(FNOS_ENDPOINTS.genre.list, genreListSchema, request, mapGenre, 'genre')
+  }
+
+  async genre(genreId: string): Promise<Genre> {
+    return mapGenre(await this.client.get(FNOS_ENDPOINTS.genre.detail, fnGenreRefSchema, { query: { guid: genreId } }))
   }
 
   genreTracks(genreId: string, request: PageRequest): Promise<Page<Track>> {

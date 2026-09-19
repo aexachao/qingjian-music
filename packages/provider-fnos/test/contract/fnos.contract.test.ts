@@ -88,10 +88,13 @@ describe.skipIf(!configured)('飞牛音乐契约测试', () => {
     expect(artists.items.length).toBeGreaterThan(0)
 
     if (sampleArtistId) {
-      const [albums, tracks] = await Promise.all([
+      const [artist, albums, tracks] = await Promise.all([
+        provider.artist(sampleArtistId),
         provider.artistAlbums(sampleArtistId, { page: 1, size: 5 }),
         provider.artistTracks(sampleArtistId, { page: 1, size: 5 }),
       ])
+      expect(artist.id).toBe(sampleArtistId)
+      expect(artist.name.length).toBeGreaterThan(0)
       expect(albums.items.length).toBeGreaterThan(0)
       expect(tracks.items.length).toBeGreaterThan(0)
     }
@@ -102,7 +105,12 @@ describe.skipIf(!configured)('飞牛音乐契约测试', () => {
     expect(genres.items.length).toBeGreaterThan(0)
     const genreId = genres.items[0]?.id
     expect(genreId).toBeTruthy()
-    const tracks = await provider.genreTracks(genreId!, { page: 1, size: 5 })
+    const [genre, tracks] = await Promise.all([
+      provider.genre(genreId!),
+      provider.genreTracks(genreId!, { page: 1, size: 5 }),
+    ])
+    expect(genre.id).toBe(genreId)
+    expect(genre.name.length).toBeGreaterThan(0)
     expect(tracks.items.length).toBeGreaterThan(0)
   })
 

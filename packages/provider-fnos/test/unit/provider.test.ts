@@ -94,6 +94,45 @@ describe('搜索', () => {
   })
 })
 
+describe('权威详情', () => {
+  it('artist 打 /artist/detail?guid= 并映射名字与计数', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        return { code: 0, msg: '', data: { guid: 'ar-1', name: '周杰伦', trackCount: 42, albumCount: 6 } }
+      }),
+    )
+
+    const artist = await provider.artist('ar-1')
+
+    expect(urls[0]).toContain('/music/api/v1/artist/detail?')
+    expect(urls[0]).toContain('guid=ar-1')
+    expect(artist.id).toBe('ar-1')
+    expect(artist.name).toBe('周杰伦')
+    expect(artist.trackCount).toBe(42)
+    expect(artist.albumCount).toBe(6)
+  })
+
+  it('genre 打 /genre/detail?guid= 并映射名字与计数', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        return { code: 0, msg: '', data: { guid: 'ge-1', name: '流行', trackCount: 1044 } }
+      }),
+    )
+
+    const genre = await provider.genre('ge-1')
+
+    expect(urls[0]).toContain('/music/api/v1/genre/detail?')
+    expect(urls[0]).toContain('guid=ge-1')
+    expect(genre.id).toBe('ge-1')
+    expect(genre.name).toBe('流行')
+    expect(genre.trackCount).toBe(1044)
+  })
+})
+
 describe('歌单计数', () => {
   it('list 里的 trackCount 是陈旧的，用 batch-detail 覆盖成真实值', async () => {
     const urls: string[] = []

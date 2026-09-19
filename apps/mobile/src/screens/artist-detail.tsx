@@ -95,10 +95,23 @@ export function ArtistDetailScreen() {
   })
 
   const localTracks = useMemo(() => topTracksQuery.data?.items ?? [], [topTracksQuery.data?.items])
-  const trackTotal = topTracksQuery.data?.total ?? allTracks.total ?? 0
+  const trackTotalRaw = topTracksQuery.data?.total ?? allTracks.total ?? 0
+
+  // 3.5 权威艺术家详情（名字 + 专辑数 / 曲目数）：
+  // 旧做法从首首曲目/专辑里反推名字，“无曲目也无专辑”的艺术家就显不出名字。
+  // 改用 /artist/detail 的权威值，接口挂了退回反推，不让整页打不开。
+  const detailQuery = useQuery({
+    queryKey: ['artist-detail', connection?.id, id],
+    enabled: Boolean(provider && id),
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => provider!.artist(id),
+  })
   const artistName =
+    detailQuery.data?.name ??
     localTracks[0]?.artists.find((artist) => artist.id === id)?.name ??
     albums.items[0]?.artists[0]?.name
+  const albumTotal = detailQuery.data?.albumCount ?? albums.total
+  const trackTotal = detailQuery.data?.trackCount ?? trackTotalRaw
 
   // 4. Last.fm 全网大数据：热门歌曲
   const lastfmTopQuery = useQuery({
@@ -279,7 +292,7 @@ export function ArtistDetailScreen() {
   // 元数据标签文本
   const metaParts = [
     formattedListeners ? `Last.fm ${formattedListeners} 听众` : undefined,
-    albums.total ? `${albums.total} 张专辑` : undefined,
+    albumTotal ? `${albumTotal} 张专辑` : undefined,
     trackTotal ? `${trackTotal} 首歌曲` : undefined,
   ].filter(Boolean)
   const metaText = metaParts.join(' · ')

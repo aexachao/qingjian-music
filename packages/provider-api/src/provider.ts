@@ -81,10 +81,14 @@ export interface MusicProvider {
   album(albumId: string): Promise<Album>
   albumTracks(albumId: string, request: PageRequest): Promise<Page<Track>>
   artists(request: PageRequest): Promise<Page<Artist>>
+  /** 艺术家权威详情（名字 + 曲目数 / 专辑数），不再从曲目/专辑里反推 */
+  artist(artistId: string): Promise<Artist>
   artistAlbums(artistId: string, request: PageRequest): Promise<Page<Album>>
   artistTracks(artistId: string, request: PageRequest): Promise<Page<Track>>
   tracks(request: PageRequest): Promise<Page<Track>>
   genres(request: PageRequest): Promise<Page<Genre>>
+  /** 流派权威详情（名字 + 曲目数） */
+  genre(genreId: string): Promise<Genre>
   genreTracks(genreId: string, request: PageRequest): Promise<Page<Track>>
   playlists(request: PageRequest): Promise<Page<Playlist>>
   playlistTracks(playlistId: string, request: PageRequest): Promise<Page<Track>>

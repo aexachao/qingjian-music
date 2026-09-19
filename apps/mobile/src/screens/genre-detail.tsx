@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Stack, useLocalSearchParams } from 'expo-router'
+import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
 import { Icon, iconSize } from '@/components/icon'
@@ -52,7 +53,16 @@ export function GenreDetailScreen() {
     fetchPage: (page) => provider!.genreTracks(id, { page, size: 100, sort }),
   })
 
-  const displayName = name || '流派'
+  // 权威流派详情（名字 + 曲目数）：接口挂了就退回路由参数与列表计数，不让整页打不开
+  const detailQuery = useQuery({
+    queryKey: ['genre-detail', connection?.id, id],
+    enabled: Boolean(provider && id),
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => provider!.genre(id),
+  })
+
+  const displayName = detailQuery.data?.name || name || '流派'
+  const trackTotal = detailQuery.data?.trackCount ?? total
 
   // 播放整张流派
   async function play(startIndex: number, shuffle = false) {
@@ -178,7 +188,7 @@ export function GenreDetailScreen() {
 
               {/* 歌曲数与总时长统计 */}
               <Text style={styles.meta}>
-                {total} 首歌曲
+                {trackTotal} 首歌曲
                 {formattedDuration ? ` · ${formattedDuration}` : ''}
               </Text>
 
