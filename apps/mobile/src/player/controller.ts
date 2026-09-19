@@ -3,7 +3,7 @@ import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks } from './audio-cache'
-import { downloadedUri } from './downloads'
+import { downloadedContentType, downloadedUri } from './downloads'
 import { contentTypeFor } from './audio-cache-policy'
 import { needsTranscode } from './format-support'
 import { GenerationToken } from './generation-token'
@@ -137,7 +137,9 @@ async function toRntpTrack(
   // （下载时就已经按「能不能本地播」选好了内容，见 player/downloads.ts）
   const downloaded = downloadedUri(item.serverId, item.trackId)
   if (downloaded) {
-    const contentType = contentTypeFor(item.format)
+    // 转码下载的产物是 fMP4，登记表里有 audio/mp4；普通直连文件按 format 兜底
+    const contentType =
+      downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)
     return { ...base, url: downloaded, ...(contentType ? { contentType } : {}) }
   }
 

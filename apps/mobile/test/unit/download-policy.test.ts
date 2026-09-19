@@ -121,6 +121,27 @@ describe('下载接线（源码断言，防止被顺手改断）', () => {
     expect(downloads).toContain("const DOWNLOAD_DIR = 'downloads'")
     expect(downloads).toContain('assertNamespacesDisjoint(CACHE_DIR, DOWNLOAD_DIR)')
   })
+
+  it('需转码的曲目走 HLS 拼接而不是直接报错', async () => {
+    const { readSource } = await import('../support/source')
+    const downloads = readSource('player/downloads.ts')
+    // requiresTranscode 不再直接 throw，而是走专门的转码下载函数
+    expect(downloads).toContain('await downloadTranscodeTrack(')
+    // 转码下载必须开心跳保活（断了分片会 410）
+    expect(downloads).toContain('session.heartbeat(')
+    expect(downloads).toContain('session.heartbeatIntervalMs')
+    // 产物要校验 moof/mdat 配平，不能拼出个坏文件就登记
+    expect(downloads).toContain('validateTranscodeProduct(')
+    // 无论成败都关会话，不在服务端堆转码进程
+    expect(downloads).toContain('session.close()')
+  })
+
+  it('转码产物播放用登记的 contentType（fMP4 不能按原格式查）', async () => {
+    const { readSource } = await import('../support/source')
+    const controller = readSource('player/controller.ts')
+    // 下载优先分支里，转码产物的 contentType 优先于按 format 兜底
+    expect(controller).toContain('downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)')
+  })
 })
 
 describe('批量下载的结果汇总：失败要说失败', () => {

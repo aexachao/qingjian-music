@@ -5,8 +5,12 @@ import {
   assertNamespacesDisjoint,
   downloadFileName,
   downloadKey,
+  downloadTranscodeFileName,
   type DownloadState,
 } from '@/lib/download-policy'
+import { parseHlsPlaylist } from './hls-playlist'
+import { validatePlaylistAgainstSource, validateTranscodeProduct } from './audio-cache-policy'
+import { countBoxes } from './mp4-boxes'
 /**
  * 原生模块**动态**载入。
  *
@@ -44,9 +48,12 @@ function nativeModule(): Promise<AudioDownloaderModule | null> {
  * ── 两条下载路径 ────────────────────────────────────────────────────────────
  * 1. **直连原文件**（绝大多数曲目）：一个 HTTP GET → 交给 iOS 后台会话，App 挂起/被杀都继续。
  *    Android 目前没有原生实现（`hasNativeDownloader()` 为 false），回退到前台下载。
- * 2. **需要转码的曲目**：产物是 HLS 分片，见 `docs/执行计划-2026-09-15.md` 第 7 轮 ——
- *    服务端转码会话要 10 秒心跳，App 被挂起时没人心跳，所以这条路径**下一步单独做**。
- *    现在遇到这类曲目会明确失败（`reason` 里写清楚），不静默吞掉。
+ * 2. **需要转码的曲目**（设备原生解不了的格式，如 TTA/DSD/APE）：产物是 HLS 分片，
+ *    走 `downloadTranscodeTrack`：起转码会话 + 心跳保活 → 取 init + 分片 → 按序拼成 fMP4。
+ *    ⭐ **关键约束**：转码会话要 10 秒心跳，而心跳只能在 JS 里发。App 一被挂起，
+ *    JS 就冻住 → 无心跳 → 约 1 分钟后分片 410。所以转码下载走 **JS 前台/后台播音态**：
+ *    App 在前台、或在后台但正在播音（`UIBackgroundModes: audio`）时能下；彻底挂起则暂停，
+ *    回到 App 可重试。原生后台会话对转码帮不上忙（它照样不能发心跳），所以不用它。
  */
 
 const DOWNLOAD_DIR = 'downloads'
@@ -66,6 +73,14 @@ export interface DownloadEntry {
   downloadedAt: number
   /** 下载时的格式（播放时决定 contentType） */
   format?: string
+  /**
+   * 转码产物的播放 content-type。
+   *
+   * 转码曲目下载下来的是 fMP4（后缀 mp4），但 `format` 仍记原始格式（如 `dsf`）——
+   * 那样 `contentTypeFor(format)` 会返回 undefined，RNTP 会拒播。所以转码产物
+   * 显式记 `audio/mp4`，播放时优先用它（见 controller 的 `downloadedContentType`）。
+   */
+  contentType?: string
   /**
    * 完整领域曲目。
    *
@@ -193,16 +208,34 @@ export function downloadedUri(serverId: string, trackId: string): string | undef
   return undefined
 }
 
-/** 下载一首（目前只支持直连原文件路径；转码路径见文件头注释） */
+/**
+ * 已下载文件的播放 content-type。
+ * 转码产物磁盘上是 fMP4，登记表里记了 `contentType: audio/mp4` —— 播放必须用它，
+ * 否则按原始格式（如 `dsf`）查 contentType 会得到 undefined，RNTP 会拒播。
+ * 普通直连文件没记 contentType，返回 undefined，交给调用方按 format 兜底。
+ */
+export function downloadedContentType(serverId: string, trackId: string): string | undefined {
+  return entryFor(serverId, trackId)?.contentType
+}
+
+/** 下载一首（直连原文件走后台会话；需转码的曲目走 HLS 拼接，见 `downloadTranscodeTrack`） */
 export async function downloadTrack(options: {
   provider: MusicProvider
   serverId: string
   track: Track
-  /** 需要转码的曲目（设备原生解不了）走另一条路，交给调用方提示 */
+  /** 需要转码的曲目（设备原生解不了）走 HLS 拼接路径 */
   requiresTranscode: boolean
 }): Promise<void> {
   const { provider, serverId, track, requiresTranscode } = options
   const key = downloadKey(serverId, track.id)
+
+  if (isDownloaded(serverId, track.id)) return
+
+  if (requiresTranscode) {
+    await downloadTranscodeTrack({ provider, serverId, track })
+    return
+  }
+
   const fileName = downloadFileName(serverId, track.id, track.audio?.format)
   const entry: DownloadEntry = {
     key,
@@ -218,14 +251,6 @@ export async function downloadTrack(options: {
     downloadedAt: Date.now(),
     track,
     ...(track.audio?.format ? { format: track.audio.format } : {}),
-  }
-
-  if (isDownloaded(serverId, track.id)) return
-
-  if (requiresTranscode) {
-    jobs.set(key, { key, state: 'failed', completed: 0, total: 0, error: '需要服务端转码，暂不支持下载' })
-    emit()
-    throw new Error('这首歌需要服务端转码，暂时还不能下载')
   }
 
   const stream = await provider.stream(track.id, { quality: 'original', allowTranscode: false })
@@ -261,6 +286,207 @@ export async function downloadTrack(options: {
     fail(key, error instanceof Error ? error.message : '下载失败')
     throw error
   }
+}
+
+/**
+ * 下载「需要转码」的曲目（设备原生解不了的格式：TTA/DSD/APE 等）。
+ *
+ * ── 为什么和直连不是一条路 ──────────────────────────────────────────────────
+ * 飞牛的转码产物不是一个静态文件，而是一条 **HLS 播放列表**（init.mp4 + N 个分片），
+ * 且转码任务靠 **10 秒心跳保活**（断约 1 分钟分片就 410）。心跳只能在 JS 里发 ——
+ * App 一被系统挂起 JS 就冻结，所以这条路**只能在 App 进程活着时跑**
+ * （前台，或后台正在播音频）。产物按序字节拼接就是合法 fMP4，能当本地文件直接播。
+ *
+ * ── 流程 ────────────────────────────────────────────────────────────────────
+ * 1. 起转码会话（`provider.stream(allowTranscode:true)`）→ 拿 m3u8 地址 + session。
+ * 2. 开心跳定时器保活（下载全程不断）。
+ * 3. 取播放列表并解析 → 预校验时长 → 逐个取 init + 分片，边取边追加写入 `.part`。
+ * 4. 校验 moof/mdat 配平 → 改名成成品 → 登记（`contentType: audio/mp4`）。
+ * 5. 无论成败都关掉会话（别在服务端堆转码进程）。
+ */
+async function downloadTranscodeTrack(options: {
+  provider: MusicProvider
+  serverId: string
+  track: Track
+}): Promise<void> {
+  const { provider, serverId, track } = options
+  const key = downloadKey(serverId, track.id)
+  const fileName = downloadTranscodeFileName(serverId, track.id)
+  const entry: DownloadEntry = {
+    key,
+    serverId,
+    trackId: track.id,
+    title: track.title,
+    artistText: track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家',
+    ...(track.coverId ?? track.album?.coverId
+      ? { coverId: (track.coverId ?? track.album?.coverId) as string }
+      : {}),
+    fileName,
+    bytes: 0,
+    downloadedAt: Date.now(),
+    track,
+    // 磁盘上是 fMP4；记原始格式给 UI，但播放走 contentType
+    ...(track.audio?.format ? { format: track.audio.format } : {}),
+    contentType: 'audio/mp4',
+  }
+
+  jobs.set(key, { key, state: 'downloading', completed: 0, total: 1 })
+  emit()
+
+  const stream = await provider.stream(track.id, { quality: 'original', allowTranscode: true })
+  if (stream.transport !== 'hls' || !stream.session) {
+    // 说不上是转码：把会话收掉，退回失败（理论上不该走到这，防御性处理）
+    await stream.session?.close().catch(() => undefined)
+    fail(key, '服务端没有返回转码会话')
+    throw new Error('这首歌无法转码下载')
+  }
+
+  const session = stream.session
+  const headers = stream.headers ?? {}
+  const sourceDurationSeconds = track.durationMs / 1000
+
+  // 心跳保活：转码期间必须持续发（timestamp 是播放位置秒、必须严格递增，
+  // 没有真实播放位置就拿「已耗时」当递增序列，对齐 spike 的做法）
+  const startedAt = Date.now()
+  let lastSeconds = -1
+  let heartbeatFailed = false
+  const heartbeatTimer = setInterval(() => {
+    const seconds = (Date.now() - startedAt) / 1000
+    const timestamp = seconds > lastSeconds ? seconds : lastSeconds + 0.001
+    lastSeconds = timestamp
+    void session.heartbeat(timestamp * 1000).catch(() => {
+      // 心跳失败大多是瞬时抖动；只有分片真的 410 才会让下载失败，这里只记一下
+      heartbeatFailed = true
+    })
+  }, session.heartbeatIntervalMs)
+
+  const destination = new File(downloadsDir(), fileName)
+  const part = new File(downloadsDir(), `${fileName}.part`)
+
+  try {
+    const playlistText = await fetchTranscodeText(stream.url, headers)
+    const playlist = parseHlsPlaylist(playlistText, stream.url)
+    if (!playlist.isComplete) {
+      throw new Error('转码播放列表不完整（无 ENDLIST），放弃下载')
+    }
+    const precheck = validatePlaylistAgainstSource(playlist.durationSeconds, sourceDurationSeconds)
+    if (!precheck.ok) {
+      throw new Error(`转码下载预校验失败：${precheck.reason}`)
+    }
+
+    if (part.exists) part.delete()
+    part.create({ intermediates: true, overwrite: true })
+
+    let moofCount = 0
+    let mdatCount = 0
+    let nonEmptySegments = 0
+    let writtenBytes = 0
+    const totalUnits = playlist.segmentUris.length + (playlist.initUri ? 1 : 0)
+    let done = 0
+
+    const bump = (): void => {
+      done += 1
+      jobs.set(key, { key, state: 'downloading', completed: done, total: totalUnits })
+      emit()
+    }
+
+    if (playlist.initUri) {
+      part.write(await fetchTranscodeBytes(playlist.initUri, headers, 'init'), { append: true })
+      bump()
+    }
+
+    for (const [index, uri] of playlist.segmentUris.entries()) {
+      const bytes = await fetchTranscodeBytes(
+        uri,
+        headers,
+        `分片 ${index + 1}/${playlist.segmentUris.length}`,
+      )
+      part.write(bytes, { append: true })
+      writtenBytes += bytes.byteLength
+      const moof = countBoxes(bytes, 'moof')
+      moofCount += moof
+      mdatCount += countBoxes(bytes, 'mdat')
+      if (moof > 0) nonEmptySegments += 1
+      bump()
+    }
+
+    const validation = validateTranscodeProduct({
+      moofCount,
+      mdatCount,
+      nonEmptySegmentCount: nonEmptySegments,
+      sourceDurationSeconds,
+    })
+    if (!validation.ok) {
+      throw new Error(`转码产物校验失败：${validation.reason}`)
+    }
+
+    if (destination.exists) destination.delete()
+    await part.move(destination)
+    const finalBytes = destination.size ?? writtenBytes
+    loadIndex().entries[key] = { ...entry, bytes: finalBytes, downloadedAt: Date.now() }
+    persistIndex()
+    jobs.delete(key)
+    emit()
+  } catch (error) {
+    try {
+      if (part.exists) part.delete()
+    } catch {
+      // 忽略半成品清理失败
+    }
+    const reason = heartbeatFailed
+      ? '转码会话已失效（可能切到后台过久），请回到 App 重试'
+      : error instanceof Error
+        ? error.message
+        : '转码下载失败'
+    fail(key, reason)
+    throw new Error(reason)
+  } finally {
+    clearInterval(heartbeatTimer)
+    await session.close().catch(() => undefined)
+  }
+}
+
+/** 取转码播放列表文本（自带超时，不依赖 AbortSignal.timeout） */
+async function fetchTranscodeText(url: string, headers: Record<string, string>): Promise<string> {
+  const response = await fetchWithTimeout(url, headers)
+  if (!response.ok) throw new Error(`播放列表 HTTP ${response.status}`)
+  return response.text()
+}
+
+/**
+ * 取一个分片的字节。
+ * **404 要重试**：转码任务刚建时分片可能还没生成（越重的源越容易踩到）。
+ * **410 不重试**：任务已被回收（心跳断太久），继续重试没有意义。
+ */
+async function fetchTranscodeBytes(
+  url: string,
+  headers: Record<string, string>,
+  label: string,
+): Promise<Uint8Array> {
+  const attempts = 6
+  let lastStatus = 0
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await fetchWithTimeout(url, headers)
+    if (response.ok) return new Uint8Array(await response.arrayBuffer())
+    lastStatus = response.status
+    if (response.status !== 404) break
+    if (attempt < attempts) await delay(1000 * attempt)
+  }
+  throw new Error(`${label} HTTP ${lastStatus}`)
+}
+
+async function fetchWithTimeout(url: string, headers: Record<string, string>): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try {
+    return await fetch(url, { headers, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /** 删除单条下载（连带删文件；删不掉也把登记项清掉，避免显示假状态） */
