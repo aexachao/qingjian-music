@@ -2,7 +2,7 @@
 
 Base: {origin}/music/api/v1 ; envelope {code,msg,data}, code 0 = ok
 errors: 99999 INVALID TOKEN(401) / 100001 unknown error(payload shape) / 100002 invalid arguments / 100003 forbidden, admin only / 100005 resource not found
-server: serverVersion 1.0.0, mediasrvVersion 0.8.41
+server: serverVersion 1.0.0（2026-09-17 实测已升到 **1.0.1**）, mediasrvVersion 0.8.41
 
 ## auth
 POST /user/password-login {username, password: sha256hex(plain), deviceId} -> {userToken, user{guid,name,role,...}}
@@ -10,6 +10,131 @@ token NOT in Set-Cookie. transports that work: "authorization: <token>" (raw) | 
 NOT working: Authorization Bearer, x-music-token, ?token=
 NAS OAuth: /sys/config -> nasOAuth.clientId ; POST /user/auth-login {code, deviceId}
 password change uses sha256(new). Account ban exists (/user/unbanned, admin only).
+
+### 请求签名头 `authx`：算法全貌（**2026-09-17 录自第三方桥接项目，本机未实测**）
+
+来源：开源项目 [`qianlipp/fn-music-bridge`](https://github.com/qianlipp/fn-music-bridge)
+（Go，装在 NAS 上把飞牛音乐桥成 OpenSubsonic / Jellyfin / Ampache）。
+它的 `api/internal/api/signer.go` 是对**官方 web 客户端签名器**的复刻，常量也是从 web 客户端里取的。
+
+```
+authx: nonce=<6 位随机数字>&timestamp=<毫秒>&sign=<md5>
+
+sign = md5( signingPrefix + "_" + pathname + "_" + nonce + "_" + timestamp
+          + "_" + payloadHash + "_" + key )
+      pathname = "/music/api/v1" + 上游路径（含 API base，例如 /music/api/v1/track/list）
+```
+
+`payloadHash = md5(payload)`，payload 按请求类型取：
+
+| 请求类型 | payload |
+| --- | --- |
+| GET | **canonical query**（key 排序、空格用 `%20` 而非 `+`）**再 URL 解码**后的字符串 |
+| POST（JSON） | 原始 body 字节 |
+| POST（multipart/form-data） | **字面量 `{}`** —— 因为官方浏览器端 `JSON.stringify(FormData)` 就是 `{}` |
+
+默认常量（第三方项目里的默认值，可用环境变量覆盖，取自 web 客户端）：
+
+```
+signingPrefix = NDzZTVxnRKP8Z0jXg1VAMonaG8akvh
+key           = 6D5602D4-A342-4799-A0F0-BB795E7167D0
+```
+
+自校验样例（用上面的常量，`nonce=123456`、`timestamp=1758000000000`）：
+
+| 请求 | payloadHash | authx |
+| --- | --- | --- |
+| `GET /music/api/v1/user/me` | `d41d8cd98f00b204e9800998ecf8427e` | `nonce=123456&timestamp=1758000000000&sign=5290c9ca9324c854dab35e5d64b86d31` |
+| `GET /music/api/v1/track/list?size=50&page=1`（query 故意乱序） | `6da002d7fdcb7a848138cca7cb81d927` | `nonce=123456&timestamp=1758000000000&sign=c994c5d15d819c6555f478cd9ab1bef3` |
+| `GET /music/api/v1/search/track?q=%E5%91%A8%E6%9D%B0%E4%BC%A6` | `12fda3480ba50e1f320ed5a1f491d69b` | `nonce=123456&timestamp=1758000000000&sign=2b2efd8b054d302eea23ff53a69553b2` |
+
+**我们客户端今天的做法**：音乐 API 的请求**不发 `authx`，也不发 `X-Music-API`**，
+只用 `authorization: <token>`。
+
+**已实测（2026-09-17，真实 NAS，只读）**：`GET /user/me` 三种情况**都返回 `code=0`** ——
+
+| 请求 | 结果 |
+| --- | --- |
+| 不带 `authx` | `200 code=0` |
+| 带**正确**签名的 `authx` | `200 code=0` |
+| 带**故意写错**签名的 `authx`（`sign=ffff…`） | `200 code=0`（**照样通过**） |
+
+结论：**音乐 API 今天完全不校验 `authx`**（`fn/con` 那个云端端点会校验，报
+`{"code":5000,"msg":"invalid sign"}` —— 见下面 FN ID 一节，所以校验是**按端点**开关的）。
+我们不带签名是安全的；留这份算法只为「万一飞牛在音乐 API 上也收紧」时不必重新逆向。
+⚠️ 风险形态：这类收紧是**开关式**的，一开就是全量 401，不会渐进 —— 所以升级 NAS 后要跑一次冒烟。
+
+### 我们没用过、但实测可用的端点（2026-09-17，只读）
+
+| 端点 | 返回 | 用途 / 注意 |
+| --- | --- | --- |
+| `GET /artist/detail?guid=` | `{guid,name,coverId,createdAt,updatedAt,trackCount,albumCount}` | 艺术家权威名字与计数（**没有简介/相似艺术家** —— 那要外部数据） |
+| `GET /genre/detail?guid=` | `{guid,name,coverId,createdAt,updatedAt,trackCount}` | 流派详情（无 albumCount） |
+| `GET /artist/list-all` | `{list,total}`，**忽略 page/size**；实测 5510 条 / 825 KB | 一次性全量艺术家（本地索引 / 离线搜索）；体积要有数 |
+| `GET /shared-library/list` | `{list:[{guid,name,path,autoDownloadLyric,metadataPreference,contentLastChangedAt,accessStatus}]}` | 音乐库列表；`name` 可能是空串。实测 2 个库 |
+| `GET /task/list` | `{list}`（实测当前 **0 个任务**） | 后台任务；**扫描任务的字段形态仍未测到**（要看必须触发一次扫描 = 写操作） |
+| `GET /favorite-track/purge-track-count` | `{total}`（**无参数**） | 「失效收藏」条数 |
+| `GET /playlist/purge-track-count?guid=<歌单 guid>` | `{total}` | 参数名就是 **`guid`**（`playlistGUID`/`playlistGuid` 都是 `100002 invalid arguments`） |
+| `GET /play-history/list` | `{list,total}`（**没有 `sort` 字段**，与 track 列表不同） | 播放历史 |
+
+### 权限：admin vs 普通用户（2026-09-17 双账号实测）
+
+用 `admin` 与 `member` 两个真实账号各跑一遍同一批 GET（`code=100003 forbidden, admin only` = 拒绝）：
+
+| 端点 | admin | member |
+| --- | --- | --- |
+| `/settings/server`、`/settings/user` | ✅ | ❌ 100003 |
+| `/app-center/authed-dir/list` | ✅ | ❌ 100003 |
+| `/user/list` | ✅ | ❌ 100003 |
+| **`POST /shared-library/scan`** | ✅ | ❌ 100003 |
+| `/shared-library/list` | ✅ | ✅ |
+| `/task/list` | ✅ | ✅ |
+| `/artist/detail`、`/genre/detail`、`/artist/list-all` | ✅ | ✅ |
+| `/favorite-track/purge-track-count` | ✅ | ✅ |
+| `/track/list`、`/play-history/list`、`/playlist/list` | ✅ | ✅ |
+
+**数据可见范围**：`/track/list` 两个账号返回**同一批**（曲库是共享的）；而
+`/play-history/list`、`/playlist/list` 是**按账号过滤**的（同一时刻两边内容完全不同，member 侧歌单为 0）。
+→ 客户端的「我的歌单 / 播放历史」天然每账号独立，不需要额外处理。
+
+**对客户端的含义**：
+- 「触发曲库扫描」**只能给 admin 显示**（普通用户会 100003），要靠 `role === 'admin'` 判断 ——
+  我们的 `SessionUser.isAdmin` 已经映射了 `/user/me` 的 `role`，直接用即可。
+- 「查看扫描进度」（`/task/list`）**普通用户也能看**，可以给所有账号显示。
+
+`GET /sys/config` 实测返回 `serverVersion 1.0.1` / `mediasrvVersion 0.8.41` + `nasOAuth.clientId`。
+
+### 曲库扫描与任务（2026-09-17 实测，触发过一次真实扫描）
+
+`POST /shared-library/scan` body `{"guid": "<sharedLibrary 的 guid>"}` → `code=0`（**admin only**）。
+`/shared-library/scan-all` 同为写操作，未单独实测。
+
+任务形态（`GET /task/list`，member 也能读）：
+
+```json
+{
+  "id": "faeffca3-9903-466d-8570-7eadae0a34b6", "type": "fileScan", "name": "音乐",
+  "total": 34338, "successCount": 34336, "failCount": 2,
+  "done": false, "retryable": true, "canceled": false, "cancelling": false, "canceledCount": 0,
+  "createdAt": 1789646069, "ext": { "libraryGUID": "a929e8d304784f47bb51a2a14ec17688" }
+}
+```
+
+**做进度 UI 时的三个要点（实测踩出来的）**：
+1. **没有百分比字段**，而且 `total` 是**边扫边长**的：0 → 69 → 281 → 512 → 3 495 → … → 34 338
+   → **分母一直在变，算不出百分比**。只能显示「已扫描 N 个文件」这类计数，或用不定量进度。
+2. **速度参考**：本机约 **80~100 文件/秒**；41k 首的库（还含封面/歌词文件）跑了 8 分钟仍未结束
+   （最后观测 34 338 个文件）。所以「扫描中」是个会持续十分钟量级的状态。
+3. `failCount` 有 1~2 是**正常**的（个别文件扫描失败），别当异常弹错。
+   任务**完成后仍留在 `/task/list` 里**（实测 100 秒后列表仍有它）。
+4. 扫描**完成态**（`done: true`）本次没亲眼观测到 —— 扫描在观测窗口内没跑完；字段语义明确，
+   但「完成后多久从列表消失 / `contentLastChangedAt` 何时更新」**待补测**。
+
+### 网关与内部服务名
+
+- NAS 内部的音乐服务叫 **`trim.music`**，走 unix socket `/var/run/trim_music.socket`（只有 NAS 本机进程能直连）。
+- 本机 web 网关端口：`5666`（http）/ `5667`（https）/ `8000` / `8001` —— 我们用的 `:5666` 就是第一个。
+- 第三方桥接项目还会带一个 **`X-Music-API: v1`** 头（只给音乐 API，不给别的服务）；我们不带也能通。
 
 ### FN ID 中继：每个请求都必须带 `Cookie: mode=relay`（2026-09-15 实测）
 
