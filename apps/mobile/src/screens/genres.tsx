@@ -3,7 +3,8 @@ import { Link } from 'expo-router'
 import type { Genre } from '@qj/core-domain'
 import { GenreCard } from '@/components/genre-card'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { GenreGridSkeleton } from '@/components/skeleton'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -29,7 +30,7 @@ export function GenresScreen() {
     fetchPage: (page) => provider!.genres({ page, size: 50, sort }),
   })
 
-  if (query.isPending) return <LoadingState />
+  if (query.isPending) return <GenreGridSkeleton columns={columns} itemWidth={cardWidth} />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (

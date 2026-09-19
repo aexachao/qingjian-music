@@ -5,7 +5,8 @@ import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
-import { ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { ErrorState, PaginationFooter } from '@/components/list-states'
+import { TrackListSkeleton } from '@/components/skeleton'
 import { usePrompt } from '@/components/prompt-modal'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -57,7 +58,7 @@ export function PlaylistsScreen() {
     })
   }
 
-  if (query.isPending) return <LoadingState />
+  if (query.isPending) return <TrackListSkeleton />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (

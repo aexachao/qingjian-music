@@ -1,7 +1,8 @@
 import { FlatList, View } from 'react-native'
 import type { Album, Artist, Playlist } from '@qj/core-domain'
 import { AlbumRow, ArtistRow, PlaylistRow } from '@/components/entity-row'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { TrackListSkeleton } from '@/components/skeleton'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { usePagedQuery } from '@/lib/paged-query'
 import { searchTabLabel, searchTabs, type SearchTabKey } from '@/lib/search-tabs'
@@ -57,7 +58,7 @@ export function SearchResultList({ type, keyword }: { type: SearchTabKey; keywor
   }
 
   const list = type === 'albums' ? albums : type === 'artists' ? artists : playlists
-  if (list.query.isPending) return <LoadingState />
+  if (list.query.isPending) return <TrackListSkeleton />
   if (list.query.isLoadingError) {
     return <ErrorState error={list.query.error} onRetry={() => void list.query.refetch()} />
   }

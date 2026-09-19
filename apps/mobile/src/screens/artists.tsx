@@ -3,7 +3,8 @@ import { Link } from 'expo-router'
 import type { Artist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { AvatarListSkeleton } from '@/components/skeleton'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -24,7 +25,7 @@ export function ArtistsScreen() {
     fetchPage: (page) => provider!.artists({ page, size: 50, sort }),
   })
 
-  if (query.isPending) return <LoadingState />
+  if (query.isPending) return <AvatarListSkeleton />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (

@@ -3,7 +3,8 @@ import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 import type { QueryKey } from '@tanstack/react-query'
 import type { Page, PlaySource, SortSpec, Track } from '@qj/core-domain'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { TrackListSkeleton } from '@/components/skeleton'
 import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -58,7 +59,7 @@ export function TrackListScreen({
 
   const isMenuOpen = useIsMenuOpen()
 
-  if (query.isPending) return <LoadingState />
+  if (query.isPending) return <TrackListSkeleton />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (

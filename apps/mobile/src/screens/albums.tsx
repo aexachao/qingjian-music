@@ -3,7 +3,8 @@ import { Link } from 'expo-router'
 import type { Album } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { CardGridSkeleton } from '@/components/skeleton'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { usePagedQuery } from '@/lib/paged-query'
@@ -31,7 +32,7 @@ export function AlbumsScreen() {
     fetchPage: (page) => provider!.albums({ page, size: PAGE_SIZE, sort }),
   })
 
-  if (query.isPending) return <LoadingState />
+  if (query.isPending) return <CardGridSkeleton columns={columns} itemSize={itemWidth} />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (

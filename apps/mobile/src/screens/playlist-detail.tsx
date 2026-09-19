@@ -11,7 +11,8 @@ import { usePrompt } from '@/components/prompt-modal'
 import { useToast } from '@/components/toast'
 import { StackBackButton } from '@/components/stack-back-button'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { TrackListSkeleton } from '@/components/skeleton'
 import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -202,7 +203,7 @@ export function PlaylistDetailScreen() {
 
   const isMenuOpen = useIsMenuOpen()
 
-  if (query.isPending && items.length === 0) return <LoadingState />
+  if (query.isPending && items.length === 0) return <TrackListSkeleton />
   if (query.isLoadingError && items.length === 0) {
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   }

@@ -6,7 +6,8 @@ import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
-import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
+import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
+import { TrackListSkeleton } from '@/components/skeleton'
 import { StackBackButton } from '@/components/stack-back-button'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { TrackRow } from '@/components/track-row'
@@ -108,7 +109,7 @@ export function FavoritesScreen() {
     return <EmptyState text="当前服务器不支持收藏" />
   }
 
-  if (query.isPending && items.length === 0) return <LoadingState />
+  if (query.isPending && items.length === 0) return <TrackListSkeleton />
   if (query.isLoadingError && items.length === 0) {
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   }
