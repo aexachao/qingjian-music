@@ -5,15 +5,15 @@ import { NativeModule, requireOptionalNativeModule } from 'expo'
  * 后台分片下载模块的 JS 出口。
  *
  * ── 它解决什么 ──────────────────────────────────────────────────────────────
- * 「需要转码」的曲目，产物是一条 HLS 播放列表（`init.mp4` + N 个分片），要按序取回再拼成一个文件。
- * 在 JS 里做（`player/transcode-cache.ts`）一进后台就被冻结 —— 所以把「取分片 + 拼装」
- * 交给原生，用 iOS 的后台 URLSession：任务交给系统，App 挂起甚至被杀后仍然下完。
+ * 把「一串 URL 按序下成一个文件」交给系统后台下载，App 挂起/被杀都继续。
  *
  * ── 平台差异（重要，别假装一致）────────────────────────────────────────────
- * · iOS：有原生实现 → **真后台**（`hasNativeDownloader()` 为 true）。
- * · Android：**还没有原生实现**（Kotlin 侧写不了本机验证，风险大于收益），
- *   `hasNativeDownloader()` 为 false，调用方回退到 JS 分片下载 —— 那样一进后台就停。
- *   这是已知缺口，记在 `docs/执行计划-2026-09-15.md` 第 7 轮。
+ * · iOS：后台 URLSession —— 能把「多分片按序拼成一个文件」交给系统，App 挂起/被杀都续。
+ * · Android：用系统 **DownloadManager** —— 同样真后台（切后台/锁屏/被杀都续），
+ *   但它一个任务只下一个 URL，拼不了多分片：所以**只接直连原文件**（单 URL），
+ *   多分片的转码任务 `startJob` 返回 false，让 JS 走前台拼接（转码本来就要 10 秒心跳、
+ *   只能在 App 活着时下，见 `player/downloads.ts`）。
+ * · 两端 `hasNativeDownloader()` 都为 true（只要原生模块在）。
  */
 
 export interface AudioDownloadJob {
@@ -73,9 +73,9 @@ declare class AudioDownloaderNativeModule extends NativeModule<AudioDownloaderEv
 
 const native = requireOptionalNativeModule<AudioDownloaderNativeModule>('AudioDownloader')
 
-/** 这台设备上有没有原生后台下载能力（只有 iOS 有） */
+/** 这台设备上有没有原生后台下载能力（iOS 后台会话 / Android DownloadManager） */
 export function hasNativeDownloader(): boolean {
-  return Platform.OS === 'ios' && native != null
+  return (Platform.OS === 'ios' || Platform.OS === 'android') && native != null
 }
 
 /** 启动一个作业；没有原生实现时返回 false，调用方走 JS 回退 */

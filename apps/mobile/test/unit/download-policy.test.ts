@@ -142,6 +142,23 @@ describe('下载接线（源码断言，防止被顺手改断）', () => {
     // 下载优先分支里，转码产物的 contentType 优先于按 format 兜底
     expect(controller).toContain('downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)')
   })
+
+  it('Android 原生下载已接上（不再只回退 JS）', async () => {
+    const { readPackageFile } = await import('../support/source')
+    // 模块声明了 android 平台与 Kotlin 模块类
+    const config = readPackageFile('modules/audio-downloader/expo-module.config.json')
+    expect(config).toContain('"android"')
+    expect(config).toContain('expo.modules.audiodownloader.AudioDownloaderModule')
+    // JS 侧 hasNativeDownloader 不再把 Android 排除
+    const index = readPackageFile('modules/audio-downloader/index.ts')
+    expect(index).toContain("Platform.OS === 'ios' || Platform.OS === 'android'")
+    // Kotlin 侧：用 DownloadManager、多 URL（转码）返回 false 让 JS 回退
+    const session = readPackageFile(
+      'modules/audio-downloader/android/src/main/java/expo/modules/audiodownloader/AudioDownloaderSession.kt',
+    )
+    expect(session).toContain('DownloadManager')
+    expect(session).toContain('if (job.urls.size != 1) return false')
+  })
 })
 
 describe('批量下载的结果汇总：失败要说失败', () => {

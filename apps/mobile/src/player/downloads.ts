@@ -47,7 +47,7 @@ function nativeModule(): Promise<AudioDownloaderModule | null> {
  *
  * ── 两条下载路径 ────────────────────────────────────────────────────────────
  * 1. **直连原文件**（绝大多数曲目）：一个 HTTP GET → 交给 iOS 后台会话，App 挂起/被杀都继续。
- *    Android 目前没有原生实现（`hasNativeDownloader()` 为 false），回退到前台下载。
+ *    Android 用系统 DownloadManager（同样真后台）；原生模块不在时回退到前台下载。
  * 2. **需要转码的曲目**（设备原生解不了的格式，如 TTA/DSD/APE）：产物是 HLS 分片，
  *    走 `downloadTranscodeTrack`：起转码会话 + 心跳保活 → 取 init + 分片 → 按序拼成 fMP4。
  *    ⭐ **关键约束**：转码会话要 10 秒心跳，而心跳只能在 JS 里发。App 一被挂起，
