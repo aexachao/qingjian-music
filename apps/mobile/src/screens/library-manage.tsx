@@ -1,55 +1,51 @@
 import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, Text, View } from 'react-native'
 import { Stack } from 'expo-router'
-import { useQuery } from '@tanstack/react-query'
+import { ActionSheet, type ActionSheetItem } from '@/components/action-sheet'
 import { useConfirm } from '@/components/confirm-modal'
 import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, LoadingState } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
-import { useServerSession } from '@/lib/server-session'
-import {
-  findScanTask,
-  hasActiveScan,
-  libraryDisplayName,
-  scanProgressView,
-} from '@/lib/scan-progress-policy'
+import { hasActiveScan, libraryDisplayName, libraryUpdatedLabel } from '@/lib/scan-progress-policy'
+import { useScanMonitor } from '@/lib/use-scan-monitor'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
 
-/** 轮询间隔：只在有扫描任务在跑时用（见下方 refetchInterval） */
-const POLL_MS = 2500
-
 /**
- * 曲库管理（仅 admin 可见，入口在设置页按 isAdmin gate）。
- * 列出音乐库 + 触发扫描 + 显示扫描进度。取消/重试/删除任务本轮不做。
+ * 曲库管理（仅 admin，入口在设置页按 isAdmin gate）。
+ *
+ * 对齐飞牛的形态：
+ * - 导航栏右侧「···」→ 扫描所有音乐库（不放「+ 新增库」，我们不做库管理）。
+ * - 每张卡片：文件夹图标 + 库名 + 最近更新时间；右侧「···」→ 扫描本库
+ *   （目前菜单只有这一条，编辑/删除不做，保留 ··· 形态便于将来扩展）。
+ *
+ * 扫描进度不在这个页显示 —— 触发后到首页右上角「正在扫描」图标看（见 ScanMonitorButton）。
  */
 export function LibraryManageScreen() {
   const styles = useStyles()
   const colors = useThemeColors()
-  const { provider, connection } = useServerSession()
   const confirm = useConfirm()
   const toast = useToast()
   const bottom = useBottomSpace()
-  const [scanning, setScanning] = useState<string | null>(null)
+  const { provider, me, isAdmin, libraries, tasks } = useScanMonitor()
 
-  const libraries = useQuery({
-    queryKey: ['music-libraries', connection?.id],
-    enabled: Boolean(provider?.musicLibraries),
-    queryFn: () => provider!.musicLibraries!(),
-  })
+  // 卡片 ··· 菜单：记住点的是哪个库（null = 关闭）
+  const [cardMenuLib, setCardMenuLib] = useState<{ id: string; name: string } | null>(null)
+  // 导航栏 ··· 菜单开关
+  const [navMenuOpen, setNavMenuOpen] = useState(false)
 
-  const tasks = useQuery({
-    queryKey: ['background-tasks', connection?.id],
-    enabled: Boolean(provider?.backgroundTasks),
-    queryFn: () => provider!.backgroundTasks!(),
-    // 有扫描在跑才轮询；空闲时停（不可见时 RN Query 也会自动停）
-    refetchInterval: (query) =>
-      hasActiveScan(query.state.data ?? []) || scanning ? POLL_MS : false,
-  })
+  /** 扫完触发后轮询几次，把新任务拉进缓存（首页图标即刻感知），再撤本地态 */
+  const waitForTask = async () => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const result = await tasks.refetch()
+      if (hasActiveScan(result.data ?? [])) break
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
 
-  const triggerScan = (libraryId: string, name: string) => {
+  const scanOne = (libraryId: string, name: string) => {
     confirm({
       title: '扫描曲库',
       message: `扫描「${name}」以发现新增或改动的文件。曲库较大时可能需要几分钟。`,
@@ -57,30 +53,78 @@ export function LibraryManageScreen() {
       cancelText: '取消',
       onConfirm: async () => {
         try {
-          setScanning(libraryId)
           await provider!.scanLibrary!(libraryId)
-          toast('已开始扫描')
-          // 轮询几次直到任务出现，再撤掉本地「启动中」态（交给任务列表驱动进度）
-          for (let attempt = 0; attempt < 6; attempt += 1) {
-            const result = await tasks.refetch()
-            if (hasActiveScan(result.data ?? [])) break
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-          }
-          setScanning(null)
+          toast('已开始扫描，可在首页查看进度')
+          await waitForTask()
         } catch (error) {
-          setScanning(null)
           toast(error instanceof Error ? error.message : '扫描触发失败')
         }
       },
     })
   }
 
+  const scanAll = () => {
+    confirm({
+      title: '扫描所有音乐库',
+      message: '扫描全部音乐库以发现新增或改动的文件。曲库较大时可能需要几分钟。',
+      confirmText: '全部扫描',
+      cancelText: '取消',
+      onConfirm: async () => {
+        try {
+          await provider!.scanAllLibraries!()
+          toast('已开始扫描，可在首页查看进度')
+          await waitForTask()
+        } catch (error) {
+          toast(error instanceof Error ? error.message : '扫描触发失败')
+        }
+      },
+    })
+  }
+
+  const canScanAll = Boolean(provider?.scanAllLibraries)
+  const navMenuItems: ActionSheetItem[] = canScanAll
+    ? [{ key: 'scan-all', title: '扫描所有音乐库', icon: 'recentlyPlayed' }]
+    : []
+
   const titleScreen = (
     <Stack.Screen
-      options={{ headerShown: true, title: '曲库管理', headerLeft: () => <StackBackButton /> }}
+      options={{
+        headerShown: true,
+        title: '曲库管理',
+        headerLeft: () => <StackBackButton />,
+        headerRight: () =>
+          isAdmin && navMenuItems.length > 0 ? (
+            <Pressable
+              onPress={() => setNavMenuOpen(true)}
+              hitSlop={12}
+              style={styles.navMore}
+              accessibilityRole="button"
+              accessibilityLabel="更多操作"
+            >
+              <Icon name="more" size={iconSize.lg} color={colors.textPrimary} />
+            </Pressable>
+          ) : null,
+      }}
     />
   )
 
+  // 等 me 加载完再判，避免闪
+  if (me.isPending) {
+    return (
+      <>
+        {titleScreen}
+        <LoadingState />
+      </>
+    )
+  }
+  if (!isAdmin) {
+    return (
+      <>
+        {titleScreen}
+        <EmptyState text="曲库扫描仅管理员可用" />
+      </>
+    )
+  }
   if (libraries.isPending) {
     return (
       <>
@@ -109,63 +153,59 @@ export function LibraryManageScreen() {
         ) : (
           items.map((lib) => {
             const name = libraryDisplayName(lib.name, lib.path)
-            const task = findScanTask(tasks.data ?? [], lib.id)
-            const view = scanProgressView(task)
-            const busy = view.phase === 'scanning' || view.phase === 'finalizing' || scanning === lib.id
-
+            const updated = libraryUpdatedLabel(lib.contentLastChangedAt)
             return (
               <View key={lib.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardInfo}>
-                    <Text numberOfLines={1} style={styles.libName}>
-                      {name}
-                    </Text>
-                    <Text numberOfLines={1} style={styles.libPath}>
-                      {lib.path}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => triggerScan(lib.id, name)}
-                    disabled={busy}
-                    style={({ pressed }) => [
-                      styles.scanBtn,
-                      busy && styles.scanBtnDisabled,
-                      pressed && !busy && styles.scanBtnPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`扫描 ${name}`}
-                    accessibilityState={{ disabled: busy }}
-                  >
-                    <Icon
-                      name="recentlyPlayed"
-                      size={iconSize.sm}
-                      color={busy ? colors.disabledText : colors.textPrimary}
-                    />
-                    <Text style={[styles.scanBtnText, busy && styles.scanBtnTextDisabled]}>
-                      {busy ? '扫描中' : '扫描'}
-                    </Text>
-                  </Pressable>
+                <View style={styles.folderIcon}>
+                  <Icon name="storage" size={iconSize.lg} color={colors.brandTint} />
                 </View>
-
-                {view.phase !== 'idle' && (scanning === lib.id || task) ? (
-                  <View style={styles.progress}>
-                    <Text style={styles.progressLabel}>
-                      {scanning === lib.id && !task ? '正在启动扫描…' : view.label}
-                    </Text>
-                    {view.failedLabel ? (
-                      <Text style={styles.progressFailed}>{view.failedLabel}</Text>
-                    ) : null}
-                  </View>
-                ) : null}
+                <View style={styles.cardInfo}>
+                  <Text numberOfLines={1} style={styles.libName}>
+                    {name}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.libMeta}>
+                    {updated || lib.path}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => setCardMenuLib({ id: lib.id, name })}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.cardMore, pressed && styles.cardMorePressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${name} 更多操作`}
+                >
+                  <Icon name="more" size={iconSize.md} color={colors.textSecondary} />
+                </Pressable>
               </View>
             )
           })
         )}
 
         <Text style={styles.footNote}>
-          扫描会在服务器上进行，App 可以离开此页。进度会自动刷新。
+          扫描会在服务器上进行，触发后可在首页右上角查看进度。
         </Text>
       </ScrollView>
+
+      {/* 导航栏「···」：扫描所有音乐库 */}
+      <ActionSheet
+        visible={navMenuOpen}
+        items={navMenuItems}
+        onSelect={(key) => {
+          if (key === 'scan-all') scanAll()
+        }}
+        onClose={() => setNavMenuOpen(false)}
+      />
+
+      {/* 卡片「···」：扫描本库（只有一条，保留 ··· 形态便于扩展） */}
+      <ActionSheet
+        visible={cardMenuLib !== null}
+        title={cardMenuLib?.name}
+        items={[{ key: 'scan', title: '扫描音乐库', icon: 'recentlyPlayed' }]}
+        onSelect={(key) => {
+          if (key === 'scan' && cardMenuLib) scanOne(cardMenuLib.id, cardMenuLib.name)
+        }}
+        onClose={() => setCardMenuLib(null)}
+      />
     </View>
   )
 }
@@ -173,37 +213,34 @@ export function LibraryManageScreen() {
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, gap: spacing.md },
+  navMore: { width: 32, height: 44, alignItems: 'flex-end', justifyContent: 'center' },
   card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     padding: spacing.md,
-    gap: spacing.sm,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  cardInfo: { flex: 1, gap: 2 },
-  libName: { ...typography.headline, color: colors.textPrimary },
-  libPath: { ...typography.caption, color: colors.textTertiary },
-  scanBtn: {
-    flexDirection: 'row',
+  folderIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgListItemSoft,
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+  },
+  cardInfo: { flex: 1, gap: 3 },
+  libName: { ...typography.headline, color: colors.textPrimary },
+  libMeta: { ...typography.caption, color: colors.textTertiary },
+  cardMore: {
+    width: 36,
     height: 36,
-    borderRadius: radius.pill,
-    backgroundColor: colors.bgButtonSecondary,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  scanBtnPressed: { opacity: 0.75 },
-  scanBtnDisabled: { opacity: 0.6 },
-  scanBtnText: { ...typography.subhead, fontWeight: '600', color: colors.textPrimary },
-  scanBtnTextDisabled: { color: colors.disabledText },
-  progress: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: spacing.sm,
-    gap: 2,
-  },
-  progressLabel: { ...typography.subhead, color: colors.textSecondary },
-  progressFailed: { ...typography.caption, color: colors.textTertiary },
+  cardMorePressed: { backgroundColor: colors.bgListItemHover },
   footNote: {
     ...typography.caption,
     color: colors.textTertiary,

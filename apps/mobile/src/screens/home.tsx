@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Album, Playlist, Track } from '@qj/core-domain'
 import { CollapsibleHeaderBar, LargeTitleHeader } from '@/components/collapsible-tab-header'
 import { ErrorState } from '@/components/list-states'
+import { ScanMonitorButton } from '@/components/scan-monitor-button'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { isGlobalMenuInteracting, useIsMenuOpen } from '@/lib/menu-guard'
@@ -182,7 +183,7 @@ export function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <CollapsibleHeaderBar title="首页" scrollY={scrollY} />
+      <CollapsibleHeaderBar title="首页" scrollY={scrollY} rightElement={<ScanMonitorButton />} />
       {allFailed ? (
         // 连不上服务器时整页给错误态：比「一堆空分区」更明确，且带重试入口
         <ErrorState error={firstError} onRetry={() => void onRefresh()} />

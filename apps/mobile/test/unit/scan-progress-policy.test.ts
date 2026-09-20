@@ -4,6 +4,7 @@ import {
   findScanTask,
   hasActiveScan,
   libraryDisplayName,
+  libraryUpdatedLabel,
   scanProgressView,
 } from '../../src/lib/scan-progress-policy'
 
@@ -29,25 +30,28 @@ describe('scanProgressView', () => {
     expect(v.label).toBe('')
   })
 
-  it('分母还在涨（已处理 < 总数）→ scanning，显示已发现文件数（不算百分比）', () => {
+  it('分母还在涨（已处理 < 总数）→ scanning，显示 已处理/总数 + 百分比（对齐飞牛）', () => {
     const v = scanProgressView(task({ successCount: 480, total: 512 }))
     expect(v.phase).toBe('scanning')
-    expect(v.label).toContain('已发现')
+    // 飞牛做法：按 已处理/总数 算并显示百分比
+    expect(v.percent).toBe(93)
+    expect(v.label).toContain('480')
     expect(v.label).toContain('512')
-    // 关键：不出现百分比（分母边扫边长，百分比无意义）
-    expect(v.label).not.toContain('%')
+    expect(v.label).toContain('93%')
   })
 
-  it('已处理数追上总数但未 done → finalizing「正在整理」', () => {
+  it('已处理数追上总数但未 done → finalizing「正在整理」，百分比 100', () => {
     const v = scanProgressView(task({ successCount: 34338, total: 34338 }))
     expect(v.phase).toBe('finalizing')
     expect(v.label).toContain('正在整理')
+    expect(v.percent).toBe(100)
   })
 
-  it('done → 完成态，带千分位', () => {
+  it('done → 完成态，带千分位，百分比 100', () => {
     const v = scanProgressView(task({ successCount: 34336, total: 34338, done: true }))
     expect(v.phase).toBe('done')
     expect(v.label).toContain('34,338')
+    expect(v.percent).toBe(100)
   })
 
   it('canceled → idle 文案', () => {
@@ -105,5 +109,25 @@ describe('libraryDisplayName', () => {
 
   it('名字空、路径也空 → 兜底「音乐库」', () => {
     expect(libraryDisplayName('', '')).toBe('音乐库')
+  })
+})
+
+describe('libraryUpdatedLabel', () => {
+  const now = new Date('2026-09-20T18:00:00')
+
+  it('同年 → 月-日 时:分', () => {
+    // 2026-09-20 14:32 本地时间
+    const ts = Math.floor(new Date('2026-09-20T14:32:00').getTime() / 1000)
+    expect(libraryUpdatedLabel(ts, now)).toBe('最近更新 09-20 14:32')
+  })
+
+  it('跨年 → 带年份', () => {
+    const ts = Math.floor(new Date('2025-01-05T09:07:00').getTime() / 1000)
+    expect(libraryUpdatedLabel(ts, now)).toBe('最近更新 2025-01-05 09:07')
+  })
+
+  it('无时间戳 → 空串', () => {
+    expect(libraryUpdatedLabel(undefined, now)).toBe('')
+    expect(libraryUpdatedLabel(0, now)).toBe('')
   })
 })
