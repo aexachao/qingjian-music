@@ -11,58 +11,18 @@ NOT working: Authorization Bearer, x-music-token, ?token=
 NAS OAuth: /sys/config -> nasOAuth.clientId ; POST /user/auth-login {code, deviceId}
 password change uses sha256(new). Account ban exists (/user/unbanned, admin only).
 
-### 请求签名头 `authx`：算法全貌（**2026-09-17 录自第三方桥接项目，本机未实测**）
+### 请求签名头 `authx`（**音乐 API 不校验，我们不实现**）
 
-来源：开源项目 [`qianlipp/fn-music-bridge`](https://github.com/qianlipp/fn-music-bridge)
-（Go，装在 NAS 上把飞牛音乐桥成 OpenSubsonic / Jellyfin / Ampache）。
-它的 `api/internal/api/signer.go` 是对**官方 web 客户端签名器**的复刻，常量也是从 web 客户端里取的。
+**实测结论（2026-09-17，真实 NAS，只读）**：音乐 API **完全不校验 `authx`** ——
+`GET /user/me` 不带 / 带正确签名 / 带故意写错的签名，三种都返回 `code=0`。
+所以我们客户端**只发 `authorization: <token>`**，不发 `authx`、也不发 `X-Music-API`，是安全的。
+（云端 `fn/con` 端点会校验，报 `{"code":5000,"msg":"invalid sign"}` —— 校验是**按端点**开关的。）
 
-```
-authx: nonce=<6 位随机数字>&timestamp=<毫秒>&sign=<md5>
+⚠️ 风险形态：这类收紧是**开关式**的，一开就是全量 401，不会渐进 —— 升级 NAS 后跑一次冒烟即可发现。
 
-sign = md5( signingPrefix + "_" + pathname + "_" + nonce + "_" + timestamp
-          + "_" + payloadHash + "_" + key )
-      pathname = "/music/api/v1" + 上游路径（含 API base，例如 /music/api/v1/track/list）
-```
-
-`payloadHash = md5(payload)`，payload 按请求类型取：
-
-| 请求类型 | payload |
-| --- | --- |
-| GET | **canonical query**（key 排序、空格用 `%20` 而非 `+`）**再 URL 解码**后的字符串 |
-| POST（JSON） | 原始 body 字节 |
-| POST（multipart/form-data） | **字面量 `{}`** —— 因为官方浏览器端 `JSON.stringify(FormData)` 就是 `{}` |
-
-默认常量（第三方项目里的默认值，可用环境变量覆盖，取自 web 客户端）：
-
-```
-signingPrefix = NDzZTVxnRKP8Z0jXg1VAMonaG8akvh
-key           = 6D5602D4-A342-4799-A0F0-BB795E7167D0
-```
-
-自校验样例（用上面的常量，`nonce=123456`、`timestamp=1758000000000`）：
-
-| 请求 | payloadHash | authx |
-| --- | --- | --- |
-| `GET /music/api/v1/user/me` | `d41d8cd98f00b204e9800998ecf8427e` | `nonce=123456&timestamp=1758000000000&sign=5290c9ca9324c854dab35e5d64b86d31` |
-| `GET /music/api/v1/track/list?size=50&page=1`（query 故意乱序） | `6da002d7fdcb7a848138cca7cb81d927` | `nonce=123456&timestamp=1758000000000&sign=c994c5d15d819c6555f478cd9ab1bef3` |
-| `GET /music/api/v1/search/track?q=%E5%91%A8%E6%9D%B0%E4%BC%A6` | `12fda3480ba50e1f320ed5a1f491d69b` | `nonce=123456&timestamp=1758000000000&sign=2b2efd8b054d302eea23ff53a69553b2` |
-
-**我们客户端今天的做法**：音乐 API 的请求**不发 `authx`，也不发 `X-Music-API`**，
-只用 `authorization: <token>`。
-
-**已实测（2026-09-17，真实 NAS，只读）**：`GET /user/me` 三种情况**都返回 `code=0`** ——
-
-| 请求 | 结果 |
-| --- | --- |
-| 不带 `authx` | `200 code=0` |
-| 带**正确**签名的 `authx` | `200 code=0` |
-| 带**故意写错**签名的 `authx`（`sign=ffff…`） | `200 code=0`（**照样通过**） |
-
-结论：**音乐 API 今天完全不校验 `authx`**（`fn/con` 那个云端端点会校验，报
-`{"code":5000,"msg":"invalid sign"}` —— 见下面 FN ID 一节，所以校验是**按端点**开关的）。
-我们不带签名是安全的；留这份算法只为「万一飞牛在音乐 API 上也收紧」时不必重新逆向。
-⚠️ 风险形态：这类收紧是**开关式**的，一开就是全量 401，不会渐进 —— 所以升级 NAS 后要跑一次冒烟。
+> **签名算法与常量不在本公开文档里。** 我们客户端**不实现、不使用**该签名，记录它对功能没有价值，
+> 而公开「逆向得到的密钥常量」是不必要的合规暴露。完整算法留在**本地内部文档**
+> （按 gitignore 不随仓库发布），仅备「万一飞牛在音乐 API 上收紧」时查阅。
 
 ### 我们没用过、但实测可用的端点（2026-09-17，只读）
 
