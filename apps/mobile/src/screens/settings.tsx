@@ -157,6 +157,16 @@ export function SettingsScreen() {
             value={formatBytes(audioCache.bytes)}
             onPress={() => router.push('/(tabs)/settings/cache')}
           />
+          {me.data?.isAdmin ? (
+            <>
+              <View style={styles.divider} />
+              <SettingsRow
+                icon="libraryManage"
+                label="曲库管理"
+                onPress={() => router.push('/(tabs)/settings/library')}
+              />
+            </>
+          ) : null}
         </View>
 
         {/* 卡片 2：帮助与关于 */}

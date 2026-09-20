@@ -19,6 +19,8 @@ export interface Capabilities {
   ratings: boolean
   /** 多媒体库（共享库）概念 */
   multiLibrary: boolean
+  /** 能否触发曲库扫描并读取扫描任务进度（飞牛：触发需 admin，读进度所有账号可） */
+  libraryScan: boolean
   /** 是否支持获取音频技术规格（codec、码率、采样率等） */
   audioSpec: boolean
   /**
@@ -44,6 +46,7 @@ export const NO_CAPABILITIES: Capabilities = {
   genres: false,
   ratings: false,
   multiLibrary: false,
+  libraryScan: false,
   audioSpec: false,
   qualityTiers: false,
 }

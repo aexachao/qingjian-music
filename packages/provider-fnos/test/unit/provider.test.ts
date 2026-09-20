@@ -515,3 +515,71 @@ describe('歌单写操作', () => {
     expect(body).toEqual({ guid: 'pl-1', trackGUIDs: ['t9'] })
   })
 })
+
+describe('曲库扫描', () => {
+  it('musicLibraries 打 /shared-library/list，name 空串保留、映射 path/id', async () => {
+    const urls: string[] = []
+    const provider = makeProvider(
+      fakeFetch((url) => {
+        urls.push(url)
+        return {
+          code: 0,
+          msg: '',
+          data: { list: [{ guid: 'lib1', name: '', path: '/vol2/music', contentLastChangedAt: 123 }] },
+        }
+      }),
+    )
+    const libs = await provider.musicLibraries()
+    expect(urls[0]).toContain('/music/api/v1/shared-library/list')
+    expect(libs[0]).toEqual({ id: 'lib1', name: '', path: '/vol2/music', contentLastChangedAt: 123 })
+  })
+
+  it('scanLibrary POST /shared-library/scan，body 带 guid', async () => {
+    let captured: { url: string; body: unknown } | undefined
+    const provider = makeProvider(
+      fakeFetch((url, init) => {
+        captured = { url, body: JSON.parse(String(init?.body)) }
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+    await provider.scanLibrary('lib1')
+    expect(captured?.url).toContain('/music/api/v1/shared-library/scan')
+    expect(captured?.body).toEqual({ guid: 'lib1' })
+  })
+
+  it('backgroundTasks 打 /task/list，映射 fileScan 字段（含 ext.libraryGUID）', async () => {
+    const provider = makeProvider(
+      fakeFetch(() => ({
+        code: 0,
+        msg: '',
+        data: {
+          list: [
+            {
+              id: 'task1',
+              type: 'fileScan',
+              name: '音乐',
+              successCount: 100,
+              total: 512,
+              failCount: 2,
+              done: false,
+              canceled: false,
+              ext: { libraryGUID: 'lib1' },
+            },
+          ],
+        },
+      })),
+    )
+    const tasks = await provider.backgroundTasks()
+    expect(tasks[0]).toEqual({
+      id: 'task1',
+      type: 'fileScan',
+      name: '音乐',
+      successCount: 100,
+      total: 512,
+      failCount: 2,
+      done: false,
+      canceled: false,
+      libraryId: 'lib1',
+    })
+  })
+})

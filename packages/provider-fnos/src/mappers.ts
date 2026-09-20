@@ -14,9 +14,11 @@ import type {
   SessionUser,
   SortSpec,
   Track,
+  MusicLibrary,
+  BackgroundTask,
 } from '@qj/core-domain'
 import { LYRIC_TIER_RANK, lyricTier } from '@qj/core-domain'
-import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnTrack, FnUser } from './schemas'
+import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnSharedLibrary, FnTask, FnTrack, FnUser } from './schemas'
 
 /** null -> undefined，领域模型里统一只用 undefined 表示缺失 */
 function opt<T>(value: T | null | undefined): T | undefined {
@@ -25,6 +27,30 @@ function opt<T>(value: T | null | undefined): T | undefined {
 
 export function mapUser(user: FnUser): SessionUser {
   return { id: user.guid, name: user.name, isAdmin: user.role === 'admin' }
+}
+
+/** 库名可能为空串：先不在这里兜底（交给 UI 按路径末段显示），只归一化 null→undefined */
+export function mapLibrary(lib: FnSharedLibrary): MusicLibrary {
+  return {
+    id: lib.guid,
+    name: lib.name ?? '',
+    path: lib.path ?? '',
+    ...(lib.contentLastChangedAt != null ? { contentLastChangedAt: lib.contentLastChangedAt } : {}),
+  }
+}
+
+export function mapTask(task: FnTask): BackgroundTask {
+  return {
+    id: task.id,
+    type: task.type ?? '',
+    name: task.name ?? '',
+    successCount: task.successCount ?? 0,
+    total: task.total ?? 0,
+    failCount: task.failCount ?? 0,
+    done: task.done ?? false,
+    canceled: task.canceled ?? false,
+    ...(task.ext?.libraryGUID ? { libraryId: task.ext.libraryGUID } : {}),
+  }
 }
 
 export function mapArtistRef(artist: { guid: string; name: string; coverId?: string | null }): ArtistRef {

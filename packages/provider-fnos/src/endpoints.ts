@@ -91,6 +91,11 @@ export const FNOS_ENDPOINTS = {
   },
   sharedLibrary: {
     list: '/shared-library/list',
+    scan: '/shared-library/scan',
+    scanAll: '/shared-library/scan-all',
+  },
+  task: {
+    list: '/task/list',
   },
   static: {
     cover: '/static/cover',

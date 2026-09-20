@@ -114,6 +114,19 @@ describe.skipIf(!configured)('飞牛音乐契约测试', () => {
     expect(tracks.items.length).toBeGreaterThan(0)
   })
 
+  it('音乐库列表与后台任务（只读，不触发扫描）', async () => {
+    const libraries = await provider.musicLibraries!()
+    expect(Array.isArray(libraries)).toBe(true)
+    // 库项形状：有 id 与 path（name 可能为空串）
+    for (const lib of libraries) {
+      expect(typeof lib.id).toBe('string')
+      expect(typeof lib.path).toBe('string')
+    }
+    // 任务列表所有账号可读（可能为空）
+    const tasks = await provider.backgroundTasks!()
+    expect(Array.isArray(tasks)).toBe(true)
+  })
+
   it('歌单、收藏、播放历史列表结构正确（可能为空）', async () => {
     const [playlists, favorites, history] = await Promise.all([
       provider.playlists({ page: 1, size: 5 }),

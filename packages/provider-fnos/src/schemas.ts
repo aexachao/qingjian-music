@@ -163,6 +163,27 @@ export const fnMetadataSchema = z.object({
   audioSpec: fnAudioSpecSchema.nullish(),
 })
 
+/** /shared-library/list 的库项（实测：name 可能是空串） */
+export const fnSharedLibrarySchema = z.object({
+  guid: z.string(),
+  name: z.string().nullish(),
+  path: z.string().nullish(),
+  contentLastChangedAt: z.number().nullish(),
+})
+
+/** /task/list 的任务项（实测 fileScan：total 边扫边长，没有百分比字段） */
+export const fnTaskSchema = z.object({
+  id: z.string(),
+  type: z.string().nullish(),
+  name: z.string().nullish(),
+  successCount: z.number().nullish(),
+  total: z.number().nullish(),
+  failCount: z.number().nullish(),
+  done: z.boolean().nullish(),
+  canceled: z.boolean().nullish(),
+  ext: z.object({ libraryGUID: z.string().nullish() }).nullish(),
+})
+
 export type FnLyricEntry = z.infer<typeof fnLyricEntrySchema>
 export type FnTrack = z.infer<typeof fnTrackSchema>
 export type FnAlbum = z.infer<typeof fnAlbumSchema>
@@ -171,3 +192,5 @@ export type FnGenre = z.infer<typeof fnGenreRefSchema>
 export type FnPlaylist = z.infer<typeof fnPlaylistSchema>
 export type FnAudioSpec = z.infer<typeof fnAudioSpecSchema>
 export type FnUser = z.infer<typeof fnUserSchema>
+export type FnSharedLibrary = z.infer<typeof fnSharedLibrarySchema>
+export type FnTask = z.infer<typeof fnTaskSchema>

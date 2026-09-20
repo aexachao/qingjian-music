@@ -33,6 +33,12 @@ describe('能力声明与实现一致性', () => {
     // 契约层没有对应方法、UI 也零消费方。声明 false 本身就是「四层一致」的正确形态，
     // 所以这里不该为它们补方法断言（那会反过来逼出一个没人用的实现）。
     if (cap.audioSpec) set.add('audioSpec')
+    if (cap.libraryScan) {
+      set.add('musicLibraries')
+      set.add('scanLibrary')
+      set.add('scanAllLibraries')
+      set.add('backgroundTasks')
+    }
     return set
   }
 

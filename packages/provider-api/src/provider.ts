@@ -2,10 +2,12 @@ import type {
   Album,
   Artist,
   AudioSpec,
+  BackgroundTask,
   Capabilities,
   Genre,
   HttpResource,
   LyricSheet,
+  MusicLibrary,
   Page,
   PageRequest,
   Playlist,
@@ -137,6 +139,17 @@ export interface MusicProvider {
   reportPlayback?(report: PlaybackReport): Promise<void>
   /** 歌词时间偏移写回服务端，capabilities.lyricOffsetWriteback 为 true 时才存在 */
   setLyricOffset?(update: LyricOffsetUpdate): Promise<void>
+
+  // ---- 曲库扫描（capabilities.libraryScan 为 true 时才存在）----
+  // 触发扫描需 admin（非 admin 会得到 forbidden 错误）；读任务进度所有账号都可。
+  /** 列出音乐库 */
+  musicLibraries?(): Promise<MusicLibrary[]>
+  /** 触发单库扫描（admin only） */
+  scanLibrary?(libraryId: string): Promise<void>
+  /** 触发全部库扫描（admin only） */
+  scanAllLibraries?(): Promise<void>
+  /** 读后台任务（扫描进度靠它轮询） */
+  backgroundTasks?(): Promise<BackgroundTask[]>
 }
 
 export interface ProviderFactory {

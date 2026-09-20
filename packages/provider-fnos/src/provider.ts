@@ -2,11 +2,13 @@ import {
   type Album,
   type Artist,
   type AudioSpec,
+  type BackgroundTask,
   type Capabilities,
   type Genre,
   type HttpResource,
   type LyricSheet,
   MusicError,
+  type MusicLibrary,
   type Page,
   type PageRequest,
   type Playlist,
@@ -44,6 +46,8 @@ import {
   mapPlaylist,
   mapTrack,
   mapUser,
+  mapLibrary,
+  mapTask,
 } from './mappers'
 import {
   fnAlbumSchema,
@@ -54,6 +58,8 @@ import {
   fnLyricListSchema,
   fnMetadataSchema,
   fnPlaylistSchema,
+  fnSharedLibrarySchema,
+  fnTaskSchema,
   fnSuggestSchema,
   fnTrackSchema,
   fnTranscodeSchema,
@@ -94,6 +100,8 @@ export const FNOS_CAPABILITIES: Capabilities = {
   // 共享库端点 `/shared-library/list` 已登记，实施排在四期 4.3。
   multiLibrary: false,
   audioSpec: true,
+  // 实测确认：POST /shared-library/scan（admin only）+ GET /task/list（所有账号可读）可用。
+  libraryScan: true,
   // 实测确认：转码恒输出无损 FLAC，服务端**忽略** output.bitrate（128 与 320 的分片字节数完全一致），
   // 即飞牛只有一档输出。所以「标准音质省流量」在这里不成立，UI 不该提供该选项。
   qualityTiers: false,
@@ -569,7 +577,31 @@ export class FnosProvider implements MusicProvider {
     )
   }
 
-  // ---- 漫游电台 ----
+  // ---- 曲库扫描 ----
+
+  async musicLibraries(): Promise<MusicLibrary[]> {
+    const data = await this.client.get(
+      FNOS_ENDPOINTS.sharedLibrary.list,
+      fnListSchema(fnSharedLibrarySchema),
+      {},
+    )
+    return (data.list ?? []).map(mapLibrary)
+  }
+
+  /** 触发单库扫描。admin only（member 会得 forbidden，由调用方提前用 isAdmin gate） */
+  async scanLibrary(libraryId: string): Promise<void> {
+    await this.client.post(FNOS_ENDPOINTS.sharedLibrary.scan, { guid: libraryId }, z.unknown())
+  }
+
+  async scanAllLibraries(): Promise<void> {
+    await this.client.post(FNOS_ENDPOINTS.sharedLibrary.scanAll, {}, z.unknown())
+  }
+
+  /** 后台任务（扫描进度）。所有账号可读 */
+  async backgroundTasks(): Promise<BackgroundTask[]> {
+    const data = await this.client.get(FNOS_ENDPOINTS.task.list, fnListSchema(fnTaskSchema), {})
+    return (data.list ?? []).map(mapTask)
+  }
 
   // 漫游三个接口实测是 GET + query（用 POST 会被 nginx 落到 SPA 首页）
   async radioStart(): Promise<RadioSlice> {

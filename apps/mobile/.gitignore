@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# App Store 出包产物（asc archive/export/上传中间物）
+.asc/
