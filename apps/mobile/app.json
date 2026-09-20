@@ -10,9 +10,11 @@
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
+      "buildNumber": "3",
       "supportsTablet": false,
       "infoPlist": {
         "CFBundleDisplayName": "轻简音乐",
+        "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "audio"
         ],
