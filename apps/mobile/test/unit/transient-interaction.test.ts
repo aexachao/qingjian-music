@@ -15,7 +15,6 @@ describe('临时交互层手势优先级', () => {
   it('队列左滑打开时所有同级操作先消费关闭动作', () => {
     const queue = source('components/player/player-queue.tsx')
     expect(queue).toContain('const consumeOpenAction = useCallback')
-    expect(queue).toContain('if (consumeOpenAction() || nextTab === tab) return')
     expect(queue).toContain('if (consumeOpenAction()) return')
     expect(queue).toContain('onScrollBeginDrag={() => {')
   })

@@ -13,7 +13,7 @@
     },
     "type-escape-hatches": {
       "apps/mobile/src/components/lyric-view.tsx": 1,
-      "apps/mobile/src/components/player/player-queue.tsx": 2,
+      "apps/mobile/src/components/player/player-queue.tsx": 1,
       "apps/mobile/src/components/stack-back-button.tsx": 1,
       "apps/mobile/src/lib/use-track-menu.ts": 1,
       "apps/mobile/src/screens/home/SectionHeader.tsx": 1

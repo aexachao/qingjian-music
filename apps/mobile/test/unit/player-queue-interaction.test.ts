@@ -4,38 +4,42 @@ import { readSource } from '../support/source'
 const queueSource = readSource('components/player/player-queue.tsx')
 const playerSource = readSource('app/player.tsx')
 
-describe('播放器队列 Tab 交互', () => {
-  it('默认展示继续播放并在原标题位置提供历史记录 Tab', () => {
-    expect(queueSource).toContain("useState<QueueTab>('upcoming')")
-    expect(queueSource).toContain('label="继续播放"')
-    expect(queueSource).toContain('label="历史记录"')
-    expect(queueSource).toContain('accessibilityRole="tablist"')
+describe('播放器队列竖轴交互', () => {
+  it('采用单一竖轴：历史在上、正在播放居中、待播在下（已废弃左右 tab pager）', () => {
+    // 不再有水平 tab：数据来自 queueAxisView / queueAxisRows
+    expect(queueSource).toContain('queueAxisView(history, queue, index)')
+    expect(queueSource).toContain('queueAxisRows(axis, index)')
+    expect(queueSource).not.toContain("useState<QueueTab>")
+    expect(queueSource).not.toContain('pagerX.value = withTiming')
   })
 
-  it('不再使用隐藏历史区、初始偏移或吸附', () => {
-    expect(queueSource).toContain('`${tab}_${item.qid}_${itemIndex}`')
-    expect(queueSource).not.toContain('historySnapTarget')
-    expect(queueSource).not.toContain('contentOffset={{')
-    expect(queueSource).not.toContain('initialScrollIndex=')
+  it('历史在 ListHeader 里倒序渲染（不可拖），待播是列表数据（可拖）', () => {
+    // 历史行渲在 ListHeaderComponent（renderHistoryRow），待播行是 ReorderableList 数据（renderUpcomingItem）
+    expect(queueSource).toContain('const listHeader = (')
+    expect(queueSource).toContain('renderHistoryRow(row)')
+    expect(queueSource).toContain('ListHeaderComponent={listHeader}')
+    expect(queueSource).toContain('data={upcomingRows}')
   })
 
-  it('播放器顶部只保留居中拖拽把手，不显示来自来源', () => {
-    expect(playerSource).toContain('<View style={styles.dragHandle} />')
-    expect(playerSource).not.toContain('来自 {source.label}')
-    expect(playerSource).not.toContain('styles.queueSource')
+  it('初始定位到「正在播放」（历史块高度为初始 offset）', () => {
+    expect(queueSource).toContain('scrollToOffset({ offset: historyBlockH, animated: false })')
+    expect(queueSource).toContain('didInitialScroll')
   })
 
-  it('历史清除靠右并经过破坏性二次确认', () => {
+  it('分段吸顶震动：跨段才震，走 lib/haptics 的 tap', () => {
+    expect(queueSource).toContain('stickySegRef.value')
+    expect(queueSource).toContain('runOnJS(buzz)()')
+    expect(queueSource).toContain("import { tap } from '@/lib/haptics'")
+  })
+
+  it('历史清除经过破坏性二次确认', () => {
     expect(queueSource).toContain("title: '清除历史记录？'")
     expect(queueSource).toContain("confirmText: '清除'")
     expect(queueSource).toContain('destructive: true')
-    expect(queueSource).toContain('<View style={styles.queueTabSpacer} />')
   })
 
-  it('选中横条缩窄为精致胶囊并支持平滑位移与非选中项 regular 字体', () => {
-    expect(queueSource).toContain('width: 16')
-    expect(queueSource).toContain('fontFamily: fonts.regular')
-    expect(queueSource).toContain('indicatorX.value = withTiming')
+  it('fling 退场：除位移门槛外加高速 OR 分支，快扫即退', () => {
+    expect(queueSource).toContain('downwardVelocity > 1200 && pullDistance > 20')
   })
 
   it('排序把手需长按 350ms 才激活', () => {
@@ -52,14 +56,12 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('onDragEnd={onDragEnd}')
   })
 
-  it('Tab 切换支持双向循环且依赖项包含最新 tab 避免闭包死锁', () => {
-    // 确保 onTabChange 依赖项包含 tab，防止切到历史后无法切回继续播放
-    expect(queueSource).toMatch(/onTabChange\s*=\s*useCallback\([\s\S]*?,\s*\[[\s\S]*?\btab\b[\s\S]*?\]\)/)
-    // 采用双页预渲染平移架构：彻底移除渐变，纯粹横向位移动画
-    expect(queueSource).toContain('pagerX.value = withTiming')
-    expect(queueSource).toContain('styles.pagerViewport')
-    expect(queueSource).toContain('styles.pagerTrack')
+  it('Tab 已废弃：改为单一竖轴列表（无 pager、无水平切换）', () => {
+    expect(queueSource).not.toContain('pagerX.value = withTiming')
+    expect(queueSource).not.toContain('styles.pagerTrack')
     expect(queueSource).not.toContain('slideOpacity')
+    // 待播单列表仍在 pagerViewport 容器里（名字保留）
+    expect(queueSource).toContain('styles.pagerViewport')
   })
 
   it('列表在顶部允许下拉退出，采用 ScrollHandler 联动退场机制与橡皮筋反向补偿', () => {
