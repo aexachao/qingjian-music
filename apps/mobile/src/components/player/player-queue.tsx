@@ -809,7 +809,43 @@ export function QueueEmptyState({
   )
 }
 
-function QueueRow({
+function QueueRow(props: {
+  item: QueueItem
+  queueIndex: number
+  upcomingCount: number
+  playing: boolean
+  isGloballyPlaying: boolean
+  isHistory: boolean
+  onSelect: () => void
+  swipeEnabled: boolean
+  onActionOpenChange?: (open: boolean) => void
+}) {
+  // 历史行渲在 ListHeader 里（不在 ReorderableList cell 上下文），不能调 useReorderableDrag/useIsActive；
+  // 只有待播行（isHistory=false）才走可拖拽版本。
+  if (props.isHistory) return <QueueRowInner {...props} isActive={false} drag={NOOP_DRAG} />
+  return <QueueRowDraggable {...props} />
+}
+
+const NOOP_DRAG = () => {}
+
+/** 待播行：在 ReorderableList cell 上下文里取 drag/isActive，再交给 Inner */
+function QueueRowDraggable(props: {
+  item: QueueItem
+  queueIndex: number
+  upcomingCount: number
+  playing: boolean
+  isGloballyPlaying: boolean
+  isHistory: boolean
+  onSelect: () => void
+  swipeEnabled: boolean
+  onActionOpenChange?: (open: boolean) => void
+}) {
+  const isActive = useIsActive()
+  const drag = useReorderableDrag()
+  return <QueueRowInner {...props} isActive={isActive} drag={drag} />
+}
+
+function QueueRowInner({
   item,
   queueIndex,
   upcomingCount,
@@ -819,6 +855,8 @@ function QueueRow({
   onSelect,
   swipeEnabled,
   onActionOpenChange,
+  isActive,
+  drag,
 }: {
   item: QueueItem
   queueIndex: number
@@ -830,11 +868,11 @@ function QueueRow({
   onSelect: () => void
   swipeEnabled: boolean
   onActionOpenChange?: (open: boolean) => void
+  isActive: boolean
+  drag: () => void
 }) {
   const colors = useThemeColors()
   const styles = useStyles()
-  const isActive = useIsActive()
-  const drag = useReorderableDrag()
   const elevation = useSharedValue(0)
 
   useEffect(() => {
