@@ -113,15 +113,21 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   // 换队列**保留历史**（收听流跨队列延续，对齐 Apple Music）；
   // 也**不再强制关随机** —— 尊重用户当前的随机开关（列表点播时由 controller 决定待播是否洗牌）。
   setQueue: (queue, index, source, baseQueue) =>
-    set(() => ({
-      queue,
-      // 随机开时，queue 是打乱的而 baseQueue 存原始顺序（供取消随机时还原）；
-      // 不传时默认两者一致。
-      baseQueue: baseQueue ?? queue,
-      index,
-      source,
-      playbackEnded: false,
-    })),
+    set((state) => {
+      // 换队列前，把「正在播的那首」追进历史（它离开了正在播放，属于收听流）。
+      // 这是「列表点播/搜索点播」时旧当前进历史的唯一时机（reset 后的切歌事件不走 append 分支）。
+      const leaving = state.index >= 0 ? state.queue[state.index] : undefined
+      return {
+        queue,
+        // 随机开时，queue 是打乱的而 baseQueue 存原始顺序（供取消随机时还原）；
+        // 不传时默认两者一致。
+        baseQueue: baseQueue ?? queue,
+        history: appendHistoryOccurrence(state.history, leaving),
+        index,
+        source,
+        playbackEnded: false,
+      }
+    }),
   appendItems: (items) =>
     set((state) => ({ queue: [...state.queue, ...items], baseQueue: [...state.baseQueue, ...items] })),
   insertAfterCurrent: (items) =>

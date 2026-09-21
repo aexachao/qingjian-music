@@ -91,15 +91,16 @@ describe('独立当前、待播和历史语义', () => {
     expect(new Set(historyIds).size).toBe(historyIds.length)
   })
 
-  it('换队列保留历史（收听流跨队列延续，对齐 Apple Music）', () => {
+  it('换队列保留历史并把旧当前追进去（收听流跨队列延续，对齐 Apple Music）', () => {
     usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
     usePlayerStore.getState().activateIndex(1)
+    // 当前 = b，历史 = [a]
     expect(usePlayerStore.getState().history.map((e) => e.trackId)).toEqual(['a'])
 
-    // 换一个新队列（比如点另一个歌单）：历史不该被清空
+    // 换一个新队列（比如点另一个歌单）：历史不清空，且旧当前（b）追进历史
     usePlayerStore.getState().setQueue([item('x'), item('y')], 0, { kind: 'playlist', label: '另一个歌单' })
 
-    expect(usePlayerStore.getState().history.map((e) => e.trackId)).toEqual(['a'])
+    expect(usePlayerStore.getState().history.map((e) => e.trackId)).toEqual(['a', 'b'])
   })
 
   it('换队列不强制关随机（尊重用户当前开关）', () => {
