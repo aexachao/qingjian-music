@@ -7,7 +7,8 @@ const playerSource = readSource('app/player.tsx')
 describe('播放器队列竖轴交互', () => {
   it('采用三模块 SectionList：历史/正在播放/待播（已废弃左右 tab pager）', () => {
     expect(queueSource).toContain('queueAxisView(history, queue, index)')
-    expect(queueSource).toContain('<SectionList')
+    expect(queueSource).toContain('<AnimatedSectionList')
+    expect(queueSource).toContain('createAnimatedComponent')
     expect(queueSource).toContain('stickySectionHeadersEnabled')
     expect(queueSource).not.toContain("useState<QueueTab>")
     expect(queueSource).not.toContain('pagerX.value = withTiming')

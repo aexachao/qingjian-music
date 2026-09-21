@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useMemo, useState, type ComponentClass, type ComponentProps } from 'react'
 import {
   Pressable,
   SectionList,
@@ -54,6 +54,14 @@ import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { useToggleFavorite } from '@/lib/favorites'
 import { DeckMoreButton } from '@/components/player/player-deck'
+
+// reanimated 的 useAnimatedScrollHandler 只能给 Animated.* 组件（普通 SectionList 的 onScroll
+// 拿到的不是可调用的 handler，会报 Object is not a function）。包一层。
+const AnimatedSectionList = Animated.createAnimatedComponent(
+  SectionList as unknown as ComponentClass<
+    ComponentProps<typeof SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>>
+  >,
+)
 
 const LONG_PRESS_MS = 350
 const TAP_SLOP = 12
@@ -426,11 +434,9 @@ export function PlayerQueue({
     [createDismissPan, isDismissEnabled, cardDismissGesture]
   )
 
-  const SectionListComp = SectionList as unknown as typeof SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>
-
   const listBody = (
-    <SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>
-      ref={sectionListRef}
+    <AnimatedSectionList
+      ref={sectionListRef as any}
       sections={axis.sections}
       keyExtractor={(item) => item.key}
       renderItem={renderRow}
