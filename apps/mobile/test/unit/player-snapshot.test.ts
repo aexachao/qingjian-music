@@ -61,7 +61,7 @@ describe('播放快照安全边界', () => {
     expect(parsePlaybackSnapshot(legacy)).toBeNull()
   })
 
-  it('读取时移除旧版本故障留下的重复 occurrence', () => {
+  it('历史不去重：同一首多次出现全保留（对齐收听流模型）', () => {
     const item = queueItem('track-1')
     const parsed = parsePlaybackSnapshot({
       version: 3,
@@ -77,7 +77,32 @@ describe('播放快照安全边界', () => {
       savedAt: 1,
     })
 
-    expect(parsed?.history.map((entry) => entry.qid)).toEqual([item.qid])
+    // 两条都在（不再按 qid 去重）
+    expect(parsed?.history).toHaveLength(2)
+  })
+
+  it('历史超软上限（200）时只留最近的，从最旧的截', () => {
+    const item = queueItem('track-1')
+    // 造 250 条历史，每条带不同 qid 侜辨顺序
+    const history = Array.from({ length: 250 }, (_, i) => ({ ...item, qid: `h-${i}` }))
+    const parsed = parsePlaybackSnapshot({
+      version: 3,
+      serverId: 'server-a',
+      queue: [item],
+      history,
+      baseQueue: [item],
+      index: 0,
+      position: 0,
+      playMode: { repeat: 'off', shuffle: false },
+      autoplay: false,
+      lyricOffsetMs: 0,
+      savedAt: 1,
+    })
+
+    expect(parsed?.history).toHaveLength(200)
+    // 留的是最近的 200 条（h-50 … h-249）
+    expect(parsed?.history[0]?.qid).toBe('h-50')
+    expect(parsed?.history[199]?.qid).toBe('h-249')
   })
 
   it('读取时再次剥离未知来源注入的 artwork 并修正数值边界', () => {

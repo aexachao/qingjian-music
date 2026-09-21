@@ -231,6 +231,9 @@ function addPosition(callIndex = 0): number | undefined {
 beforeEach(() => {
   usePlayerStore.getState().clear()
   usePlayerStore.getState().setRepeat('off')
+  // setQueue 不再强制关随机（第 9 轮：尊重用户随机开关），而 clear() 不碰 playMode——
+  // 所以测试间 shuffle 会残留，这里显式归零避免用例相互污染。
+  usePlayerStore.getState().setShuffle(false)
   // provider 是模块级状态：不归零的话，「上一个用例装过的 provider」会让本用例
   // 悄悄走上网址生成分支（顺带清掉 forcedTranscode 标记）
   rememberProvider(null)
@@ -866,20 +869,23 @@ describe('playTrackList 起播时重建队列', () => {
     expect(queueIds()).toEqual(before)
   })
 
-  it('把选中的那首转到队首，其余保持原相对顺序', async () => {
+  it('点第 N 首 = 这首及之后进队列，前段丢弃（对齐 Apple Music）', async () => {
     await playTrackList(
       playListInput([makeTrack('a'), makeTrack('b'), makeTrack('c'), makeTrack('d')], 2),
     )
 
-    expect(queueIds()).toEqual(['c', 'a', 'b', 'd'])
+    // 点了第 3 首（c）→ 队列只剩 c, d；前面的 a, b 不进待播
+    expect(queueIds()).toEqual(['c', 'd'])
     expect(usePlayerStore.getState().index).toBe(0)
   })
 
   it('越界的 startIndex 夹到有效范围，不会拿 undefined 去起播', async () => {
     await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], 99))
-    expect(queueIds()).toEqual(['b', 'a'])
+    // 夹到末项 → 只剩最后一首
+    expect(queueIds()).toEqual(['b'])
 
     await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], -5))
+    // 夹到 0 → 整个列表
     expect(queueIds()).toEqual(['a', 'b'])
   })
 
@@ -899,7 +905,8 @@ describe('playTrackList 起播时重建队列', () => {
     expect(added.map((track) => track.id)).toEqual(
       usePlayerStore.getState().queue.map((entry) => entry.qid),
     )
-    expect(added).toHaveLength(3)
+    // 点第 2 首（b）→ 只剩 b, c 两首
+    expect(added).toHaveLength(2)
   })
 
   it('把选中那首的播放地址交给播放器（起播不能拿到别的歌）', async () => {
@@ -917,12 +924,35 @@ describe('playTrackList 起播时重建队列', () => {
     expect(usePlayerStore.getState().source).toEqual(source)
   })
 
-  it('新队列把随机播放关掉，避免「开关是开着的、顺序却是原始的」', async () => {
-    loadQueue(0)
+  it('尊重当前随机开关：开着随机时点列表，当前这首不动、其后打乱', async () => {
     usePlayerStore.getState().setShuffle(true)
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
 
-    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')]))
+    // 点第 1 首，slice 后自然顺序 = [a,b,c,d]
+    await playTrackList(
+      playListInput([makeTrack('a'), makeTrack('b'), makeTrack('c'), makeTrack('d')], 0),
+    )
 
+    const q = queueIds()
+    // 随机不被重置（不再强制关）
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+    // 当前这首（a）固定在队首，其后被打乱（集合不变）
+    expect(q[0]).toBe('a')
+    expect(new Set(q.slice(1))).toEqual(new Set(['b', 'c', 'd']))
+    // baseQueue 恒存原始顺序（供取消随机时还原）
+    expect(usePlayerStore.getState().baseQueue.map((e) => e.trackId)).toEqual(['a', 'b', 'c', 'd'])
+
+    random.mockRestore()
+  })
+
+  it('随机关时点列表：按原始顺序进待播', async () => {
+    usePlayerStore.getState().setShuffle(false)
+
+    await playTrackList(
+      playListInput([makeTrack('a'), makeTrack('b'), makeTrack('c')], 0),
+    )
+
+    expect(queueIds()).toEqual(['a', 'b', 'c'])
     expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
   })
 })

@@ -8,9 +8,9 @@ import {
   Text,
   View,
 } from 'react-native'
-import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Icon, type IconName } from '@/components/icon'
+import { tap } from '@/lib/haptics'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
@@ -92,7 +92,7 @@ export function ActionSheet({ visible, title, items, onSelect, onClose }: Action
   }
 
   const select = (key: string) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    tap()
     onSelect(key)
     close()
   }

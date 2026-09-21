@@ -186,8 +186,14 @@ async function playTrackListMutation({ provider, serverId, tracks, startIndex, s
 
     const items = tracks.map((track) => toQueueItem(track, provider, serverId))
     const safeStart = Math.min(Math.max(startIndex, 0), items.length - 1)
-    const selected = items[safeStart]!
-    const orderedItems = [selected, ...items.filter((_, itemIndex) => itemIndex !== safeStart)]
+    // 点列表第 N 首 = 「这首及之后」进队列，前段丢弃（对齐 Apple Music）。
+    // baseQueue 恒存这段的原始顺序，供取消随机时还原。
+    const sliced = items.slice(safeStart)
+    const baseQueue = sliced
+    // 尊重当前随机开关：开着 → 当前这首不动、其后打乱；关着 → 原始顺序。
+    const shuffle = usePlayerStore.getState().playMode.shuffle
+    const orderedItems =
+      shuffle && sliced.length > 1 ? [sliced[0]!, ...shuffled(sliced.slice(1))] : sliced
     const rntpTracks = await Promise.all(
       orderedItems.map((item, itemIndex) => toRntpTrack(item, provider, { allowTranscode: itemIndex === 0 })),
     )
@@ -198,7 +204,7 @@ async function playTrackListMutation({ provider, serverId, tracks, startIndex, s
     await TrackPlayer.reset()
     await TrackPlayer.add(rntpTracks)
     const safeIndex = 0
-    usePlayerStore.getState().setQueue(orderedItems, safeIndex, source)
+    usePlayerStore.getState().setQueue(orderedItems, safeIndex, source, baseQueue)
     await TrackPlayer.play()
     void refreshArtwork(safeIndex)
     schedulePrefetch(safeIndex)

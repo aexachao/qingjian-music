@@ -21,7 +21,7 @@ interface PlayerState {
   autoplay: boolean
   /** 歌词时间轴偏移（毫秒，正值歌词提前） */
   lyricOffsetMs: number
-  setQueue(queue: QueueItem[], index: number, source?: PlaySource): void
+  setQueue(queue: QueueItem[], index: number, source?: PlaySource, baseQueue?: QueueItem[]): void
   /** 往队尾追加（漫游续歌、无限播放用） */
   appendItems(items: QueueItem[]): void
   /** 插入到当前曲目之后（「下一首播放」） */
@@ -74,8 +74,24 @@ export interface RestorePayload {
 }
 
 function appendHistoryOccurrence(history: QueueItem[], item: QueueItem | undefined): QueueItem[] {
-  if (!item || history.some((entry) => entry.qid === item.qid)) return history
-  return [...history, item]
+  if (!item) return history
+  // 每次「离开正在播放」都记一条新 occurrence：给历史条目盖一个独立唯一 id
+  // （与队列 qid 解耦）。这样同一首歌可在历史里出现多次（对齐 Apple Music 的收听流），
+  // removeHistoryItem 按 id 能精确删一条，快照也不会把重复曲目误合并。
+  const entry: QueueItem = { ...item, qid: nextHistoryOccurrenceId(item) }
+  const next = [...history, entry]
+  // 软上限：只留最近 HISTORY_CAP 条，超了从最旧的开始丢（历史项不绑定本地文件，丢了无碍）。
+  return next.length > HISTORY_CAP ? next.slice(next.length - HISTORY_CAP) : next
+}
+
+/** 历史 occurrence 的软上限（见第 9 轮立项：200 条，字段占用极小） */
+export const HISTORY_CAP = 200
+
+/** 历史 occurrence id 自增序列（本地会话内单调递增，与队列 qid 无关） */
+let historyOccurrenceSeq = 0
+function nextHistoryOccurrenceId(item: QueueItem): string {
+  historyOccurrenceSeq += 1
+  return `h:${item.serverId}:${item.trackId}:${historyOccurrenceSeq.toString(36)}`
 }
 
 export const usePlayerStore = create<PlayerState>((set) => ({
@@ -94,16 +110,17 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     set((state) => ({
       history: appendHistoryOccurrence(state.history, item),
     })),
-  // 换了队列就把随机关掉：新队列本来就是原始顺序，标记留着会和实际顺序不一致
-  setQueue: (queue, index, source) =>
-    set((state) => ({
+  // 换队列**保留历史**（收听流跨队列延续，对齐 Apple Music）；
+  // 也**不再强制关随机** —— 尊重用户当前的随机开关（列表点播时由 controller 决定待播是否洗牌）。
+  setQueue: (queue, index, source, baseQueue) =>
+    set(() => ({
       queue,
-      history: [],
-      baseQueue: queue,
+      // 随机开时，queue 是打乱的而 baseQueue 存原始顺序（供取消随机时还原）；
+      // 不传时默认两者一致。
+      baseQueue: baseQueue ?? queue,
       index,
       source,
       playbackEnded: false,
-      playMode: { ...state.playMode, shuffle: false },
     })),
   appendItems: (items) =>
     set((state) => ({ queue: [...state.queue, ...items], baseQueue: [...state.baseQueue, ...items] })),

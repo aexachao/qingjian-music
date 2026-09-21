@@ -91,6 +91,44 @@ describe('独立当前、待播和历史语义', () => {
     expect(new Set(historyIds).size).toBe(historyIds.length)
   })
 
+  it('换队列保留历史（收听流跨队列延续，对齐 Apple Music）', () => {
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+    usePlayerStore.getState().activateIndex(1)
+    expect(usePlayerStore.getState().history.map((e) => e.trackId)).toEqual(['a'])
+
+    // 换一个新队列（比如点另一个歌单）：历史不该被清空
+    usePlayerStore.getState().setQueue([item('x'), item('y')], 0, { kind: 'playlist', label: '另一个歌单' })
+
+    expect(usePlayerStore.getState().history.map((e) => e.trackId)).toEqual(['a'])
+  })
+
+  it('换队列不强制关随机（尊重用户当前开关）', () => {
+    usePlayerStore.getState().setShuffle(true)
+    usePlayerStore.getState().setQueue(queue, 0, { kind: 'tracks', label: '全部歌曲' })
+    expect(usePlayerStore.getState().playMode.shuffle).toBe(true)
+  })
+
+  it('setQueue 传 baseQueue 时分开存（随机开：queue 打乱、baseQueue 原序）', () => {
+    const shuffledQ = [item('a'), item('c'), item('b')]
+    const original = [item('a'), item('b'), item('c')]
+    usePlayerStore.getState().setQueue(shuffledQ, 0, { kind: 'tracks', label: '全部歌曲' }, original)
+    const state = usePlayerStore.getState()
+    expect(state.queue.map((e) => e.trackId)).toEqual(['a', 'c', 'b'])
+    expect(state.baseQueue.map((e) => e.trackId)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('历史软上限 200：超过就从最旧的开始丢', () => {
+    // 造一个长队列（201 首），从头一直切到尾，制造 200+ 条历史
+    const longQueue = Array.from({ length: 201 }, (_, i) => item(`t${i}`, `q${i}`))
+    usePlayerStore.getState().setQueue(longQueue, 0, { kind: 'tracks', label: '全部歌曲' })
+    // 连续切歌 200 次（每次把当前追进历史）
+    for (let i = 0; i < 201; i += 1) {
+      usePlayerStore.getState().activateIndex(1)
+    }
+    const history = usePlayerStore.getState().history
+    expect(history.length).toBeLessThanOrEqual(200)
+  })
+
   it('清历史只清日志，不影响当前和待播', () => {
     usePlayerStore.getState().setQueue(queue, 0)
     usePlayerStore.getState().activateIndex(1)

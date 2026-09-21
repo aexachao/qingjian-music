@@ -27,15 +27,16 @@ function sanitizeQueueItem(item: QueueItem): SnapshotQueueItem {
   return safe
 }
 
-function uniqueOccurrences(items: QueueItem[]): SnapshotQueueItem[] {
-  const seen = new Set<string>()
-  return items.reduce<SnapshotQueueItem[]>((result, item) => {
-    const safe = sanitizeQueueItem(item)
-    if (seen.has(safe.qid)) return result
-    seen.add(safe.qid)
-    result.push(safe)
-    return result
-  }, [])
+/** 历史 occurrence 的快照上限（与 store 的 HISTORY_CAP 一致） */
+export const SNAPSHOT_HISTORY_CAP = 200
+
+/**
+ * 历史入快照：**不去重**（同一首可多次出现，对齐收听流模型），只做上限截断。
+ * 旧版按 qid 去重是为了堆前那套「永久去重」逻辑；现在历史条目 id 已各自唯一，无需去重。
+ */
+function cappedHistory(items: QueueItem[]): SnapshotQueueItem[] {
+  const safe = items.map(sanitizeQueueItem)
+  return safe.length > SNAPSHOT_HISTORY_CAP ? safe.slice(safe.length - SNAPSHOT_HISTORY_CAP) : safe
 }
 
 export function createPlaybackSnapshot(input: {
@@ -68,7 +69,7 @@ export function parsePlaybackSnapshot(value: unknown): RestorablePlaybackSnapsho
   }
 
   const history = Array.isArray(parsed.history) ? parsed.history : []
-  const safeHistory = uniqueOccurrences(history as QueueItem[])
+  const safeHistory = cappedHistory(history as QueueItem[])
   const baseQueue = Array.isArray(parsed.baseQueue) ? parsed.baseQueue : parsed.queue
   const queue = parsed.queue.map((item) => sanitizeQueueItem(item as QueueItem))
   const safeBaseQueue = baseQueue.map((item) => sanitizeQueueItem(item as QueueItem))
