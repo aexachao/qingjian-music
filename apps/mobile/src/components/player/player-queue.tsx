@@ -260,7 +260,8 @@ export function PlayerQueue({
   const stickySectionRef = useRef<QueueSectionKind | null>(null)
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     // 第一个可见的 section header 就是当前吸顶的
-    const topSection = viewableItems.find((v) => v.section)?.section?.key as QueueSectionKind | undefined
+    if (!viewableItems || viewableItems.length === 0) return
+    const topSection = viewableItems.find((v) => v?.section)?.section?.key as QueueSectionKind | undefined
     if (topSection && topSection !== stickySectionRef.current) {
       stickySectionRef.current = topSection
       tap()
@@ -282,30 +283,30 @@ export function PlayerQueue({
     return consumed
   }, [setQueueActionOpen])
 
-  // 初始定位：挂载时把滚动位置跳到「正在播放」那个 section，
-  // 让正在播放落在视口顶部；历史在上方（下拉才露）、待播在下方（默认可见）。
+  // 初始定位：等列表测量完（onContentSizeChange）再跳到「正在播放」section，
+  // 避免 scrollToLocation 在未测量时异步抛原生异常（间歇崩溃源）。
   const didInitialScroll = useRef(false)
-  useEffect(() => {
+  const doInitialScroll = useCallback(() => {
     if (didInitialScroll.current || !currentItem) return
-    if (axis.currentSectionIndex <= 0) {
-      // 无历史 section（或历史在首位）：本来就在顶部，不用跳
+    const sectionIndex = axis.currentSectionIndex
+    // 守卫：section 下标必须在范围内且大于 0（无历史时本就在顶部，不用跳）
+    if (sectionIndex <= 0 || sectionIndex >= axis.sections.length) {
       didInitialScroll.current = true
       return
     }
     didInitialScroll.current = true
-    requestAnimationFrame(() => {
-      try {
-        sectionListRef.current?.scrollToLocation({
-          sectionIndex: axis.currentSectionIndex,
-          itemIndex: 0,
-          viewOffset: 0,
-          animated: false,
-        })
-      } catch {
-        // 列表还没量好时可能抛，忽略（下一帧用户一滞就到位）
-      }
-    })
-  }, [currentItem, axis.currentSectionIndex])
+    try {
+      sectionListRef.current?.scrollToLocation({
+        sectionIndex,
+        itemIndex: 0,
+        viewPosition: 0,
+        viewOffset: 0,
+        animated: false,
+      })
+    } catch {
+      // 列表还没量好时可能抛，忽略
+    }
+  }, [currentItem, axis.currentSectionIndex, axis.sections.length])
 
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
@@ -423,9 +424,9 @@ export function PlayerQueue({
         </View>
       )
     }
-    // current section 无头
-    return null
-  }, [autoplay, confirmClearHistory, confirmClearUpcoming, consumeOpenAction, index, onToggleAutoplay, playMode, provider, queue, styles, upcomingCount])
+    // current section 无头：返回 0 高 View（不能返 null——sticky 开关下原生层测量 null header 会偶发崩）
+    return <View />
+  }, [autoplay, confirmClearHistory, confirmClearUpcoming, consumeOpenAction, onToggleAutoplay, playMode, provider, styles, upcomingCount])
 
   const isDismissEnabled = !isMenuOpen && isAtTop
 
@@ -452,6 +453,7 @@ export function PlayerQueue({
         if (closeOpenQueueAction()) setQueueActionOpen(false)
       }}
       onScrollToIndexFailed={() => {}}
+      onContentSizeChange={doInitialScroll}
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       windowSize={7}
