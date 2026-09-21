@@ -87,9 +87,12 @@ const {
   clearUpcoming,
   cycleCurrentToQueueEnd,
   cycleRepeat,
+  fillFromListFeed,
+  hasPendingListFeed,
   markForcedTranscode,
   moveInQueue,
   playNext,
+  playSingleTrack,
   playTrackList,
   rememberProvider,
   removeFromQueue,
@@ -954,6 +957,74 @@ describe('playTrackList 起播时重建队列', () => {
 
     expect(queueIds()).toEqual(['a', 'b', 'c'])
     expect(usePlayerStore.getState().playMode.shuffle).toBe(false)
+  })
+})
+
+describe('playSingleTrack 搜索点歌走单曲', () => {
+  it('队列只有这一首，待播为空', async () => {
+    // 先装个多首队列，确认单曲会把它整个换掉
+    loadQueue(0)
+    await playSingleTrack({
+      provider,
+      serverId: 'srv',
+      track: makeTrack('z'),
+      source: { kind: 'search', label: '搜索 · z' },
+    })
+
+    expect(queueIds()).toEqual(['z'])
+    expect(usePlayerStore.getState().index).toBe(0)
+    // 待播为空（只有当前这首）
+    expect(usePlayerStore.getState().queue.length).toBe(1)
+  })
+
+  it('单曲不登记列表续拉器（搜索结果不当队列）', async () => {
+    await playSingleTrack({
+      provider,
+      serverId: 'srv',
+      track: makeTrack('z'),
+      source: { kind: 'search', label: '搜索 · z' },
+    })
+    expect(hasPendingListFeed()).toBe(false)
+  })
+})
+
+describe('列表续拉器（分页静默补下页）', () => {
+  it('playTrackList 传 loadMorePage 时登记续拉器', async () => {
+    await playTrackList({
+      ...playListInput([makeTrack('a'), makeTrack('b')], 0),
+      loadedPage: 1,
+      loadMorePage: async () => [makeTrack('c')],
+    })
+    expect(hasPendingListFeed()).toBe(true)
+  })
+
+  it('fillFromListFeed 把下一页追加到队尾', async () => {
+    await playTrackList({
+      ...playListInput([makeTrack('a'), makeTrack('b')], 0),
+      loadedPage: 1,
+      loadMorePage: async (page) => (page === 2 ? [makeTrack('c'), makeTrack('d')] : []),
+    })
+
+    await fillFromListFeed(provider, 'srv')
+
+    expect(queueIds()).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('返回空页→标记列表已到末尾，不再补', async () => {
+    await playTrackList({
+      ...playListInput([makeTrack('a')], 0),
+      loadedPage: 1,
+      loadMorePage: async () => [],
+    })
+
+    await fillFromListFeed(provider, 'srv')
+    expect(hasPendingListFeed()).toBe(false)
+    expect(queueIds()).toEqual(['a'])
+  })
+
+  it('不传 loadMorePage 时无续拉器（专辑这类一次拉全的列表）', async () => {
+    await playTrackList(playListInput([makeTrack('a'), makeTrack('b')], 0))
+    expect(hasPendingListFeed()).toBe(false)
   })
 })
 

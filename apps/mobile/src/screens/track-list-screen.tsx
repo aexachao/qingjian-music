@@ -12,7 +12,7 @@ import type { ListKind } from '@/lib/list-sort-policy'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { playTrackList } from '@/player/controller'
+import { playSingleTrack, playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles } from '@/theme/theme-provider'
 import { spacing } from '@/theme/tokens'
@@ -30,6 +30,12 @@ interface TrackListScreenProps {
   /** 专辑内显示序号，其它列表显示封面 */
   leading?: 'index' | 'cover'
   enabled?: boolean
+  /**
+   * 点某首歌的播放语义：
+   * - 'list'（默认）：这首及之后进队列（歌单/专辑/最爱/最近播放这类「有意义的有序列表」）
+   * - 'single'：只播这一首、待播留空（搜索结果这类「杂七杂八的匹配项」，对齐 Apple Music）
+   */
+  playMode?: 'list' | 'single'
 }
 
 /** 曲目列表通用页：收藏、最近播放、流派、歌单、全部歌曲都复用它 */
@@ -42,6 +48,7 @@ export function TrackListScreen({
   header,
   leading = 'cover',
   enabled = true,
+  playMode = 'list',
 }: TrackListScreenProps) {
   const styles = useStyles()
   const { provider, connection } = useServerSession()
@@ -87,7 +94,25 @@ export function TrackListScreen({
             playing={current?.serverId === connection?.id && current?.trackId === item.id}
             onPress={() => {
               if (!provider || !connection) return
-              void playTrackList({ provider, serverId: connection.id, tracks: items, startIndex: index, source })
+              if (playMode === 'single') {
+                void playSingleTrack({ provider, serverId: connection.id, track: item, source })
+              } else {
+                // 列表点播：把「下一页拉取器」一并交给队列，近尾时静默补列表后续页。
+                // 已加载页数 = query.data.pages.length（usePagedQuery 页号从 1 起）。
+                const loadedPage = query.data?.pages.length ?? 1
+                void playTrackList({
+                  provider,
+                  serverId: connection.id,
+                  tracks: items,
+                  startIndex: index,
+                  source,
+                  loadedPage,
+                  loadMorePage: async (page) => {
+                    const result = await fetchPage(page, sort)
+                    return result.items
+                  },
+                })
+              }
             }}
           />
         )}

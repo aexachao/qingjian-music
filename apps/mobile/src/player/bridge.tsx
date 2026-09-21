@@ -10,7 +10,9 @@ import {
   cycleCurrentToQueueEnd,
   ensureTranscodeForIndex,
   extendWithRadio,
+  fillFromListFeed,
   fillRadio,
+  hasPendingListFeed,
   isRestoringSession,
   markForcedTranscode,
   refreshArtwork,
@@ -191,13 +193,20 @@ export function PlayerBridge() {
       void ensureTranscodeForIndex(activeIndex, { resumePlayback: !isRestoringSession() }).catch((error: unknown) => {
         console.warn('转码会话切换失败', error)
       })
-      // 漫游电台：快到队尾就接着往后取，听着是无限的（除非用户关了「无限播放」）
+      // 续歌优先级：列表还没放完 → 静默补列表下一页（不看♾️，这是列表本身）；
+      // 列表真末尾后，才看♾️无限播放 → 用全库漫游续命。
       if (provider && connection) {
         const { source, autoplay, queue } = usePlayerStore.getState()
+        const nearEnd = activeIndex >= queue.length - 2
         if (source?.kind === 'radio' && autoplay) {
           void fillRadio(provider, connection.id)
-        } else if (autoplay && activeIndex >= queue.length - 2) {
-          // 无限播放：普通队列快播完了，用漫游接着放
+        } else if (nearEnd && hasPendingListFeed()) {
+          // 列表还有下页：无论♾️开没开都补（把列表放完）
+          void fillFromListFeed(provider, connection.id).catch((error: unknown) => {
+            console.warn('列表续拉失败', error)
+          })
+        } else if (autoplay && nearEnd) {
+          // 列表真末尾 + 开了♾️：用漫游接着放
           void extendWithRadio(provider, connection.id).catch((error: unknown) => {
             console.warn('无限播放续歌失败', error)
           })

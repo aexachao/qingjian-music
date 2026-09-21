@@ -175,10 +175,54 @@ export interface PlayListInput {
   tracks: Track[]
   startIndex: number
   source: PlaySource
+  /**
+   * 列表的「下一页拉取器」（可选）。传了就能在队列近尾时静默补列表下一页，
+   * 直到列表真末尾（与漫游无关）。参数是下一页页号，返回那一页（空/末页返回 undefined）。
+   */
+  loadMorePage?: (page: number) => Promise<Track[] | undefined>
+  /** 起播时已加载到的页号（tracks 覆盖到这一页），续拉从下一页开始 */
+  loadedPage?: number
+}
+
+/**
+ * 当前队列来源列表的「续拉器」（模块级）。
+ * 不能放进 PlaySource（那要序列化持久化），所以用模块变量存。
+ * 换队列/漫游/单曲起播时清掉（那些不来自可翻页列表）。
+ */
+let listFeed: { next: (page: number) => Promise<Track[] | undefined>; nextPage: number; done: boolean } | undefined
+let listFeedFilling = false
+
+function resetListFeed(): void {
+  listFeed = undefined
+  listFeedFilling = false
+}
+
+/** 队列近尾时补列表下一页（与漫游解耦：这是「列表还没放完」，不看♾️）。 */
+export async function fillFromListFeed(provider: MusicProvider, serverId: string): Promise<void> {
+  if (!listFeed || listFeed.done || listFeedFilling) return
+  listFeedFilling = true
+  try {
+    const page = await listFeed.next(listFeed.nextPage)
+    if (!page || page.length === 0) {
+      listFeed.done = true
+      return
+    }
+    listFeed.nextPage += 1
+    await appendTracks({ provider, serverId, tracks: page })
+  } catch {
+    // 补页失败不影响已在放的队列，下次近尾再试
+  } finally {
+    listFeedFilling = false
+  }
+}
+
+/** 列表是否还有未拉的下一页（bridge 用它判断先补列表还是看♾️漫游） */
+export function hasPendingListFeed(): boolean {
+  return Boolean(listFeed && !listFeed.done)
 }
 
 /** 从一个列表开始播放（专辑、艺术家、搜索结果都走这里） */
-async function playTrackListMutation({ provider, serverId, tracks, startIndex, source }: PlayListInput): Promise<void> {
+async function playTrackListMutation({ provider, serverId, tracks, startIndex, source, loadMorePage, loadedPage }: PlayListInput): Promise<void> {
   if (tracks.length === 0) return
   usePlayerStore.getState().setIsLoadingAudio(true)
   try {
@@ -200,6 +244,12 @@ async function playTrackListMutation({ provider, serverId, tracks, startIndex, s
 
     // 换成别的来源就结束漫游会话，否则后面会往专辑队列里塞电台歌
     if (source.kind !== 'radio') resetRadioSession()
+    // 登记列表续拉器：调用方传了才能近尾补下页（搜索单曲不传，不会有续拉）
+    if (loadMorePage) {
+      listFeed = { next: loadMorePage, nextPage: (loadedPage ?? 1) + 1, done: false }
+    } else {
+      resetListFeed()
+    }
 
     await TrackPlayer.reset()
     await TrackPlayer.add(rntpTracks)
@@ -218,6 +268,47 @@ async function playTrackListMutation({ provider, serverId, tracks, startIndex, s
 export function playTrackList(input: PlayListInput): Promise<void> {
   playbackGeneration.advance()
   return queueMutations.run(() => playTrackListMutation(input), { label: '开始播放列表' })
+}
+
+/**
+ * 单曲播放：队列**只有这一首**，待播为空（对齐 Apple Music 的搜索点歌）。
+ *
+ * 搜索结果不是一个「歌单」，不把它当队列：只播选中那首，待播留空。
+ * 待播空时队列页会提示「开启无限播放」；开了♾️→ bridge 的续歌分支用全库漫游填充。
+ */
+async function playSingleTrackMutation({ provider, serverId, track, source }: {
+  provider: MusicProvider
+  serverId: string
+  track: Track
+  source: PlaySource
+}): Promise<void> {
+  usePlayerStore.getState().setIsLoadingAudio(true)
+  try {
+    await ensurePlayer()
+    const item = toQueueItem(track, provider, serverId)
+    const rntpTrack = await toRntpTrack(item, provider, { allowTranscode: true })
+    if (source.kind !== 'radio') resetRadioSession()
+    resetListFeed()
+    await TrackPlayer.reset()
+    await TrackPlayer.add([rntpTrack])
+    usePlayerStore.getState().setQueue([item], 0, source, [item])
+    await TrackPlayer.play()
+    void refreshArtwork(0)
+  } finally {
+    setTimeout(() => {
+      usePlayerStore.getState().setIsLoadingAudio(false)
+    }, 400)
+  }
+}
+
+export function playSingleTrack(input: {
+  provider: MusicProvider
+  serverId: string
+  track: Track
+  source: PlaySource
+}): Promise<void> {
+  playbackGeneration.advance()
+  return queueMutations.run(() => playSingleTrackMutation(input), { label: '单曲播放' })
 }
 
 /** 往队尾追加曲目（漫游续歌、以后的「稍后播放」都用它）。追加的都不是当前曲目，所以不开转码 */
@@ -749,6 +840,7 @@ export function rememberProvider(provider: MusicProvider | null): void {
     prefetchToken += 1
     forcedTranscode.clear()
     resetRadioSession()
+    resetListFeed()
     abortTranscodeCaching()
     void clearWarmTranscode()
   }
