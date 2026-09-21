@@ -5,30 +5,32 @@ const queueSource = readSource('components/player/player-queue.tsx')
 const playerSource = readSource('app/player.tsx')
 
 describe('播放器队列竖轴交互', () => {
-  it('采用单一竖轴：历史在上、正在播放居中、待播在下（已废弃左右 tab pager）', () => {
-    // 不再有水平 tab：数据来自 queueAxisView / queueAxisRows
+  it('采用三模块 SectionList：历史/正在播放/待播（已废弃左右 tab pager）', () => {
     expect(queueSource).toContain('queueAxisView(history, queue, index)')
-    expect(queueSource).toContain('queueAxisRows(axis, index)')
+    expect(queueSource).toContain('<SectionList')
+    expect(queueSource).toContain('stickySectionHeadersEnabled')
     expect(queueSource).not.toContain("useState<QueueTab>")
     expect(queueSource).not.toContain('pagerX.value = withTiming')
   })
 
-  it('历史在 ListHeader 里倒序渲染（不可拖），待播是列表数据（可拖）', () => {
-    // 历史行渲在 ListHeaderComponent（renderHistoryRow），待播行是 ReorderableList 数据（renderUpcomingItem）
-    expect(queueSource).toContain('const listHeader = (')
-    expect(queueSource).toContain('renderHistoryRow(row)')
-    expect(queueSource).toContain('ListHeaderComponent={listHeader}')
-    expect(queueSource).toContain('data={upcomingRows}')
+  it('三个 section：历史头+行、正在播放（卡作为 row）、待播头（工具栏）+行', () => {
+    expect(queueSource).toContain('renderSectionHeader')
+    expect(queueSource).toContain('renderItem={renderRow}')
+    // 历史头在行上方（sticky）；待播头=随机工具栏
+    expect(queueSource).toContain("section.key === 'history'")
+    expect(queueSource).toContain("section.key === 'upcoming'")
+    expect(queueSource).toContain('<ModesHeader')
   })
 
-  it('初始定位到「正在播放」（历史块高度为初始 offset）', () => {
-    expect(queueSource).toContain('scrollToOffset({ offset: historyBlockH, animated: false })')
+  it('初始定位到「正在播放」section（scrollToLocation）', () => {
+    expect(queueSource).toContain('scrollToLocation')
+    expect(queueSource).toContain('axis.currentSectionIndex')
     expect(queueSource).toContain('didInitialScroll')
   })
 
-  it('分段吸顶震动：跨段才震，走 lib/haptics 的 tap', () => {
-    expect(queueSource).toContain('stickySegRef.value')
-    expect(queueSource).toContain('runOnJS(buzz)()')
+  it('分段吸顶震动：吸顶 section 变了才震，走 lib/haptics 的 tap', () => {
+    expect(queueSource).toContain('onViewableItemsChanged')
+    expect(queueSource).toContain('stickySectionRef')
     expect(queueSource).toContain("import { tap } from '@/lib/haptics'")
   })
 
@@ -42,37 +44,27 @@ describe('播放器队列竖轴交互', () => {
     expect(queueSource).toContain('downwardVelocity > 1200 && pullDistance > 20')
   })
 
-  it('排序把手需长按 350ms 才激活', () => {
-    expect(queueSource).toContain('const LONG_PRESS_MS = 350')
-    expect(queueSource).toContain('onLongPress={() => {')
-    expect(queueSource).toContain('delayLongPress={LONG_PRESS_MS}')
-    expect(queueSource.indexOf('setDragHandlePressed(true)')).toBeGreaterThan(queueSource.indexOf('onLongPress={() => {'))
+  it('待播行左滑删除保留（SectionList 不支持拖拽排序，排序改走「···」菜单）', () => {
+    // 左滑删除仍在（QueueRow 里的 Swipeable）
+    expect(queueSource).toContain('renderRightActions')
+    // 不再依赖 ReorderableList
+    expect(queueSource).not.toContain("from 'react-native-reorderable-list'")
   })
 
-  it('按下把手以及拖动期间都关闭行左滑识别', () => {
-    expect(queueSource).toContain('enabled={swipeEnabled && !dragHandlePressed}')
-    expect(queueSource).toContain('runOnJS(setDragging)(true)')
-    expect(queueSource).toContain('dismissedSwipeOnHandlePress.current = closeOpenQueueAction()')
-    expect(queueSource).toContain('onDragEnd={onDragEnd}')
-  })
-
-  it('Tab 已废弃：改为单一竖轴列表（无 pager、无水平切换）', () => {
+  it('Tab 已废弃：无 pager、无水平切换', () => {
     expect(queueSource).not.toContain('pagerX.value = withTiming')
     expect(queueSource).not.toContain('styles.pagerTrack')
     expect(queueSource).not.toContain('slideOpacity')
-    // 待播单列表仍在 pagerViewport 容器里（名字保留）
-    expect(queueSource).toContain('styles.pagerViewport')
   })
 
-  it('列表在顶部允许下拉退出，采用 ScrollHandler 联动退场机制与橡皮筋反向补偿', () => {
+  it('列表顶部下拉退出：复用 createDismissPan，包住 SectionList', () => {
     expect(playerSource).toContain('const [isListAtTop, setIsListAtTop] = useState(true)')
     expect(playerSource).toContain("if (mode === 'list') { setIsListAtTop(true)")
     expect(playerSource).toContain('createDismissPan={createDismissPan}')
     expect(playerSource).toContain("mode !== 'list' || isListAtTop")
     expect(queueSource).toContain('bounces={true}')
     expect(queueSource).toContain('alwaysBounceVertical={true}')
-    expect(queueSource).toContain('gesture={headerOverlayDismissGesture}')
-    expect(queueSource).not.toContain('ReorderableListCore')
+    expect(queueSource).toContain('gesture={listDismissGesture}')
   })
 
   it('播放器与播放列表中的收藏 icon 统一采用面性（实心）形态', () => {

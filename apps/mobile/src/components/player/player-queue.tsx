@@ -1,24 +1,20 @@
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
-  FlatList,
   Pressable,
-  StyleSheet,
+  SectionList,
   Text,
   View,
   useWindowDimensions,
   Animated as RNAnimated,
+  type ViewToken,
 } from 'react-native'
 import { useConfirm } from '@/components/confirm-modal'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
-import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import * as Haptics from 'expo-haptics'
 import { tap } from '@/lib/haptics'
 import Animated, {
   Easing,
-  Extrapolation,
-  interpolate,
   runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -39,7 +35,6 @@ import {
   cycleRepeat,
   extendWithRadio,
   fillRadio,
-  moveInQueue,
   playHistoryItem,
   RADIO_UPCOMING_KEEP,
   removeFromQueue,
@@ -49,11 +44,11 @@ import {
 } from '@/player/controller'
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
-import { CoverBackdrop } from './cover-backdrop'
 import { usePlayerStore } from '@/player/store'
 import {
-  queueAxisRows,
   queueAxisView,
+  type QueueAxisRow,
+  type QueueSectionKind,
 } from '@/lib/queue-axis-policy'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
@@ -105,9 +100,9 @@ export function PlayerQueue({
   onDismiss?: () => void
 }) {
   const styles = useStyles()
-  const insets = useSafeAreaInsets()
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions()
-  const stageTopOffset = propStageTopOffset ?? (insets.top + spacing.sm + 50 + spacing.xs)
+  const { height: screenHeight } = useWindowDimensions()
+  void propStageTopOffset
+
   const [containerHeight, setContainerHeight] = useState(0)
   const queueViewportHeight = containerHeight || propStageHeight?.value || 350
 
@@ -124,35 +119,16 @@ export function PlayerQueue({
     onActionOpenChange?.(open)
   }, [onActionOpenChange])
 
-  // 竖轴视图：历史（倒序、上限 50）/ 正在播放 / 待播 —— 见 queue-axis-policy.ts
+  // 三模块竖轴视图（SectionList）：历史 / 正在播放 / 待播 —— 见 queue-axis-policy.ts
   const axis = useMemo(() => queueAxisView(history, queue, index), [history, queue, index])
-  const { historyRows, upcomingRows } = useMemo(
-    () => queueAxisRows(axis, index),
-    [axis, index],
-  )
 
   const currentItem = queue[index]
-  // 竖轴布局常量（pt）
-  const ROW_H = 56
-  const CARD_H = 88            // 正在播放卡
-  const TOOLBAR_H = 72         // 随机/循环/无限 工具栏
-  const HISTORY_TITLE_H = 40   // 历史小标题栏
-  // 历史区内容高（倒序行 + 小标题）；初始滚动定位到这里，让正在播放落在视口顶部
-  const historyCount = axis.history.length
-  const historyBlockH = currentItem ? (historyCount * ROW_H + HISTORY_TITLE_H) : 0
-  const modesContentOffset = currentItem ? CARD_H : 0
   const scrollY = useSharedValue(0)
   const isAtTopRef = useSharedValue(true)
   const [isAtTop, setIsAtTop] = useState(true)
   const isDismissing = useSharedValue(false)
   const isDraggingRef = useSharedValue(false)
   const dragStartedAtTopRef = useSharedValue(false)
-  // 分段吸顶震动：记上一帧处于哪一段，跨段才震（避免持续震）
-  const stickySegRef = useSharedValue(1) // 0=历史 1=正在播放（默认） 2=工具栏
-
-  const buzz = useCallback(() => {
-    tap()
-  }, [])
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -168,15 +144,7 @@ export function PlayerQueue({
         }
       }
 
-      // 分段吸顶震动：跨过阀值才震（历史小标题吸顶于 historyBlockH；工具栏吸顶于 historyBlockH+CARD_H）
-      if (currentItem) {
-        const y = event.contentOffset.y
-        const seg = y >= historyBlockH + CARD_H ? 2 : y >= historyBlockH - 2 ? 1 : 0
-        if (seg !== stickySegRef.value) {
-          stickySegRef.value = seg
-          runOnJS(buzz)()
-        }
-      }
+      // 分段吸顶震动交给 onViewableItemsChanged（看当前吸顶的是哪个 section），这里不管
 
       // 仅当手势是在列表最顶部（正在播放内容块已吸顶）时发起，才联动全屏模态框下移
       // 若在列表下方（循环工具栏吸顶时）向下拉，播放器页面不动，专心执行列表内部滚动与回弹
@@ -248,11 +216,6 @@ export function PlayerQueue({
     },
   })
 
-  const onIndexChange = useCallback((_: any) => {
-    'worklet'
-    runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light)
-  }, [])
-
   const onToggleAutoplay = useCallback(() => {
     const next = !autoplay
     usePlayerStore.getState().setAutoplay(next)
@@ -262,26 +225,12 @@ export function PlayerQueue({
     void extendWithRadio(provider, connection.id).catch(() => {})
   }, [autoplay, connection, provider])
 
-  // 空状态高度：舞台净高 - 工具栏高
+  // 空状态高度：舞台净高
   const minContentHeight = useMemo(() => {
-    return Math.max(160, queueViewportHeight - TOOLBAR_H)
-  }, [queueViewportHeight, TOOLBAR_H])
+    return Math.max(160, queueViewportHeight - 60)
+  }, [queueViewportHeight])
 
-  // 列表最小高：留出向上滑把卡+工具栏推走、工具栏吸顶的行程
-  const minListHeight = useMemo(() => {
-    return queueViewportHeight + historyBlockH + CARD_H
-  }, [queueViewportHeight, historyBlockH, CARD_H])
-
-  // 待播行高：ListHeader（历史块 + 卡 + 工具栏）之后，每行 56
-  const listHeaderH = historyBlockH + CARD_H + TOOLBAR_H
-  const getUpcomingItemLayout = useCallback((_: any, itemIndex: number) => {
-    const isSingleEmpty = upcomingRows[0]?.kind === 'upcomingEmpty'
-    const length = isSingleEmpty ? minContentHeight : ROW_H
-    const offset = listHeaderH + itemIndex * ROW_H
-    return { length, offset, index: itemIndex }
-  }, [listHeaderH, minContentHeight, upcomingRows, ROW_H])
-
-  const upcomingListRef = useRef<FlatList<any>>(null)
+  const sectionListRef = useRef<SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>>(null)
 
   const fillingRef = useRef(false)
   const onEndReached = useCallback(() => {
@@ -299,25 +248,17 @@ export function PlayerQueue({
     }
   }, [autoplay, connection, provider])
 
-  const onReorder = useCallback(({ from, to }: ReorderableListReorderEvent) => {
-    void moveInQueue(from + 1, to + 1)
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }, [])
+  // 分段吸顶震动：当吸顶的 section 变了就震一下（跨段才震，不持续）
+  const stickySectionRef = useRef<QueueSectionKind | null>(null)
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    // 第一个可见的 section header 就是当前吸顶的
+    const topSection = viewableItems.find((v) => v.section)?.section?.key as QueueSectionKind | undefined
+    if (topSection && topSection !== stickySectionRef.current) {
+      stickySectionRef.current = topSection
+      tap()
+    }
+  }).current
 
-  const [dragging, setDragging] = useState(false)
-  const onDragStart = useCallback(() => {
-    'worklet'
-    isDraggingRef.value = true
-    runOnJS(setDragging)(true)
-    runOnJS(closeOpenQueueAction)()
-    runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy)
-  }, [isDraggingRef])
-
-  const onDragEnd = useCallback(() => {
-    'worklet'
-    isDraggingRef.value = false
-    runOnJS(setDragging)(false)
-  }, [isDraggingRef])
 
   useEffect(() => {
     onTopStateChange?.(true)
@@ -333,20 +274,30 @@ export function PlayerQueue({
     return consumed
   }, [setQueueActionOpen])
 
-  // 初始定位：挂载/历史块高度变化时，把滚动位置跳到「正在播放」（= 历史块高），
+  // 初始定位：挂载时把滚动位置跳到「正在播放」那个 section，
   // 让正在播放落在视口顶部；历史在上方（下拉才露）、待播在下方（默认可见）。
   const didInitialScroll = useRef(false)
   useEffect(() => {
-    // 只在首次有了正在播放且历史块高已知时定位一次（之后不抢用户滚动）
     if (didInitialScroll.current || !currentItem) return
-    didInitialScroll.current = true
-    if (historyBlockH > 0) {
-      requestAnimationFrame(() => {
-        upcomingListRef.current?.scrollToOffset({ offset: historyBlockH, animated: false })
-        scrollY.value = historyBlockH
-      })
+    if (axis.currentSectionIndex <= 0) {
+      // 无历史 section（或历史在首位）：本来就在顶部，不用跳
+      didInitialScroll.current = true
+      return
     }
-  }, [currentItem, historyBlockH, scrollY])
+    didInitialScroll.current = true
+    requestAnimationFrame(() => {
+      try {
+        sectionListRef.current?.scrollToLocation({
+          sectionIndex: axis.currentSectionIndex,
+          itemIndex: 0,
+          viewOffset: 0,
+          animated: false,
+        })
+      } catch {
+        // 列表还没量好时可能抛，忽略（下一帧用户一滞就到位）
+      }
+    })
+  }, [currentItem, axis.currentSectionIndex])
 
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
@@ -370,130 +321,139 @@ export function PlayerQueue({
     })
   }, [confirm, consumeOpenAction])
 
-  const rowAnimatedStyle = useAnimatedStyle(() => {
-    // 仅当手势是在列表最顶部（已吸顶）发起全屏下拉退场时，反向补偿列表项 translateY，
-    // 抵消 iOS UIScrollView 原生橡皮筋内部下移，让列表与顶底周边在模态框内纹丝不动，作为一整块刚体同步下滑；
-    // 而若手势是从列表下方向上滑到顶部（dragStartedAtTopRef 为 false），不进行补偿，保留自然原生的到顶回弹吸顶动画。
-    if (dragStartedAtTopRef.value && scrollY.value < 0) {
-      return {
-        transform: [{ translateY: scrollY.value }],
-      }
-    }
-    return {
-      transform: [{ translateY: 0 }],
-    }
-  })
-
   /**
    * 待播行数。待播列表就是 `queue.slice(1)`（当前曲目恒在 index 0），
    * 所以这里用 `queue.length - 1` 作为唯一定义，别处不要再各自算一遍。
    */
   const upcomingCount = Math.max(0, queue.length - 1)
 
-  const renderUpcomingItem = useCallback(({ item }: { item: import('@/lib/queue-axis-policy').QueueAxisRow; index: number }) => {
-    if (item.kind === 'upcomingEmpty') {
+  const renderRow = useCallback(({ item }: { item: QueueAxisRow }) => {
+    if (item.kind === 'current') {
       return (
-        <Animated.View style={rowAnimatedStyle}>
-          <QueueEmptyState
-            title="队列已播完"
-            description="可在音乐库中点播歌曲，或开启上方无限播放"
-            action={!autoplay && provider ? { label: '开启无限播放', onPress: onToggleAutoplay } : undefined}
-            minHeight={minContentHeight}
-            scrollY={scrollY}
-          />
-        </Animated.View>
+        <CurrentTrackCard
+          item={item.item}
+          listAnim={listAnim}
+          consumeOpenAction={consumeOpenAction}
+          onDismissWithAction={onDismissWithAction}
+          onMenuOpenChange={onMenuOpenChange}
+        />
       )
     }
-    if (item.kind !== 'upcoming') return null
-
-    return (
-      <Animated.View style={rowAnimatedStyle}>
-        <QueueRow 
-          item={item.item} 
-          queueIndex={item.queueIndex} 
-          upcomingCount={upcomingCount}
-          playing={false} 
+    if (item.kind === 'history') {
+      return (
+        <QueueRow
+          item={item.item}
+          queueIndex={-1}
+          upcomingCount={0}
+          playing={false}
           isGloballyPlaying={!!isGloballyPlaying}
-          isHistory={false}
-          onSelect={() => void skipToIndex(item.queueIndex)}
-          swipeEnabled={!dragging}
+          isHistory
+          onSelect={() => void playHistoryItem(item.item)}
+          swipeEnabled
           onActionOpenChange={setQueueActionOpen}
         />
-      </Animated.View>
-    )
-  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, upcomingCount])
-
-  // 历史行（非拖拽，渲在 ListHeader 里）。倒序：数组末尾=最近（上一首），贴着正在播放。
-  const renderHistoryRow = useCallback((row: import('@/lib/queue-axis-policy').QueueAxisRow) => {
-    if (row.kind === 'historyEmpty') {
-      return (
-        <View key={row.key} style={{ height: 0 }} />
       )
     }
-    if (row.kind !== 'history') return null
+    if (item.kind === 'upcomingEmpty') {
+      return (
+        <QueueEmptyState
+          title="队列已播完"
+          description="可在音乐库中点播歌曲，或开启上方无限播放"
+          action={!autoplay && provider ? { label: '开启无限播放', onPress: onToggleAutoplay } : undefined}
+          minHeight={minContentHeight}
+        />
+      )
+    }
+    // upcoming
     return (
       <QueueRow
-        key={row.key}
-        item={row.item}
-        queueIndex={-1}
-        upcomingCount={0}
+        item={item.item}
+        queueIndex={item.queueIndex}
+        upcomingCount={upcomingCount}
         playing={false}
         isGloballyPlaying={!!isGloballyPlaying}
-        isHistory
-        onSelect={() => void playHistoryItem(row.item)}
-        swipeEnabled={!dragging}
+        isHistory={false}
+        onSelect={() => void skipToIndex(item.queueIndex)}
+        swipeEnabled
         onActionOpenChange={setQueueActionOpen}
       />
     )
-  }, [dragging, isGloballyPlaying, setQueueActionOpen])
+  }, [autoplay, consumeOpenAction, isGloballyPlaying, listAnim, minContentHeight, onDismissWithAction, onMenuOpenChange, onToggleAutoplay, provider, setQueueActionOpen, upcomingCount])
 
-  const isDismissEnabled = !isMenuOpen && !dragging && isAtTop
-
-  const headerOverlayDismissGesture = useMemo(
-    () => (createDismissPan ? createDismissPan(isDismissEnabled) : cardDismissGesture),
-    [createDismissPan, isDismissEnabled, cardDismissGesture]
-  )
-
-  const headerAnimatedStyle = useAnimatedStyle(() => {
-    // 竖轴：以「历史块高 historyBlockH」为基准。
-    // 滚到 historyBlockH 时卡落在顶部；继续往上滑（scrollY > historyBlockH）把卡推走、工具栏吸顶（上移最多 CARD_H）；
-    // 往下滑（scrollY < historyBlockH）卡不再上移（保持顶部），历史在下方逐渐露出。
-    const past = scrollY.value - historyBlockH
-    const maxShift = currentItem ? CARD_H : 0
-    const translateY = past <= 0 ? 0 : -Math.min(maxShift, past)
-    return {
-      transform: [{ translateY }],
-    }
-  })
-
-  const hasUpcomingTracks = queue.length > 1
-
-  const listHeader = (
-    <View>
-      {/* 历史区（倒序、上限 50、不可拖拽）：数组末尾=最近（上一首），贴着下方的正在播放 */}
-      {currentItem && historyCount > 0 ? (
-        <>
-          {historyRows.map((row) => renderHistoryRow(row))}
+  // section 头：历史 = 「历史记录 + 清除」；正在播放 = 无头（卡本身是唯一的 row）；待播 = 随机工具栏 + 「待播/清空」
+  const renderSectionHeader = useCallback(({ section }: { section: { key: QueueSectionKind } }) => {
+    if (section.key === 'history') {
+      return (
+        <View style={styles.stickyHeader}>
           <View style={styles.historyTitleBar}>
             <Text style={styles.historyTitleText}>历史记录</Text>
             <Pressable onPress={confirmClearHistory} hitSlop={8} accessibilityRole="button" accessibilityLabel="清除历史记录">
               <Text style={styles.listClear}>清除</Text>
             </Pressable>
           </View>
-        </>
-      ) : null}
-      {/* 占位：正在播放卡 + 工具栏（实体在悬浮 overlay 里） */}
-      <View style={{ height: (currentItem ? CARD_H : 0) + TOOLBAR_H }} />
-      {/* 待播小标题栏（带清空） */}
-      {upcomingCount > 0 ? (
-        <View style={styles.historyTitleBar}>
-          <Text style={styles.historyTitleText}>待播</Text>
-          <Pressable onPress={confirmClearUpcoming} hitSlop={8} accessibilityRole="button" accessibilityLabel="清空待播列表">
-            <Text style={styles.listClear}>清空</Text>
-          </Pressable>
         </View>
-      ) : null}
-    </View>
+      )
+    }
+    if (section.key === 'upcoming') {
+      return (
+        <View style={styles.stickyHeader}>
+          <ModesHeader
+            playMode={playMode}
+            autoplay={autoplay}
+            provider={provider}
+            consumeOpenAction={consumeOpenAction}
+            onToggleAutoplay={onToggleAutoplay}
+          />
+          {upcomingCount > 0 ? (
+            <View style={styles.historyTitleBar}>
+              <Text style={styles.historyTitleText}>待播</Text>
+              <Pressable onPress={confirmClearUpcoming} hitSlop={8} accessibilityRole="button" accessibilityLabel="清空待播列表">
+                <Text style={styles.listClear}>清空</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      )
+    }
+    // current section 无头
+    return null
+  }, [autoplay, confirmClearHistory, confirmClearUpcoming, consumeOpenAction, index, onToggleAutoplay, playMode, provider, queue, styles, upcomingCount])
+
+  const isDismissEnabled = !isMenuOpen && isAtTop
+
+  const listDismissGesture = useMemo(
+    () => (createDismissPan ? createDismissPan(isDismissEnabled) : cardDismissGesture),
+    [createDismissPan, isDismissEnabled, cardDismissGesture]
+  )
+
+  const SectionListComp = SectionList as unknown as typeof SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>
+
+  const listBody = (
+    <SectionList<QueueAxisRow, { key: QueueSectionKind; data: QueueAxisRow[] }>
+      ref={sectionListRef}
+      sections={axis.sections}
+      keyExtractor={(item) => item.key}
+      renderItem={renderRow}
+      renderSectionHeader={renderSectionHeader}
+      stickySectionHeadersEnabled
+      contentContainerStyle={styles.list}
+      onScroll={scrollHandler}
+      scrollEventThrottle={16}
+      onEndReached={onEndReached}
+      onEndReachedThreshold={0.5}
+      onViewableItemsChanged={onViewableItemsChanged}
+      onScrollBeginDrag={() => {
+        if (closeOpenQueueAction()) setQueueActionOpen(false)
+      }}
+      onScrollToIndexFailed={() => {}}
+      initialNumToRender={12}
+      maxToRenderPerBatch={12}
+      windowSize={7}
+      bounces={true}
+      alwaysBounceVertical={true}
+      decelerationRate="normal"
+      showsVerticalScrollIndicator={false}
+    />
   )
 
   return (
@@ -501,94 +461,11 @@ export function PlayerQueue({
       style={[styles.container, { paddingBottom: bottomSpace }]}
       onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}
     >
-      <Animated.View style={[styles.headerOverlay, headerAnimatedStyle]} pointerEvents="box-none">
-        {headerOverlayDismissGesture ? (
-          <GestureDetector gesture={headerOverlayDismissGesture}>
-            <View>
-              {currentItem ? (
-                <CurrentTrackCard
-                  item={currentItem}
-                  listAnim={listAnim}
-                  consumeOpenAction={consumeOpenAction}
-                  onDismissWithAction={onDismissWithAction}
-                  onMenuOpenChange={onMenuOpenChange}
-                />
-              ) : null}
-              <ModesHeader
-                artwork={queue[index]?.artwork}
-                stageTopOffset={stageTopOffset}
-                modesContentOffset={modesContentOffset}
-                scrollY={scrollY}
-                screenWidth={screenWidth}
-                screenHeight={screenHeight}
-                playMode={playMode}
-                autoplay={autoplay}
-                provider={provider}
-                consumeOpenAction={consumeOpenAction}
-                onToggleAutoplay={onToggleAutoplay}
-              />
-            </View>
-          </GestureDetector>
-        ) : (
-          <View>
-            {currentItem ? (
-              <CurrentTrackCard
-                item={currentItem}
-                listAnim={listAnim}
-                consumeOpenAction={consumeOpenAction}
-                onDismissWithAction={onDismissWithAction}
-                onMenuOpenChange={onMenuOpenChange}
-              />
-            ) : null}
-            <ModesHeader
-              artwork={queue[index]?.artwork}
-              stageTopOffset={stageTopOffset}
-              modesContentOffset={modesContentOffset}
-              scrollY={scrollY}
-              screenWidth={screenWidth}
-              screenHeight={screenHeight}
-              playMode={playMode}
-              autoplay={autoplay}
-              provider={provider}
-              consumeOpenAction={consumeOpenAction}
-              onToggleAutoplay={onToggleAutoplay}
-            />
-          </View>
-        )}
-      </Animated.View>
-
-      <View style={styles.pagerViewport}>
-        <ReorderableList
-          ref={upcomingListRef as any}
-          data={upcomingRows}
-          keyExtractor={(item) => item.key}
-          ListHeaderComponent={listHeader}
-          contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
-          onReorder={onReorder}
-          onEndReached={onEndReached}
-          onEndReachedThreshold={0.5}
-          panActivateAfterLongPress={LONG_PRESS_MS}
-          dragEnabled={hasUpcomingTracks}
-          getItemLayout={getUpcomingItemLayout}
-          initialNumToRender={8}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-          onScroll={scrollHandler}
-          onScrollBeginDrag={() => {
-            if (closeOpenQueueAction()) setQueueActionOpen(false)
-          }}
-          shouldUpdateActiveItem={true}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onIndexChange={onIndexChange}
-          cellAnimations={{ transform: [] }}
-          renderItem={renderUpcomingItem}
-          bounces={true}
-          alwaysBounceVertical={true}
-          decelerationRate="normal"
-          showsVerticalScrollIndicator={false}
-        />
-      </View>
+      {listDismissGesture ? (
+        <GestureDetector gesture={listDismissGesture}>{listBody}</GestureDetector>
+      ) : (
+        listBody
+      )}
     </View>
   )
 }
@@ -641,24 +518,12 @@ export function CurrentTrackCard({
 }
 
 function ModesHeader({
-  artwork,
-  stageTopOffset,
-  modesContentOffset,
-  scrollY,
-  screenWidth,
-  screenHeight,
   playMode,
   autoplay,
   provider,
   consumeOpenAction,
   onToggleAutoplay,
 }: {
-  artwork?: any
-  stageTopOffset: number
-  modesContentOffset: number
-  scrollY: SharedValue<number>
-  screenWidth: number
-  screenHeight: number
   playMode: PlayMode
   autoplay: boolean
   provider: any
@@ -667,37 +532,8 @@ function ModesHeader({
 }) {
   const styles = useStyles()
 
-  const bgStyle = useAnimatedStyle(() => {
-    const currentScreenY = stageTopOffset + Math.max(0, modesContentOffset - scrollY.value)
-    return {
-      transform: [{ translateY: -currentScreenY }],
-    }
-  })
-
-  const bgContainerStyle = useAnimatedStyle(() => {
-    // scrollY == 0 时背景透明（完全显示屏幕根背景，0色差）；滚动吸顶过程中淡入到 1，遮挡下方滚动上来的歌曲
-    const opacity = interpolate(scrollY.value, [0, modesContentOffset], [0, 1], Extrapolation.CLAMP)
-    return { opacity }
-  })
-
   return (
     <View style={styles.modesHeader}>
-      <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, bgContainerStyle]} pointerEvents="none">
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: screenWidth,
-              height: screenHeight,
-            },
-            bgStyle,
-          ]}
-        >
-          <CoverBackdrop artwork={artwork} />
-        </Animated.View>
-      </Animated.View>
       <View style={styles.modes}>
         <ModeButton
           icon="shuffle"
@@ -820,30 +656,12 @@ function QueueRow(props: {
   swipeEnabled: boolean
   onActionOpenChange?: (open: boolean) => void
 }) {
-  // 历史行渲在 ListHeader 里（不在 ReorderableList cell 上下文），不能调 useReorderableDrag/useIsActive；
-  // 只有待播行（isHistory=false）才走可拖拽版本。
-  if (props.isHistory) return <QueueRowInner {...props} isActive={false} drag={NOOP_DRAG} />
-  return <QueueRowDraggable {...props} />
+  // 第13轮改用 SectionList，不再支持拖拽排序（待播排序走「···」菜单），
+  // 所以行不再需要 reorderable 上下文的 drag/isActive。
+  return <QueueRowInner {...props} isActive={false} drag={NOOP_DRAG} />
 }
 
 const NOOP_DRAG = () => {}
-
-/** 待播行：在 ReorderableList cell 上下文里取 drag/isActive，再交给 Inner */
-function QueueRowDraggable(props: {
-  item: QueueItem
-  queueIndex: number
-  upcomingCount: number
-  playing: boolean
-  isGloballyPlaying: boolean
-  isHistory: boolean
-  onSelect: () => void
-  swipeEnabled: boolean
-  onActionOpenChange?: (open: boolean) => void
-}) {
-  const isActive = useIsActive()
-  const drag = useReorderableDrag()
-  return <QueueRowInner {...props} isActive={isActive} drag={drag} />
-}
 
 function QueueRowInner({
   item,
@@ -1092,17 +910,18 @@ const useStyles = createThemedStyles((colors) => ({
   list: { paddingBottom: spacing.xxl + spacing.md },
   empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   
+  stickyHeader: {
+    backgroundColor: colors.bgPrimary,
+  },
   modesHeader: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xs,
     paddingBottom: spacing.sm,
-    backgroundColor: 'transparent',
-    overflow: 'hidden',
+    backgroundColor: colors.bgPrimary,
   },
   modes: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: spacing.lg,
   },
   mode: {
     flex: 1,
@@ -1121,6 +940,7 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.xl,
     height: 40,
+    backgroundColor: colors.bgPrimary,
   },
   historyTitleText: { ...typography.subhead, fontWeight: '600', color: colors.textSecondary },
   emptyStateContainer: {

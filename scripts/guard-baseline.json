@@ -4,7 +4,7 @@
       "apps/mobile/src/components/confirm-modal.tsx": 4,
       "apps/mobile/src/components/lyric-view.tsx": 2,
       "apps/mobile/src/components/option-picker-modal.tsx": 1,
-      "apps/mobile/src/components/player/player-queue.tsx": 2,
+      "apps/mobile/src/components/player/player-queue.tsx": 1,
       "apps/mobile/src/components/progress-bar.tsx": 1,
       "apps/mobile/src/components/prompt-modal.tsx": 4,
       "apps/mobile/src/screens/appearance-settings.tsx": 2,
