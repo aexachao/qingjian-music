@@ -1,3 +1,4 @@
+import MaskedView from '@react-native-masked-view/masked-view'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { StyleSheet, View } from 'react-native'
@@ -9,12 +10,13 @@ import { useThemeColors } from '@/theme/theme-provider'
  * 沉浸式全屏封面（cover 态专用，方案 A）。
  *
  * 层次（从下到上）：
- *   1. 封面原图，`contentFit="cover"` 铺满整屏（会裁剪，只显示中间，对齐 Apple Music）；
- *   2. 底部黑色线性渐变遮罩（透明 → 深黑）——让下半部图片「融化」成深色，
- *      给歌名/进度/控制腾出高对比度的暗背景。
- *
- * 没有真·渐进高斯模糊（expo-blur 只能均匀模糊）；暗化渐变已经贡献主要的沉浸观感。
- * 铺满整屏（含安全区/灵动岛后面），前景控件自己避让安全区。
+ *   1. 封面高清原图，`contentFit="cover"` 铺满整屏（主体清晰）；
+ *   2. 渐进式高斯模糊层（Progressive Blur）：利用 MaskedView + LinearGradient 遮罩，
+ *      让模糊图（blurRadius=45）从中下部（~44%）平滑淡入到完全不透明（~72%），
+ *      将下半部的建筑物与倒影等高频线条彻底融化为光影；
+ *   3. 底部黑色线性渐变遮罩（Dark Gradient Overlay，从透明过渡到底部深黑），
+ *      为前景的白色歌名、进度条、播放控制按键提供极高对比度的暗色舞台；
+ *   4. 顶部轻压暗（0~20%），保证状态栏与拖动条可读。
  */
 export function ImmersiveCover({ artwork }: { artwork?: HttpResource | undefined }) {
   const colors = useThemeColors()
@@ -22,32 +24,59 @@ export function ImmersiveCover({ artwork }: { artwork?: HttpResource | undefined
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {artwork ? (
-        <Image
-          source={{ uri: artwork.url, headers: artwork.headers }}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={220}
-          cachePolicy="memory-disk"
-          accessibilityIgnoresInvertColors
-        />
+        <>
+          {/* 1. 底层：封面原图铺满，顶部与主体保持清晰 */}
+          <Image
+            source={{ uri: artwork.url, headers: artwork.headers }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={220}
+            cachePolicy="memory-disk"
+            accessibilityIgnoresInvertColors
+          />
+
+          {/* 2. 中层：渐进式高斯模糊（Progressive Blur） */}
+          <MaskedView
+            style={StyleSheet.absoluteFill}
+            maskElement={
+              <LinearGradient
+                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,1)']}
+                locations={[0, 0.44, 0.72]}
+                style={StyleSheet.absoluteFill}
+              />
+            }
+          >
+            <Image
+              source={{ uri: artwork.url, headers: artwork.headers }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              blurRadius={45}
+              transition={220}
+              cachePolicy="memory-disk"
+              accessibilityIgnoresInvertColors
+            />
+          </MaskedView>
+        </>
       ) : (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.coverPlaceholder, alignItems: 'center', justifyContent: 'center' }]}>
           <BrandMark width={120} color={colors.coverPlaceholderMark} />
         </View>
       )}
 
-      {/* 顶部轻压暗：保证导航栏（拖动条/返回）在亮封面上也可见 */}
+      {/* 3. 顶部轻压暗：保证导航栏（拖动条/返回）在亮色封面上清晰可见 */}
       <LinearGradient
         colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)']}
-        locations={[0, 0.22]}
+        locations={[0, 0.20]}
         style={StyleSheet.absoluteFill}
       />
-      {/* 下半部渐进暗化：从中部透明过渡到底部深黑，控件压在这上面 */}
+
+      {/* 4. 下半部渐进暗化遮罩（Dark Gradient Overlay）：让模糊图层自然融化为深色光影背景 */}
       <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
-        locations={[0.42, 0.72, 1]}
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.48)', 'rgba(0,0,0,0.88)']}
+        locations={[0.44, 0.70, 0.96]}
         style={StyleSheet.absoluteFill}
       />
     </View>
   )
 }
+

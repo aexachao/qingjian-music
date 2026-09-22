@@ -77,12 +77,12 @@ export function PlayerTitleRow({
       </View>
       <View style={styles.actions}>
         <IconButton
-          name="heart"
+          name="star"
           size={iconSize.xl}
-          color={current.isFavorite ? colors.like : colors.iconMid}
-          filled={true}
+          color={current.isFavorite ? colors.warning : colors.textPrimary}
+          filled={Boolean(current.isFavorite)}
           onPress={() => void onToggleFavorite()}
-          accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
+          accessibilityLabel={current.isFavorite ? '已收藏' : '收藏'}
         />
         <View style={styles.menuWrapper}>
           <DeckMoreButton
@@ -125,6 +125,20 @@ export function PlayerDeck({
     return {
       opacity,
       transform: [{ translateY }],
+    }
+  })
+
+  // 音量条平滑折叠动画：随 listAnim 平滑收缩高度与淡出，消除切列表时的瞬间掉帧与布局塌陷
+  const volumeAnimatedStyle = useAnimatedStyle(() => {
+    if (!listAnim) return {}
+    const height = interpolate(listAnim.value, [0, 0.8], [36, 0], Extrapolation.CLAMP)
+    const opacity = interpolate(listAnim.value, [0, 0.35], [1, 0], Extrapolation.CLAMP)
+    const marginTop = interpolate(listAnim.value, [0, 0.8], [0, -spacing.lg], Extrapolation.CLAMP)
+    return {
+      height,
+      opacity,
+      marginTop,
+      overflow: 'hidden',
     }
   })
 
@@ -191,8 +205,13 @@ export function PlayerDeck({
         />
       </View>
 
-      {/* 列表态完全卸载音量条：腾出高度给 list，同时卸掉透明 MPVolumeView、交还系统音量 HUD */}
-      {!hideVolume ? <VolumeBar /> : null}
+      {/* 音量条：利用 Animated.View 平滑折叠收缩高度，避免瞬间卸载造成的 Layout Shift */}
+      <Animated.View
+        style={volumeAnimatedStyle}
+        pointerEvents={hideVolume ? 'none' : 'auto'}
+      >
+        <VolumeBar />
+      </Animated.View>
     </View>
   )
 }
@@ -326,9 +345,16 @@ const useStyles = createThemedStyles((colors) => ({
   titleText: { flex: 1, gap: 2, paddingRight: spacing.sm },
   title: { ...typography.title, color: colors.textPrimary },
   artist: { ...typography.callout, color: colors.textSecondary },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
-  // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐，去掉之前的偏移和缩放
-  menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  // 更多按钮圆形半透明底座，对齐 Apple Music 参考截图
+  menuWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },

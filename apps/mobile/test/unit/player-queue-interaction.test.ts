@@ -81,9 +81,8 @@ describe('播放器队列 Tab 交互', () => {
     // OUTLINE_VARIANTS 不再包含 heart，全局 heart 恒为面性 glyph
     expect(iconSource).not.toContain("heart: 'heart-outline'")
 
-    // PlayerDeck 和 PlayerQueue 均使用 filled={true}
-    expect(deckSource).toContain('name="heart"')
-    expect(deckSource).toContain('filled={true}')
+    // PlayerDeck 使用 Apple Music 星标收藏，PlayerQueue 保留收藏 icon
+    expect(deckSource).toContain('name="star"')
     expect(queueSrc).toContain('name="heart"')
     expect(queueSrc).toContain('filled={true}')
   })

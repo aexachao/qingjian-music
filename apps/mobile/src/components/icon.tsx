@@ -72,7 +72,7 @@ const ICONS = {
   userManage: 'person-outline',
   feedback: 'mail-outline',
   about: 'information-circle-outline',
-  star: 'star-outline',
+  star: 'star',
   document: 'document-text-outline',
   shield: 'shield-checkmark-outline',
   wifi: 'wifi',
@@ -105,6 +105,7 @@ const OUTLINE_VARIANTS = {
   albums: 'albums-outline',
   library: 'albums-outline',
   musicLibrary: 'albums-outline',
+  star: 'star-outline',
 } satisfies Partial<Record<IconName, GlyphName>>
 
 const SF_SYMBOL_ALIASES: Record<string, IconName> = {

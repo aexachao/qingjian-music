@@ -59,10 +59,11 @@ export default function PlayerScreen() {
   const listAnim = useSharedValue(0)
   const lyricAnim = useSharedValue(0)
 
+  // Apple 级流体动量曲线（前快后慢、自然阻尼，杜绝顿挫）
   useEffect(() => {
     const timingConfig = {
-      duration: 320,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
+      duration: 360,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
     }
 
     if (mode === 'list') {
@@ -187,34 +188,40 @@ export default function PlayerScreen() {
     borderTopRightRadius: topCornerRadius,
   }))
 
-
+  // 播放列表页进入动量：从容升起，配合微缩放，消除突兀跳跃
   const queueAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(listAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(listAnim.value, [0.05, 0.85], [0, 1], Extrapolation.CLAMP),
     transform: [
-      { scale: interpolate(listAnim.value, [0, 1], [1.04, 1], Extrapolation.CLAMP) },
-      { translateY: interpolate(listAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP) },
+      { translateY: interpolate(listAnim.value, [0, 1], [32, 0], Extrapolation.CLAMP) },
+      { scale: interpolate(listAnim.value, [0, 1], [1.02, 1], Extrapolation.CLAMP) },
     ],
   }))
 
+  // 封面态内容退场动量：向后退景与微缩
   const coverAnimatedStyle = useAnimatedStyle(() => {
-    const scale = interpolate(listAnim.value, [0, 1], [1, 0.90], Extrapolation.CLAMP)
-    const opacity = interpolate(listAnim.value, [0, 0.85], [1, 0], Extrapolation.CLAMP)
+    const scale = interpolate(listAnim.value, [0, 1], [1, 0.94], Extrapolation.CLAMP)
+    const opacity = interpolate(listAnim.value, [0, 0.7], [1, 0], Extrapolation.CLAMP)
     return {
       opacity,
       transform: [{ scale }],
     }
   })
 
-  // 沉浸式全屏封面（cover 态）：只在 cover 态显示，切到列表/歌词就淡出。
+  // 沉浸式全屏封面：仅在 cover 态完全显露，平滑过渡到底层的 CoverBackdrop
+  // 采用完整 [0, 0.95] 渐淡与微景深扩散（1 -> 1.03），彻底消除 60% 处突然全黑的断层感
   const immersiveCoverStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(listAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
-      * interpolate(lyricAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
-    return { opacity }
+    const activeProg = Math.max(listAnim.value, lyricAnim.value)
+    const opacity = interpolate(activeProg, [0, 0.95], [1, 0], Extrapolation.CLAMP)
+    const scale = interpolate(activeProg, [0, 1], [1, 1.03], Extrapolation.CLAMP)
+    return {
+      opacity,
+      transform: [{ scale }],
+    }
   })
 
   const coverListContainerAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(lyricAnim.value, [0, 0.85], [1, 0], Extrapolation.CLAMP)
-    const scale = interpolate(lyricAnim.value, [0, 1], [1, 0.90], Extrapolation.CLAMP)
+    const opacity = interpolate(lyricAnim.value, [0, 0.75], [1, 0], Extrapolation.CLAMP)
+    const scale = interpolate(lyricAnim.value, [0, 1], [1, 0.94], Extrapolation.CLAMP)
     return {
       opacity,
       transform: [{ scale }],
@@ -222,9 +229,9 @@ export default function PlayerScreen() {
   })
 
   const lyricsContainerAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(lyricAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP)
-    const scale = interpolate(lyricAnim.value, [0, 1], [1.04, 1], Extrapolation.CLAMP)
-    const translateY = interpolate(lyricAnim.value, [0, 1], [20, 0], Extrapolation.CLAMP)
+    const opacity = interpolate(lyricAnim.value, [0.05, 0.85], [0, 1], Extrapolation.CLAMP)
+    const scale = interpolate(lyricAnim.value, [0, 1], [1.02, 1], Extrapolation.CLAMP)
+    const translateY = interpolate(lyricAnim.value, [0, 1], [24, 0], Extrapolation.CLAMP)
     return {
       opacity,
       transform: [{ scale }, { translateY }],
