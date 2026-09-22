@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useMemo, useState, type ComponentClass, type ComponentProps } from 'react'
 import {
+  Platform,
   Pressable,
   SectionList,
+  StyleSheet,
   Text,
   View,
   useWindowDimensions,
   Animated as RNAnimated,
   type ViewToken,
 } from 'react-native'
+import { BlurView } from 'expo-blur'
 import { useConfirm } from '@/components/confirm-modal'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
@@ -375,6 +378,7 @@ export function PlayerQueue({
     if (section.key === 'history') {
       return (
         <View style={styles.stickyHeader}>
+          <StickyBg />
           <View style={styles.historyTitleBar}>
             <Text style={styles.historyTitleText}>历史记录</Text>
             <Pressable onPress={confirmClearHistory} hitSlop={8} accessibilityRole="button" accessibilityLabel="清除历史记录">
@@ -387,6 +391,7 @@ export function PlayerQueue({
     if (section.key === 'upcoming') {
       return (
         <View style={styles.stickyHeader}>
+          <StickyBg />
           <ModesHeader
             playMode={playMode}
             autoplay={autoplay}
@@ -506,6 +511,22 @@ export function CurrentTrackCard({
         />
       </View>
     </View>
+  )
+}
+
+/**
+ * 吸顶头的背景：不用纯黑，而是毛玻璃 + 淡背景色——让下方随歌变色的封面背景透上来，
+ * 吸顶时与整页背景融合（iOS 毛玻璃；Android 自动回退到半透底色）。
+ */
+function StickyBg() {
+  const styles = useStyles()
+  return (
+    <>
+      {Platform.OS === 'ios' ? (
+        <BlurView tint="dark" intensity={60} style={StyleSheet.absoluteFill} pointerEvents="none" />
+      ) : null}
+      <View style={styles.stickyScrim} pointerEvents="none" />
+    </>
   )
 }
 
@@ -903,13 +924,22 @@ const useStyles = createThemedStyles((colors) => ({
   empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   
   stickyHeader: {
-    backgroundColor: colors.bgPrimary,
+    overflow: 'hidden',
+  },
+  // 吸顶头半透背景：压一层淡背景色，保证下方滞上来的行不透出、文字还有对比度；
+  // iOS 上叠在 BlurView 之上，色调跟封面 backdrop 走。
+  stickyScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.bgFloatingBlur,
   },
   modesHeader: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xs,
     paddingBottom: spacing.sm,
-    backgroundColor: colors.bgPrimary,
   },
   modes: {
     flexDirection: 'row',
@@ -932,7 +962,6 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.xl,
     height: 40,
-    backgroundColor: colors.bgPrimary,
   },
   historyTitleText: { ...typography.subhead, fontWeight: '600', color: colors.textSecondary },
   emptyStateContainer: {
