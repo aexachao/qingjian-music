@@ -189,10 +189,8 @@ export default function PlayerScreen() {
     borderTopRightRadius: topCornerRadius,
   }))
 
-  const maxCoverHeight = stageMeasuredHeight > 0 ? stageMeasuredHeight - 76 : 420
-  // 封面宽度铺满屏宽（正方形），上下露出整屏高斯模糊背景；
-  // 只在屏宽 > 可用高度时才封顶（矮屏防溢出）。
-  const coverSize = Math.min(width, maxCoverHeight)
+  // 封面铺满屏宽（正方形 = 屏宽）；只在可用竖向空间不够时才回退（留 60 给标题行，防遮住）。
+  const coverSize = Math.min(width, Math.max(240, stageMeasuredHeight - 60))
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(listAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP),
