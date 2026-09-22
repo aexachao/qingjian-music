@@ -23,10 +23,9 @@ describe('播放器队列竖轴交互', () => {
     expect(queueSource).toContain('<ModesHeader')
   })
 
-  it('初始定位到「正在播放」section（scrollToLocation）', () => {
-    expect(queueSource).toContain('scrollToLocation')
-    expect(queueSource).toContain('axis.currentSectionIndex')
-    expect(queueSource).toContain('didInitialScroll')
+  it('初始定位到「正在播放」（contentOffset 初始值 = 历史块高）', () => {
+    expect(queueSource).toContain('contentOffset={{ x: 0, y: initialOffsetY }}')
+    expect(queueSource).toContain('const initialOffsetY = snapOffsets.length > 1')
   })
 
   it('分段吸顶震动：吸顶 section 变了才震，走 lib/haptics 的 tap', () => {

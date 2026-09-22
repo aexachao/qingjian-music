@@ -132,6 +132,9 @@ export function PlayerQueue({
   const axis = useMemo(() => queueAxisView(history, queue, index), [history, queue, index])
   // 方案甲：只在「历史顶」与「正在播放顶」两处吸附（待播自由翻）
   const snapOffsets = useMemo(() => axisSnapOffsets(axis), [axis])
+  // 初始滚动位置 = 正在播放顶（历史块高）；没历史时为 0。
+  // 用 ScrollView 的 contentOffset 初始值定位——比 scrollToLocation 稳（不依赖 ref/测量时机）。
+  const initialOffsetY = snapOffsets.length > 1 ? snapOffsets[1]! : 0
 
   const currentItem = queue[index]
   const scrollY = useSharedValue(0)
@@ -286,31 +289,6 @@ export function PlayerQueue({
     return consumed
   }, [setQueueActionOpen])
 
-  // 初始定位：等列表测量完（onContentSizeChange）再跳到「正在播放」section，
-  // 避免 scrollToLocation 在未测量时异步抛原生异常（间歇崩溃源）。
-  const didInitialScroll = useRef(false)
-  const doInitialScroll = useCallback(() => {
-    if (didInitialScroll.current || !currentItem) return
-    const sectionIndex = axis.currentSectionIndex
-    // 守卫：section 下标必须在范围内且大于 0（无历史时本就在顶部，不用跳）
-    if (sectionIndex <= 0 || sectionIndex >= axis.sections.length) {
-      didInitialScroll.current = true
-      return
-    }
-    didInitialScroll.current = true
-    try {
-      sectionListRef.current?.scrollToLocation({
-        sectionIndex,
-        itemIndex: 0,
-        viewPosition: 0,
-        viewOffset: 0,
-        animated: false,
-      })
-    } catch {
-      // 列表还没量好时可能抛，忽略
-    }
-  }, [currentItem, axis.currentSectionIndex, axis.sections.length])
-
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
     confirm({
@@ -456,7 +434,7 @@ export function PlayerQueue({
         if (closeOpenQueueAction()) setQueueActionOpen(false)
       }}
       onScrollToIndexFailed={() => {}}
-      onContentSizeChange={doInitialScroll}
+      contentOffset={{ x: 0, y: initialOffsetY }}
       {...(snapOffsets.length > 0
         ? { snapToOffsets: snapOffsets, snapToEnd: false, disableIntervalMomentum: true }
         : {})}

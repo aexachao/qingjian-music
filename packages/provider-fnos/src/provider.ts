@@ -222,7 +222,8 @@ export class FnosProvider implements MusicProvider {
 
   async logout(): Promise<void> {
     try {
-      await this.client.post(FNOS_ENDPOINTS.user.logout, undefined, z.unknown())
+      // 服务端登出尽力而为：2s 超时，否则外网/服务器慢时会卡住退出登录。
+      await this.client.post(FNOS_ENDPOINTS.user.logout, undefined, z.unknown(), { timeoutMs: 2000 })
     } finally {
       this.session = undefined
       this.client.setToken(undefined)
