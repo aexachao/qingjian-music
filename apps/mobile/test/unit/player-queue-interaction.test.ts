@@ -4,67 +4,73 @@ import { readSource } from '../support/source'
 const queueSource = readSource('components/player/player-queue.tsx')
 const playerSource = readSource('app/player.tsx')
 
-describe('播放器队列竖轴交互', () => {
-  it('采用三模块 SectionList：历史/正在播放/待播（已废弃左右 tab pager）', () => {
-    expect(queueSource).toContain('queueAxisView(history, queue, index)')
-    expect(queueSource).toContain('<AnimatedSectionList')
-    expect(queueSource).toContain('createAnimatedComponent')
-    expect(queueSource).toContain('stickySectionHeadersEnabled')
-    expect(queueSource).not.toContain("useState<QueueTab>")
-    expect(queueSource).not.toContain('pagerX.value = withTiming')
+describe('播放器队列 Tab 交互', () => {
+  it('默认展示继续播放并在原标题位置提供历史记录 Tab', () => {
+    expect(queueSource).toContain("useState<QueueTab>('upcoming')")
+    expect(queueSource).toContain('label="继续播放"')
+    expect(queueSource).toContain('label="历史记录"')
+    expect(queueSource).toContain('accessibilityRole="tablist"')
   })
 
-  it('三个 section：历史头+行、正在播放（卡作为 row）、待播头（工具栏）+行', () => {
-    expect(queueSource).toContain('renderSectionHeader')
-    expect(queueSource).toContain('renderItem={renderRow}')
-    // 历史头在行上方（sticky）；待播头=随机工具栏
-    expect(queueSource).toContain("section.key === 'history'")
-    expect(queueSource).toContain("section.key === 'upcoming'")
-    expect(queueSource).toContain('<ModesHeader')
+  it('不再使用隐藏历史区、初始偏移或吸附', () => {
+    expect(queueSource).toContain('`${tab}_${item.qid}_${itemIndex}`')
+    expect(queueSource).not.toContain('historySnapTarget')
+    expect(queueSource).not.toContain('contentOffset={{')
+    expect(queueSource).not.toContain('initialScrollIndex=')
   })
 
-  it('初始定位到「正在播放」（contentOffset 初始值 = 历史块高）', () => {
-    expect(queueSource).toContain('contentOffset={{ x: 0, y: initialOffsetY }}')
-    expect(queueSource).toContain('const initialOffsetY = snapOffsets.length > 1')
+  it('播放器顶部只保留居中拖拽把手，不显示来自来源', () => {
+    expect(playerSource).toContain('<View style={styles.dragHandle} />')
+    expect(playerSource).not.toContain('来自 {source.label}')
+    expect(playerSource).not.toContain('styles.queueSource')
   })
 
-  it('分段吸顶震动：吸顶 section 变了才震，走 lib/haptics 的 tap', () => {
-    expect(queueSource).toContain('onViewableItemsChanged')
-    expect(queueSource).toContain('stickySectionRef')
-    expect(queueSource).toContain("import { tap } from '@/lib/haptics'")
-  })
-
-  it('历史清除经过破坏性二次确认', () => {
+  it('历史清除靠右并经过破坏性二次确认', () => {
     expect(queueSource).toContain("title: '清除历史记录？'")
     expect(queueSource).toContain("confirmText: '清除'")
     expect(queueSource).toContain('destructive: true')
+    expect(queueSource).toContain('<View style={styles.queueTabSpacer} />')
   })
 
-  it('fling 退场：除位移门槛外加高速 OR 分支，快扫即退', () => {
-    expect(queueSource).toContain('downwardVelocity > 1200 && pullDistance > 20')
+  it('选中横条缩窄为精致胶囊并支持平滑位移与非选中项 regular 字体', () => {
+    expect(queueSource).toContain('width: 16')
+    expect(queueSource).toContain('fontFamily: fonts.regular')
+    expect(queueSource).toContain('indicatorX.value = withTiming')
   })
 
-  it('待播行左滑删除保留（SectionList 不支持拖拽排序，排序改走「···」菜单）', () => {
-    // 左滑删除仍在（QueueRow 里的 Swipeable）
-    expect(queueSource).toContain('renderRightActions')
-    // 不再依赖 ReorderableList
-    expect(queueSource).not.toContain("from 'react-native-reorderable-list'")
+  it('排序把手需长按 350ms 才激活', () => {
+    expect(queueSource).toContain('const LONG_PRESS_MS = 350')
+    expect(queueSource).toContain('onLongPress={() => {')
+    expect(queueSource).toContain('delayLongPress={LONG_PRESS_MS}')
+    expect(queueSource.indexOf('setDragHandlePressed(true)')).toBeGreaterThan(queueSource.indexOf('onLongPress={() => {'))
   })
 
-  it('Tab 已废弃：无 pager、无水平切换', () => {
-    expect(queueSource).not.toContain('pagerX.value = withTiming')
-    expect(queueSource).not.toContain('styles.pagerTrack')
+  it('按下把手以及拖动期间都关闭行左滑识别', () => {
+    expect(queueSource).toContain('enabled={swipeEnabled && !dragHandlePressed}')
+    expect(queueSource).toContain('runOnJS(setDragging)(true)')
+    expect(queueSource).toContain('dismissedSwipeOnHandlePress.current = closeOpenQueueAction()')
+    expect(queueSource).toContain('onDragEnd={onDragEnd}')
+  })
+
+  it('Tab 切换支持双向循环且依赖项包含最新 tab 避免闭包死锁', () => {
+    // 确保 onTabChange 依赖项包含 tab，防止切到历史后无法切回继续播放
+    expect(queueSource).toMatch(/onTabChange\s*=\s*useCallback\([\s\S]*?,\s*\[[\s\S]*?\btab\b[\s\S]*?\]\)/)
+    // 采用双页预渲染平移架构：彻底移除渐变，纯粹横向位移动画
+    expect(queueSource).toContain('pagerX.value = withTiming')
+    expect(queueSource).toContain('styles.pagerViewport')
+    expect(queueSource).toContain('styles.pagerTrack')
     expect(queueSource).not.toContain('slideOpacity')
   })
 
-  it('列表顶部下拉退出：复用 createDismissPan，包住 SectionList', () => {
+  it('列表在顶部允许下拉退出，采用 ScrollHandler 联动退场机制与橡皮筋反向补偿', () => {
     expect(playerSource).toContain('const [isListAtTop, setIsListAtTop] = useState(true)')
     expect(playerSource).toContain("if (mode === 'list') { setIsListAtTop(true)")
     expect(playerSource).toContain('createDismissPan={createDismissPan}')
     expect(playerSource).toContain("mode !== 'list' || isListAtTop")
     expect(queueSource).toContain('bounces={true}')
     expect(queueSource).toContain('alwaysBounceVertical={true}')
-    expect(queueSource).toContain('gesture={listDismissGesture}')
+    expect(queueSource).toContain('gesture={headerOverlayDismissGesture}')
+    expect(queueSource).not.toContain('ReorderableListCore')
   })
 
   it('播放器与播放列表中的收藏 icon 统一采用面性（实心）形态', () => {
