@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -19,8 +19,8 @@ import Animated, {
 import { StatusBar } from 'expo-status-bar'
 import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
-import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
+import { ImmersiveCover } from '@/components/player/immersive-cover'
 import { IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
@@ -37,7 +37,7 @@ export default function PlayerScreen() {
   const colors = darkColors
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { width, height } = useWindowDimensions()
+  const { height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
 
@@ -52,8 +52,6 @@ export default function PlayerScreen() {
     return Math.max(320, pageH - top - bottom - 190)
   }, [height, insets.top, insets.bottom])
 
-  const [stageMeasuredHeight, setStageMeasuredHeight] = useState(initialStageHeight)
-  const stageMeasuredRef = useRef(initialStageHeight)
   const [hasEntered, setHasEntered] = useState(false)
   const stageHeight = useSharedValue(initialStageHeight)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
@@ -189,8 +187,6 @@ export default function PlayerScreen() {
     borderTopRightRadius: topCornerRadius,
   }))
 
-  // 封面铺满屏宽（正方形 = 屏宽）；只在可用竖向空间不够时才回退（留 60 给标题行，防遮住）。
-  const coverSize = Math.min(width, Math.max(240, stageMeasuredHeight - 60))
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(listAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP),
@@ -207,6 +203,13 @@ export default function PlayerScreen() {
       opacity,
       transform: [{ scale }],
     }
+  })
+
+  // 沉浸式全屏封面（cover 态）：只在 cover 态显示，切到列表/歌词就淡出。
+  const immersiveCoverStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(listAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
+      * interpolate(lyricAnim.value, [0, 0.6], [1, 0], Extrapolation.CLAMP)
+    return { opacity }
   })
 
   const coverListContainerAnimatedStyle = useAnimatedStyle(() => {
@@ -253,6 +256,10 @@ export default function PlayerScreen() {
       <GestureDetector gesture={dismissGesture}>
         <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
           <CoverBackdrop artwork={current.artwork} />
+          {/* 沉浸式全屏封面：cover 态铺满整屏 + 底部渐变暗化（在 CoverBackdrop 之上、内容之下） */}
+          <Animated.View style={[StyleSheet.absoluteFill, immersiveCoverStyle]} pointerEvents="none">
+            <ImmersiveCover artwork={current.artwork} />
+          </Animated.View>
 
           <GestureDetector gesture={headerDismissGesture}>
             <View style={styles.header}>
@@ -273,10 +280,6 @@ export default function PlayerScreen() {
                   onLayout={(e) => {
                     const h = e.nativeEvent.layout.height
                     stageHeight.value = h
-                    if (Math.abs(h - stageMeasuredRef.current) > 30) {
-                      stageMeasuredRef.current = h
-                      setStageMeasuredHeight(h)
-                    }
                   }}
                 >
                   <Animated.View
@@ -307,7 +310,8 @@ export default function PlayerScreen() {
                     style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
                   >
                     <View style={styles.coverImageWrapper}>
-                      <CoverImage resource={current.artwork} size={coverSize} borderRadius={0} />
+                      {/* 沉浸式全屏封面已在最底层铺满，这里不再画居中方形封面；
+                          wrapper 保留为 flex 占位，把标题行挤到底部（压在暗化渐变上）。 */}
                     </View>
                     <View style={styles.titleRowWrapper}>
                       <PlayerTitleRow
