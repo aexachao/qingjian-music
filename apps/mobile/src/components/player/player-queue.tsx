@@ -47,6 +47,7 @@ import { CoverImage } from '@/components/cover-image'
 import { usePlayerStore } from '@/player/store'
 import {
   queueAxisView,
+  axisSnapOffsets,
   type QueueAxisRow,
   type QueueSectionKind,
 } from '@/lib/queue-axis-policy'
@@ -129,6 +130,8 @@ export function PlayerQueue({
 
   // 三模块竖轴视图（SectionList）：历史 / 正在播放 / 待播 —— 见 queue-axis-policy.ts
   const axis = useMemo(() => queueAxisView(history, queue, index), [history, queue, index])
+  // 方案甲：只在「历史顶」与「正在播放顶」两处吸附（待播自由翻）
+  const snapOffsets = useMemo(() => axisSnapOffsets(axis), [axis])
 
   const currentItem = queue[index]
   const scrollY = useSharedValue(0)
@@ -454,6 +457,9 @@ export function PlayerQueue({
       }}
       onScrollToIndexFailed={() => {}}
       onContentSizeChange={doInitialScroll}
+      {...(snapOffsets.length > 0
+        ? { snapToOffsets: snapOffsets, snapToEnd: false, disableIntervalMomentum: true }
+        : {})}
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       windowSize={7}

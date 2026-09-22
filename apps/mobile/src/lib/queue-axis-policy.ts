@@ -100,3 +100,22 @@ export function queueAxisView(
     upcomingCount: upcoming.length,
   }
 }
+
+/** 竖轴布局高度常量（pt）——与 player-queue 样式里的固定高一致 */
+export const AXIS_ROW_H = 56
+export const AXIS_HISTORY_HEADER_H = 40
+
+/**
+ * 「历史顶」与「正在播放顶」两个吸附点的 contentOffset（方案甲）。
+ *
+ * 只在上半部（历史↔正在播放）做吸附，待播自由翻——所以只给两个点：
+ *   - historyTop = 0（历史区顶部）
+ *   - currentTop = 历史头高 + 历史行总高（正在播放落到视口顶）
+ * 无历史时返回空数组（正在播放本就在顶，不需吸附）。
+ */
+export function axisSnapOffsets(view: QueueAxisView): number[] {
+  // 只有当历史 section 存在（正在播放在第 1 位）才有两个吸附点
+  if (view.currentSectionIndex !== 1 || view.historyCount <= 0) return []
+  const currentTop = AXIS_HISTORY_HEADER_H + view.historyCount * AXIS_ROW_H
+  return [0, currentTop]
+}

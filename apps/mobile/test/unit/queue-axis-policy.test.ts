@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { QueueItem } from '@qj/core-domain'
-import { HISTORY_VIEW_CAP, queueAxisView } from '../../src/lib/queue-axis-policy'
+import { HISTORY_VIEW_CAP, axisSnapOffsets, queueAxisView } from '../../src/lib/queue-axis-policy'
 
 function item(id: string, qid = id): QueueItem {
   return {
@@ -64,5 +64,24 @@ describe('queueAxisView（三模块 SectionList）', () => {
     const view = queueAxisView(history, [item('cur')], 0)
     expect(view.historyCount).toBe(HISTORY_VIEW_CAP)
     expect(view.historyTruncated).toBe(false)
+  })
+})
+
+describe('axisSnapOffsets（方案甲：历史↔正在播放两个吸附点）', () => {
+  it('有历史时：[0, 历史头高 + 历史行总高]', () => {
+    const history = [item('x'), item('y'), item('z')]
+    const view = queueAxisView(history, [item('a'), item('b')], 0)
+    // 40 + 3*56 = 208
+    expect(axisSnapOffsets(view)).toEqual([0, 208])
+  })
+
+  it('无历史时：空数组（正在播放本就在顶）', () => {
+    const view = queueAxisView([], [item('a'), item('b')], 0)
+    expect(axisSnapOffsets(view)).toEqual([])
+  })
+
+  it('还没开始播（index<0）：空数组', () => {
+    const view = queueAxisView([item('x')], [item('a')], -1)
+    expect(axisSnapOffsets(view)).toEqual([])
   })
 })
