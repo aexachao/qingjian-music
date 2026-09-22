@@ -17,6 +17,7 @@ import {
   getSession,
   listServers,
   newServerId,
+  purgeIfFreshInstall,
   saveLastServer,
   savePassword,
   saveSession,
@@ -24,6 +25,7 @@ import {
   upsertServer,
   removeServer as removeStoredServer,
 } from './storage'
+import { hasInstallSentinel, markInstallSentinel } from './install-sentinel'
 
 export interface SignInInput {
   baseUrl: string
@@ -89,6 +91,10 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      // 卸载重装清号：iOS Keychain 卸载不清，全新安装时把旧凭据全清（要在恢复会话之前）
+      await purgeIfFreshInstall(hasInstallSentinel, markInstallSentinel).catch((error: unknown) => {
+        console.warn('卸载重装清号失败', error)
+      })
       await ensureRegistry()
       const all = await listServers()
       if (!cancelled) setServers(all)

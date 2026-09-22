@@ -131,3 +131,30 @@ export async function getLastServer(): Promise<LastServerInfo | null> {
 export function newServerId(): string {
   return `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
+
+/**
+ * 卸载重装清号。
+ *
+ * iOS 的 Keychain（SecureStore 底层）**卸载 App 不会清**，所以重装后会发现
+ * 上一份安装的账号/会话还在、直接就登录了。用一个放在**沙盒（卸载会清）**
+ * 的「首次启动哨兵」判定：哨兵不在 = 全新安装 → 把 Keychain 里的旧凭据全清。
+ *
+ * 哨兵用 expo-file-system 的文件（随 App 沙盒卸载而删），不能用 SecureStore（那也不清）。
+ * 应在启动最早处调用（会话恢复之前）。
+ */
+export async function purgeIfFreshInstall(hasSentinel: () => Promise<boolean>, markSentinel: () => Promise<void>): Promise<void> {
+  if (await hasSentinel()) return
+  // 全新安装：清掉 Keychain 里可能残留的上一份安装的凭据
+  const servers = await listServers()
+  const ops: Promise<void>[] = [
+    SecureStore.deleteItemAsync(KEY_SERVERS),
+    SecureStore.deleteItemAsync(KEY_ACTIVE),
+    SecureStore.deleteItemAsync(KEY_LAST_SERVER),
+  ]
+  for (const s of servers) {
+    ops.push(SecureStore.deleteItemAsync(keySession(s.id)))
+    ops.push(SecureStore.deleteItemAsync(keyPassword(s.id)))
+  }
+  await Promise.all(ops.map((p) => p.catch(() => undefined)))
+  await markSentinel()
+}

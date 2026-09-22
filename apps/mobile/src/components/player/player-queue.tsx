@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useMemo, useState, type ComponentClass, type ComponentProps } from 'react'
 import {
-  Platform,
   Pressable,
   SectionList,
-  StyleSheet,
   Text,
   View,
   useWindowDimensions,
   Animated as RNAnimated,
   type ViewToken,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
 import { useConfirm } from '@/components/confirm-modal'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
@@ -47,6 +44,7 @@ import {
 } from '@/player/controller'
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
+import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { usePlayerStore } from '@/player/store'
 import {
   queueAxisView,
@@ -139,7 +137,6 @@ export function PlayerQueue({
   // 用 ScrollView 的 contentOffset 初始值定位——比 scrollToLocation 稳（不依赖 ref/测量时机）。
   const initialOffsetY = snapOffsets.length > 1 ? snapOffsets[1]! : 0
 
-  const currentItem = queue[index]
   const scrollY = useSharedValue(0)
   const isAtTopRef = useSharedValue(true)
   const [isAtTop, setIsAtTop] = useState(true)
@@ -378,7 +375,7 @@ export function PlayerQueue({
     if (section.key === 'history') {
       return (
         <View style={styles.stickyHeader}>
-          <StickyBg />
+          <StickyBg artwork={queue[index]?.artwork} />
           <View style={styles.historyTitleBar}>
             <Text style={styles.historyTitleText}>历史记录</Text>
             <Pressable onPress={confirmClearHistory} hitSlop={8} accessibilityRole="button" accessibilityLabel="清除历史记录">
@@ -391,7 +388,7 @@ export function PlayerQueue({
     if (section.key === 'upcoming') {
       return (
         <View style={styles.stickyHeader}>
-          <StickyBg />
+          <StickyBg artwork={queue[index]?.artwork} />
           <ModesHeader
             playMode={playMode}
             autoplay={autoplay}
@@ -412,7 +409,7 @@ export function PlayerQueue({
     }
     // current section 无头：返回 0 高 View（不能返 null——sticky 开关下原生层测量 null header 会偶发崩）
     return <View />
-  }, [autoplay, confirmClearHistory, confirmClearUpcoming, consumeOpenAction, onToggleAutoplay, playMode, provider, styles, upcomingCount])
+  }, [autoplay, confirmClearHistory, confirmClearUpcoming, consumeOpenAction, index, onToggleAutoplay, playMode, provider, queue, styles, upcomingCount])
 
   const isDismissEnabled = !isMenuOpen && isAtTop
 
@@ -515,18 +512,16 @@ export function CurrentTrackCard({
 }
 
 /**
- * 吸顶头的背景：不用纯黑，而是毛玻璃 + 淡背景色——让下方随歌变色的封面背景透上来，
- * 吸顶时与整页背景融合（iOS 毛玻璃；Android 自动回退到半透底色）。
+ * 吸顶头的背景：铺一张与整页同款的模糊封面副本（CoverBackdrop）。
+ * 封面模糊很重（blurRadius 50）、整张均匀无硬边缘，所以即使不精确对齐，
+ * 视觉上也与下方大背景无缝融合（Apple Music 吸顶栏同理）。再压一层极淡遮罩保证文字对比度。
  */
-function StickyBg() {
+function StickyBg({ artwork }: { artwork?: QueueItem['artwork'] }) {
   const styles = useStyles()
   return (
-    <>
-      {Platform.OS === 'ios' ? (
-        <BlurView tint="dark" intensity={60} style={StyleSheet.absoluteFill} pointerEvents="none" />
-      ) : null}
-      <View style={styles.stickyScrim} pointerEvents="none" />
-    </>
+    <View style={styles.stickyBg} pointerEvents="none">
+      <CoverBackdrop artwork={artwork} />
+    </View>
   )
 }
 
@@ -926,15 +921,13 @@ const useStyles = createThemedStyles((colors) => ({
   stickyHeader: {
     overflow: 'hidden',
   },
-  // 吸顶头半透背景：压一层淡背景色，保证下方滞上来的行不透出、文字还有对比度；
-  // iOS 上叠在 BlurView 之上，色调跟封面 backdrop 走。
-  stickyScrim: {
+  // 吸顶头背景：铺一张同款模糊封面副本（绝对充满整个头区），与下方大背景融合。
+  stickyBg: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.bgFloatingBlur,
   },
   modesHeader: {
     paddingHorizontal: spacing.xl,
