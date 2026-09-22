@@ -190,7 +190,9 @@ export default function PlayerScreen() {
   }))
 
   const maxCoverHeight = stageMeasuredHeight > 0 ? stageMeasuredHeight - 76 : 420
-  const coverSize = Math.max(160, Math.min(width - spacing.xl * 2, maxCoverHeight))
+  // 封面宽度铺满屏宽（正方形），上下露出整屏高斯模糊背景；
+  // 只在屏宽 > 可用高度时才封顶（矮屏防溢出）。
+  const coverSize = Math.min(width, maxCoverHeight)
 
   const queueAnimatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(listAnim.value, [0.08, 0.9], [0, 1], Extrapolation.CLAMP),
@@ -307,7 +309,7 @@ export default function PlayerScreen() {
                     style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
                   >
                     <View style={styles.coverImageWrapper}>
-                      <CoverImage resource={current.artwork} size={coverSize} borderRadius={radius.lg} />
+                      <CoverImage resource={current.artwork} size={coverSize} borderRadius={0} />
                     </View>
                     <View style={styles.titleRowWrapper}>
                       <PlayerTitleRow
@@ -324,6 +326,7 @@ export default function PlayerScreen() {
                     current={current}
                     listAnim={listAnim}
                     hideTitle={true}
+                    hideVolume={mode === 'list'}
                     onDismissWithAction={dismissWithAction}
                     onMenuOpenChange={setMenuOpen}
                   />
@@ -504,7 +507,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
   },
   titleRowWrapper: {
     paddingHorizontal: spacing.xl,

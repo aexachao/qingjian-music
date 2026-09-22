@@ -32,6 +32,9 @@ interface PlayerDeckProps {
   current: QueueItem
   listAnim?: SharedValue<number>
   hideTitle?: boolean
+  /** 列表态：完全卸载音量条（连同透明 MPVolumeView 一起），腾高给 list；
+   * 卸载后 iOS 交还系统音量 HUD（按音量键弹原生指示条） */
+  hideVolume?: boolean
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
 }
@@ -102,6 +105,7 @@ export function PlayerDeck({
   current,
   listAnim,
   hideTitle = false,
+  hideVolume = false,
   onDismissWithAction,
   onMenuOpenChange,
 }: PlayerDeckProps) {
@@ -187,7 +191,8 @@ export function PlayerDeck({
         />
       </View>
 
-      <VolumeBar />
+      {/* 列表态完全卸载音量条：腾出高度给 list，同时卸掉透明 MPVolumeView、交还系统音量 HUD */}
+      {!hideVolume ? <VolumeBar /> : null}
     </View>
   )
 }
