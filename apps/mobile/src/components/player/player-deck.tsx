@@ -77,12 +77,12 @@ export function PlayerTitleRow({
       </View>
       <View style={styles.actions}>
         <IconButton
-          name="star"
+          name="heart"
           size={iconSize.xl}
-          color={current.isFavorite ? colors.warning : colors.textPrimary}
-          filled={Boolean(current.isFavorite)}
+          color={current.isFavorite ? colors.like : colors.iconMid}
+          filled={true}
           onPress={() => void onToggleFavorite()}
-          accessibilityLabel={current.isFavorite ? '已收藏' : '收藏'}
+          accessibilityLabel={current.isFavorite ? '取消收藏' : '收藏'}
         />
         <View style={styles.menuWrapper}>
           <DeckMoreButton
@@ -345,16 +345,9 @@ const useStyles = createThemedStyles((colors) => ({
   titleText: { flex: 1, gap: 2, paddingRight: spacing.sm },
   title: { ...typography.title, color: colors.textPrimary },
   artist: { ...typography.callout, color: colors.textSecondary },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  // 更多按钮圆形半透明底座，对齐 Apple Music 参考截图
-  menuWrapper: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
+  // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐
+  menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },

@@ -82,7 +82,9 @@ describe('播放器队列 Tab 交互', () => {
     expect(iconSource).not.toContain("heart: 'heart-outline'")
 
     // PlayerDeck 使用 Apple Music 星标收藏，PlayerQueue 保留收藏 icon
-    expect(deckSource).toContain('name="star"')
+    // PlayerDeck 和 PlayerQueue 均使用 filled={true} 的心形收藏
+    expect(deckSource).toContain('name="heart"')
+    expect(deckSource).toContain('filled={true}')
     expect(queueSrc).toContain('name="heart"')
     expect(queueSrc).toContain('filled={true}')
   })
