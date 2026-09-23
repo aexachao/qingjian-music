@@ -2,7 +2,7 @@ import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
-import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { createThemedStyles } from '@/theme/theme-provider'
 
 /**
  * 播放页背景：把当前封面放大模糊铺满，再压一层从透明到页面底色的渐变。
@@ -12,7 +12,6 @@ import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
  * 换歌时颜色跟着封面走，成本只有一张已经缓存过的图。
  */
 export function CoverBackdrop({ artwork }: { artwork?: HttpResource | undefined }) {
-  const colors = useThemeColors()
   const styles = useStyles()
   if (!artwork) return <View style={styles.fallback} />
 
@@ -21,16 +20,16 @@ export function CoverBackdrop({ artwork }: { artwork?: HttpResource | undefined 
       <Image
         source={{ uri: artwork.url, headers: artwork.headers }}
         style={styles.image}
-        blurRadius={50}
+        blurRadius={65}
         contentFit="cover"
         // 换歌时颜色淡入，别硬切
-        transition={200}
+        transition={220}
         cachePolicy="memory-disk"
       />
-      {/* 上下压深：顶部导航和底部工具栏那两块要保证文字对比度 */}
+      {/* 柔和环境光影渐变：顶部轻微防眩，中间保留原图色彩，底部柔和过渡承托 */}
       <LinearGradient
-        colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.25)', colors.bgPrimary]}
-        locations={[0, 0.45, 1]}
+        colors={['rgba(0,0,0,0.25)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.20)', 'rgba(0,0,0,0.65)']}
+        locations={[0, 0.20, 0.60, 1]}
         style={styles.scrim}
       />
     </View>
@@ -43,7 +42,7 @@ const fill = { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } as c
 const useStyles = createThemedStyles((colors) => ({
   container: { ...fill, backgroundColor: colors.bgPrimary },
   fallback: { ...fill, backgroundColor: colors.bgPrimary },
-  // 放大一点，模糊后的边缘不会露出底色
-  image: { position: 'absolute', top: '-10%', left: '-10%', width: '120%', height: '120%', opacity: 0.75 },
+  // 放大充满全屏，提供饱满的四周漫反射光影，不露任何黑边
+  image: { position: 'absolute', top: '-15%', left: '-15%', width: '130%', height: '130%', opacity: 1 },
   scrim: { ...fill },
 }))

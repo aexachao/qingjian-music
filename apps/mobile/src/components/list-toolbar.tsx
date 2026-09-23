@@ -12,6 +12,7 @@ import {
   type ListKind,
   type SortSelection,
 } from '@/lib/list-sort-policy'
+import { formatPlayableDurationText } from '@/lib/playlist-meta'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
@@ -43,6 +44,8 @@ interface ListToolbarProps {
   onSelect: (selection: SortSelection) => void
   /** 传了它就多一颗「批量选择」入口（在排序图标左侧） */
   onStartSelection?: () => void
+  /** 可选：总时长毫秒数，若传入则在计数后追加展示「 · 可播 xx 分钟」 */
+  totalDurationMs?: number
 }
 
 /**
@@ -55,7 +58,7 @@ interface ListToolbarProps {
  *
  * 间距由外面包一层控制（列表页固定条 / 详情页头部），这里只负责这一行。
  */
-export function ListToolbar({ kind, total, selection, onSelect, onStartSelection }: ListToolbarProps) {
+export function ListToolbar({ kind, total, selection, onSelect, onStartSelection, totalDurationMs }: ListToolbarProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const buttonRef = useRef<View>(null)
@@ -64,6 +67,10 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
   const currentLabel = selection ? sortFieldLabel(kind, selection.field) : undefined
 
   if (total <= 0) return null
+
+  const baseCount = countText(kind, total)
+  const playable = totalDurationMs ? formatPlayableDurationText(totalDurationMs) : ''
+  const displayCount = playable ? `${baseCount} · ${playable}` : baseCount
 
   const openMenu = () => {
     // 先量出按钮在窗口里的位置，菜单才能贴着它弹（底部弹窗换成快捷菜单的关键一步）
@@ -75,7 +82,7 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
 
   return (
     <View style={styles.bar}>
-      <Text style={styles.count}>{countText(kind, total)}</Text>
+      <Text style={styles.count}>{displayCount}</Text>
 
       <View style={styles.actions}>
         {onStartSelection ? (

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { formatPlaylistDuration, resolvePlaylistCover } from '@/lib/playlist-meta'
+import {
+  formatPlaylistDuration,
+  formatPlayableDurationText,
+  resolvePlaylistCover,
+} from '@/lib/playlist-meta'
 
 describe('formatPlaylistDuration', () => {
   it('处理空值或非法输入', () => {
@@ -29,6 +33,31 @@ describe('formatPlaylistDuration', () => {
   it('多小时多分钟组合', () => {
     expect(formatPlaylistDuration((60 + 12) * 60 * 1000)).toBe('1 小时 12 分钟')
     expect(formatPlaylistDuration((2 * 60 + 45) * 60 * 1000)).toBe('2 小时 45 分钟')
+  })
+
+  it('超过 24 小时格式化为天/小时/分钟组合', () => {
+    // 整天
+    expect(formatPlaylistDuration(24 * 60 * 60 * 1000)).toBe('1 天')
+    expect(formatPlaylistDuration(48 * 60 * 60 * 1000)).toBe('2 天')
+    // 天 + 小时
+    expect(formatPlaylistDuration(26 * 60 * 60 * 1000)).toBe('1 天 2 小时')
+    // 天 + 分钟
+    expect(formatPlaylistDuration((24 * 60 + 15) * 60 * 1000)).toBe('1 天 15 分钟')
+    // 天 + 小时 + 分钟
+    expect(formatPlaylistDuration((26 * 60 + 30) * 60 * 1000)).toBe('1 天 2 小时 30 分钟')
+  })
+})
+
+describe('formatPlayableDurationText', () => {
+  it('处理空值或非法输入返回空字符串', () => {
+    expect(formatPlayableDurationText(undefined)).toBe('')
+    expect(formatPlayableDurationText(0)).toBe('')
+  })
+
+  it('有效时长追加「可播 」前缀', () => {
+    expect(formatPlayableDurationText(45 * 60 * 1000)).toBe('可播 45 分钟')
+    expect(formatPlayableDurationText((60 + 20) * 60 * 1000)).toBe('可播 1 小时 20 分钟')
+    expect(formatPlayableDurationText((26 * 60 + 30) * 60 * 1000)).toBe('可播 1 天 2 小时 30 分钟')
   })
 })
 

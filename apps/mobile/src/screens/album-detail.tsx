@@ -18,7 +18,6 @@ import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { formatAlbumYear, getAlbumAudioSpecBadge } from '@/lib/album-meta'
-import { formatPlaylistDuration } from '@/lib/playlist-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
@@ -141,7 +140,6 @@ export function AlbumDetailScreen() {
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
   )
-  const formattedDuration = formatPlaylistDuration(totalDurationMs)
 
   const isMenuOpen = useIsMenuOpen()
 
@@ -153,6 +151,7 @@ export function AlbumDetailScreen() {
     <ListToolbar
       kind="albumTracks"
       total={total}
+      totalDurationMs={totalDurationMs}
       selection={selection}
       onSelect={setSelection}
       onStartSelection={() => setSelecting(true)}
@@ -287,25 +286,11 @@ export function AlbumDetailScreen() {
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={
-          <View style={styles.footerContainer}>
-            <PaginationFooter
-              loading={query.isFetchingNextPage}
-              error={query.isFetchNextPageError ? query.error : undefined}
-              onRetry={() => void query.fetchNextPage()}
-            />
-            {total > 0 && !query.isFetchingNextPage ? (
-              <View style={styles.footerSummary}>
-                <Text style={styles.footerSummaryText}>
-                  {total} 首歌曲{formattedDuration ? `，${formattedDuration}` : ''}
-                </Text>
-                {album.releaseDate ? (
-                  <Text style={styles.footerReleaseDate}>
-                    发行时间：{album.releaseDate.slice(0, 10)}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
+          <PaginationFooter
+            loading={query.isFetchingNextPage}
+            error={query.isFetchNextPageError ? query.error : undefined}
+            onRetry={() => void query.fetchNextPage()}
+          />
         }
       />
 
@@ -493,23 +478,5 @@ const useStyles = createThemedStyles((colors) => ({
     height: 1,
     marginLeft: 48,
     backgroundColor: colors.borderSubtle,
-  },
-  footerContainer: {
-    paddingTop: spacing.xs,
-  },
-  footerSummary: {
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.xs,
-  },
-  footerSummaryText: {
-    ...typography.subhead,
-    fontFamily: fonts.medium,
-    color: colors.textSecondary,
-  },
-  footerReleaseDate: {
-    ...typography.caption,
-    fontFamily: fonts.regular,
-    color: colors.textTertiary,
   },
 }))
