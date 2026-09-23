@@ -20,16 +20,16 @@ export function CoverBackdrop({ artwork }: { artwork?: HttpResource | undefined 
       <Image
         source={{ uri: artwork.url, headers: artwork.headers }}
         style={styles.image}
-        blurRadius={65}
-        contentFit="cover"
+        blurRadius={45}
+        contentFit="fill"
         // 换歌时颜色淡入，别硬切
         transition={220}
         cachePolicy="memory-disk"
       />
-      {/* 柔和环境光影渐变：顶部轻微防眩，中间保留原图色彩，底部柔和过渡承托 */}
+      {/* 柔和环境光影渐变：顶部轻微防眩，底部轻度承托，绝不过度压黑抹杀色彩 */}
       <LinearGradient
-        colors={['rgba(0,0,0,0.25)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.20)', 'rgba(0,0,0,0.65)']}
-        locations={[0, 0.20, 0.60, 1]}
+        colors={['rgba(0,0,0,0.18)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.15)']}
+        locations={[0, 0.20, 1]}
         style={styles.scrim}
       />
     </View>
@@ -42,7 +42,7 @@ const fill = { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 } as c
 const useStyles = createThemedStyles((colors) => ({
   container: { ...fill, backgroundColor: colors.bgPrimary },
   fallback: { ...fill, backgroundColor: colors.bgPrimary },
-  // 放大充满全屏，提供饱满的四周漫反射光影，不露任何黑边
-  image: { position: 'absolute', top: '-15%', left: '-15%', width: '130%', height: '130%', opacity: 1 },
+  // 边缘拉伸延展铺满全屏，与前景 1:1 视口封面的水平色彩严丝合缝对齐
+  image: { ...fill },
   scrim: { ...fill },
 }))

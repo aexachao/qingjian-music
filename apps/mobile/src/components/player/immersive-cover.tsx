@@ -44,14 +44,12 @@ export function ViewportCover({
         maskElement={
           <LinearGradient
             colors={[
-              'rgba(255,255,255,0.3)',
+              'rgba(255,255,255,0.7)',
               'white',
               'white',
-              'rgba(255,255,255,0.85)',
-              'rgba(255,255,255,0.3)',
               'transparent',
             ]}
-            locations={[0, 0.08, 0.60, 0.75, 0.90, 0.98]}
+            locations={[0, 0.04, 0.90, 1.0]}
             style={StyleSheet.absoluteFill}
           />
         }
@@ -71,23 +69,23 @@ export function ViewportCover({
 
 /**
  * 沉浸式暗化渐变遮罩：
- * - 顶部轻防眩：保证导航栏拖动条在浅色封面上可见；
- * - 下半部暗化渐变遮罩：从歌名行上方（~52%）平缓沉淀出暗色舞台，
- *   既保证歌名、进度条、播放按钮具有极高对比度，又绝不扼杀背景的漫反射光晕。
+ * - 顶部轻防眩：保证导航栏拖动条与状态栏在浅色封面上可见；
+ * - 下半部暗化渐变遮罩：从封面底沿开始平缓沉淀，最大浓度仅 0.48，
+ *   在保证歌名、进度条、播放按钮具有极高对比度的同时，保留底层的通透漫反射光影。
  */
 export function ImmersiveDarkOverlay() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {/* 顶部轻防眩 */}
       <LinearGradient
-        colors={['rgba(0,0,0,0.22)', 'rgba(0,0,0,0)']}
-        locations={[0, 0.16]}
+        colors={['rgba(0,0,0,0.16)', 'rgba(0,0,0,0)']}
+        locations={[0, 0.14]}
         style={StyleSheet.absoluteFill}
       />
       {/* 下半部暗化遮罩：在控件区域提供深色对比度 */}
       <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.38)', 'rgba(0,0,0,0.82)']}
-        locations={[0.52, 0.72, 0.96]}
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.48)']}
+        locations={[0.48, 0.70, 0.98]}
         style={StyleSheet.absoluteFill}
       />
     </View>
