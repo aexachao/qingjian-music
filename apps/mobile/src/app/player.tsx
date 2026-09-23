@@ -487,6 +487,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: spacing.xs,
+    // 拖动小横条再往上移 12pt
+    marginTop: -12,
   },
   dragHandle: {
     width: 36,
@@ -505,7 +507,8 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
-  page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.lg },
+  // paddingBottom 从 xxl(32) 减到 lg(16)：整个播放器下半部下移 16pt，拉近与底部工具栏的距离
+  page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.lg, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },
   coverStage: {
