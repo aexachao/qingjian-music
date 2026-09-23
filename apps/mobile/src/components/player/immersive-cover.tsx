@@ -44,12 +44,12 @@ export function ViewportCover({
         maskElement={
           <LinearGradient
             colors={[
-              'rgba(255,255,255,0.7)',
+              'transparent',
               'white',
               'white',
               'transparent',
             ]}
-            locations={[0, 0.04, 0.90, 1.0]}
+            locations={[0, 0.12, 0.88, 1.0]}
             style={StyleSheet.absoluteFill}
           />
         }
