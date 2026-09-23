@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
@@ -200,6 +201,12 @@ export function AlbumDetailScreen() {
         }}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
+            {/* 头图：高清专辑封面模糊铺满顶部背景，向下渐变到页面底色 */}
+            {album.coverId && provider ? (
+              <View style={styles.heroBackdrop} pointerEvents="none">
+                <CoverBackdrop artwork={provider.image(album.coverId, 800)} />
+              </View>
+            ) : null}
             <View style={styles.coverBlock}>
               {/* 大封面封套与景深阴影 */}
               <View style={styles.coverShadowWrapper}>
@@ -348,6 +355,15 @@ const useStyles = createThemedStyles((colors) => ({
   },
   headerRoot: {
     marginBottom: spacing.sm,
+    position: 'relative',
+  },
+  // 头图背景：铺到头部顶端，高度盖住封面区，底部渐变融入页面
+  heroBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 360,
   },
   coverBlock: {
     alignItems: 'center',

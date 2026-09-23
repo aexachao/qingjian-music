@@ -5,6 +5,10 @@ import { StyleSheet, View } from 'react-native'
 import type { HttpResource } from '@qj/core-domain'
 import { BrandMark } from '@/components/brand-mark'
 import { useThemeColors } from '@/theme/theme-provider'
+import { useServerSession } from '@/lib/server-session'
+
+/** 全屏封面的高清尺寸：飞牛 size>=~1000 直接返回原图（实测），足够 3x 屏铺满不糊 */
+const IMMERSIVE_COVER_SIZE = 1200
 
 /**
  * 沉浸式全屏封面（cover 态专用，方案 A）。
@@ -18,16 +22,20 @@ import { useThemeColors } from '@/theme/theme-provider'
  *      为前景的白色歌名、进度条、播放控制按键提供极高对比度的暗色舞台；
  *   4. 顶部轻压暗（0~20%），保证状态栏与拖动条可读。
  */
-export function ImmersiveCover({ artwork }: { artwork?: HttpResource | undefined }) {
+export function ImmersiveCover({ artwork, coverId }: { artwork?: HttpResource | undefined; coverId?: string | undefined }) {
   const colors = useThemeColors()
+  const { provider } = useServerSession()
+  // 优先用 coverId 现算高清大图（全屏铺满不糊）；拿不到就回退到传入的（队列 600px）
+  const hd = coverId && provider ? provider.image(coverId, IMMERSIVE_COVER_SIZE) : undefined
+  const source = hd ?? artwork
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {artwork ? (
+      {source ? (
         <>
-          {/* 1. 底层：封面原图铺满，顶部与主体保持清晰 */}
+          {/* 1. 底层：封面高清原图铺满，顶部与主体保持清晰 */}
           <Image
-            source={{ uri: artwork.url, headers: artwork.headers }}
+            source={{ uri: source.url, headers: source.headers }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={220}
@@ -47,7 +55,7 @@ export function ImmersiveCover({ artwork }: { artwork?: HttpResource | undefined
             }
           >
             <Image
-              source={{ uri: artwork.url, headers: artwork.headers }}
+              source={{ uri: source.url, headers: source.headers }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
               blurRadius={45}

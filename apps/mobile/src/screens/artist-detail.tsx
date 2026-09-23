@@ -220,10 +220,20 @@ export function ArtistDetailScreen() {
     [allTracks.items, artistName, connection, id, localTracks, provider],
   )
 
-  // 封面与写真背景资源计算（优先使用全网高清写真大图，兜底使用本地高解析唱片封面）
-  const artistCoverId = localTracks[0]?.artists.find((a) => a.id === id)?.coverId ?? localTracks[0]?.artists[0]?.coverId
-  const firstCoverId = localTracks[0]?.coverId ?? albums.items[0]?.coverId
-  const backdropCoverId = artistCoverId ?? firstCoverId
+  // 封面与写真背景资源计算（优先全网高清写真大图，兜底用最新专辑的高清封面）
+  // 最新专辑：按发行/入库时间倒序取第一张（只有 1 张也用它）
+  const latestAlbumCoverId = useMemo(() => {
+    const list = albums.items
+    if (list.length === 0) return undefined
+    const sorted = [...list].sort((a, b) => {
+      const dateA = a.releaseDate || ''
+      const dateB = b.releaseDate || ''
+      if (dateA && dateB) return dateB.localeCompare(dateA)
+      return (b.addedAt ?? 0) - (a.addedAt ?? 0)
+    })
+    return sorted[0]?.coverId
+  }, [albums.items])
+  const backdropCoverId = latestAlbumCoverId ?? localTracks[0]?.coverId
   const backdropResource = backdropCoverId && provider ? provider.image(backdropCoverId, 800) : null
   const portraitUrl = portraitQuery.data
   const heroImageUri = portraitUrl ?? backdropResource?.url

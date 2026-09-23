@@ -265,7 +265,7 @@ export default function PlayerScreen() {
           <CoverBackdrop artwork={current.artwork} />
           {/* 沉浸式全屏封面：cover 态铺满整屏 + 底部渐变暗化（在 CoverBackdrop 之上、内容之下） */}
           <Animated.View style={[StyleSheet.absoluteFill, immersiveCoverStyle]} pointerEvents="none">
-            <ImmersiveCover artwork={current.artwork} />
+            <ImmersiveCover artwork={current.artwork} coverId={current.coverId} />
           </Animated.View>
 
           <GestureDetector gesture={headerDismissGesture}>
@@ -487,8 +487,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: spacing.xs,
-    // 拖动小横条再往上移 12pt
-    marginTop: -12,
+    // 拖动小横条往上移（-12 再 -10 = -22）
+    marginTop: -22,
   },
   dragHandle: {
     width: 36,
@@ -507,8 +507,8 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
-  // paddingBottom 从 xxl(32) 减到 lg(16)：整个播放器下半部下移 16pt，拉近与底部工具栏的距离
-  page: { flex: 1, paddingTop: spacing.xs, paddingBottom: spacing.lg, gap: spacing.lg },
+  // paddingBottom 再减 10（lg 16 → 6）：播放器整块再下移 10pt，更贴底部工具栏
+  page: { flex: 1, paddingTop: spacing.xs, paddingBottom: 6, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },
   coverStage: {
