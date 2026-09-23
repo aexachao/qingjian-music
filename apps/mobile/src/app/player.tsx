@@ -20,7 +20,7 @@ import { StatusBar } from 'expo-status-bar'
 import { AirplayRouteButton } from '../../modules/airplay-button'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
-import { ImmersiveCover } from '@/components/player/immersive-cover'
+import { ImmersiveDarkOverlay, ViewportCover } from '@/components/player/immersive-cover'
 import { IconButton, iconSize } from '@/components/icon'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
@@ -263,9 +263,9 @@ export default function PlayerScreen() {
       <GestureDetector gesture={dismissGesture}>
         <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
           <CoverBackdrop artwork={current.artwork} />
-          {/* 沉浸式全屏封面：cover 态铺满整屏 + 底部渐变暗化（在 CoverBackdrop 之上、内容之下） */}
+          {/* 沉浸式暗化渐变遮罩：在 CoverBackdrop 之上、内容之下，切歌词/列表时平滑淡出 */}
           <Animated.View style={[StyleSheet.absoluteFill, immersiveCoverStyle]} pointerEvents="none">
-            <ImmersiveCover artwork={current.artwork} coverId={current.coverId} />
+            <ImmersiveDarkOverlay />
           </Animated.View>
 
           <GestureDetector gesture={headerDismissGesture}>
@@ -316,9 +316,9 @@ export default function PlayerScreen() {
                     pointerEvents={mode === 'cover' ? 'auto' : 'none'}
                     style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
                   >
+                    {/* 视口核心舞台：导航栏底部至歌名行顶部，按屏幕宽度展示专辑图 */}
                     <View style={styles.coverImageWrapper}>
-                      {/* 沉浸式全屏封面已在最底层铺满，这里不再画居中方形封面；
-                          wrapper 保留为 flex 占位，把标题行挤到底部（压在暗化渐变上）。 */}
+                      <ViewportCover artwork={current.artwork} coverId={current.coverId} />
                     </View>
                     <View style={styles.titleRowWrapper}>
                       <PlayerTitleRow

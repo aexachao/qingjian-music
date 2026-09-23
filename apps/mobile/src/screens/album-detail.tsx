@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
-import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
@@ -201,21 +200,10 @@ export function AlbumDetailScreen() {
         }}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
-            {/* 头图：高清专辑封面模糊铺满顶部背景，向下渐变到页面底色 */}
-            {album.coverId && provider ? (
-              <View style={styles.heroBackdrop} pointerEvents="none">
-                <CoverBackdrop artwork={provider.image(album.coverId, 800)} />
-              </View>
-            ) : null}
             <View style={styles.coverBlock}>
               {/* 大封面封套与景深阴影 */}
               <View style={styles.coverShadowWrapper}>
                 <CoverImage coverId={album.coverId} size={210} borderRadius={radius.album} />
-              </View>
-
-              {/* 专辑类型徽章 */}
-              <View style={styles.badgeWrapper}>
-                <Text style={styles.badgeText}>专辑</Text>
               </View>
 
               {/* 专辑标题 */}
@@ -243,23 +231,18 @@ export function AlbumDetailScreen() {
                 </Text>
               )}
 
-              {/* 元数据与规格：年份 · 曲目数 · 总时长 · 规格徽章 */}
-              <View style={styles.metaRow}>
-                {formattedYear ? <Text style={styles.metaText}>{formattedYear}</Text> : null}
-                {formattedYear && total > 0 ? <Text style={styles.metaDot}>·</Text> : null}
-                <Text style={styles.metaText}>{total} 首歌曲</Text>
-                {formattedDuration ? (
-                  <>
-                    <Text style={styles.metaDot}>·</Text>
-                    <Text style={styles.metaText}>{formattedDuration}</Text>
-                  </>
-                ) : null}
-                {specBadge ? (
-                  <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
-                    <Text style={styles.specBadgeText}>{specBadge}</Text>
-                  </View>
-                ) : null}
-              </View>
+              {/* 精炼元数据：年份 · 规格徽章（无多余“专辑”标签与长串歌曲数） */}
+              {formattedYear || specBadge ? (
+                <View style={styles.metaRow}>
+                  {formattedYear ? <Text style={styles.metaText}>{formattedYear}</Text> : null}
+                  {formattedYear && specBadge ? <Text style={styles.metaDot}>·</Text> : null}
+                  {specBadge ? (
+                    <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
+                      <Text style={styles.specBadgeText}>{specBadge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* 核心动作：大号播放与随机播放双胶囊 */}
               <View style={styles.actions}>
@@ -304,11 +287,25 @@ export function AlbumDetailScreen() {
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={
-          <PaginationFooter
-            loading={query.isFetchingNextPage}
-            error={query.isFetchNextPageError ? query.error : undefined}
-            onRetry={() => void query.fetchNextPage()}
-          />
+          <View style={styles.footerContainer}>
+            <PaginationFooter
+              loading={query.isFetchingNextPage}
+              error={query.isFetchNextPageError ? query.error : undefined}
+              onRetry={() => void query.fetchNextPage()}
+            />
+            {total > 0 && !query.isFetchingNextPage ? (
+              <View style={styles.footerSummary}>
+                <Text style={styles.footerSummaryText}>
+                  {total} 首歌曲{formattedDuration ? `，${formattedDuration}` : ''}
+                </Text>
+                {album.releaseDate ? (
+                  <Text style={styles.footerReleaseDate}>
+                    发行时间：{album.releaseDate.slice(0, 10)}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
         }
       />
 
@@ -355,15 +352,6 @@ const useStyles = createThemedStyles((colors) => ({
   },
   headerRoot: {
     marginBottom: spacing.sm,
-    position: 'relative',
-  },
-  // 头图背景：铺到头部顶端，高度盖住封面区，底部渐变融入页面
-  heroBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 360,
   },
   coverBlock: {
     alignItems: 'center',
@@ -377,20 +365,6 @@ const useStyles = createThemedStyles((colors) => ({
     shadowRadius: 16,
     elevation: 8,
     marginBottom: spacing.xs,
-  },
-  badgeWrapper: {
-    backgroundColor: colors.bgButtonSecondary,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-    marginTop: spacing.xs,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontSize: 11,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
   },
   name: {
     ...typography.title,
@@ -519,5 +493,23 @@ const useStyles = createThemedStyles((colors) => ({
     height: 1,
     marginLeft: 48,
     backgroundColor: colors.borderSubtle,
+  },
+  footerContainer: {
+    paddingTop: spacing.xs,
+  },
+  footerSummary: {
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xs,
+  },
+  footerSummaryText: {
+    ...typography.subhead,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  footerReleaseDate: {
+    ...typography.caption,
+    fontFamily: fonts.regular,
+    color: colors.textTertiary,
   },
 }))
