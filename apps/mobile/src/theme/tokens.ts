@@ -52,6 +52,9 @@ const darkPalette = {
   bgScrimStrong: '#00000073',
   bgAvatar: '#ffffff1a',
   queueBg: '#00000014',
+  // --- CTA 主操作胶囊（Apple Music 风格高对比胶囊：深色下纯白底黑字，浅色下纯黑底白字） ---
+  ctaPrimaryBg: '#ffffff',
+  ctaPrimaryText: '#000000',
   // --- 文字与图标 ---
   textPrimary: '#ffffff',
   textSecondary: '#ffffffcc',
@@ -157,6 +160,9 @@ const lightPalette: Palette = {
   bgScrimStrong: '#0000004d',
   bgAvatar: '#00000014',
   queueBg: '#0000000a',
+  // --- CTA 主操作胶囊（Apple Music 风格高对比胶囊：深色下纯白底黑字，浅色下纯黑底白字） ---
+  ctaPrimaryBg: '#111111',
+  ctaPrimaryText: '#ffffff',
   textPrimary: '#111111',
   textSecondary: '#111111cc',
   textTertiary: '#11111199',

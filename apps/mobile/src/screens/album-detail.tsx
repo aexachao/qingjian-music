@@ -1,6 +1,17 @@
 import { useMemo, useState } from 'react'
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated'
+import { BlurView } from 'expo-blur'
+import { LinearGradient } from 'expo-linear-gradient'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
@@ -17,25 +28,29 @@ import { useDetailHref } from '@/lib/detail-href'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
+import { tap } from '@/lib/haptics'
 import { formatAlbumYear, getAlbumAudioSpecBadge } from '@/lib/album-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
+import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
-import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { fonts, spacing, typography } from '@/theme/tokens'
 
 /**
  * 专辑详情页 (AlbumDetailScreen):
- * - 切除机械重复封面：列表全面回归经典的音轨编号（leading="index"，01, 02...）；
- * - 专属巨幕大画卷：210pt 封套封面、立体弥散软阴影；
- * - 发烧级音频规格：智能提取全专音质（Hi-Res / 无损音质）与发行年份；
- * - 音乐人直通闭环：艺术家名称支持一键跳转对应的艺人详情页；
- * - 核心双主动作胶囊：大号「播放全部」与「随机播放」；
- * - 原生操作菜单：一键入队与跳转艺术家；
- * - 滚动吸顶联动：越过巨幕后标题平滑折叠，吸顶工具栏支持一键批量多选。
+ * - 沉浸式流体背景：提取封面主导氛围光，经由高斯模糊在头部上方弥散，无缝汇入纯黑深底；
+ * - 3D 悬浮实体封面：220pt 封套封面、自适应环境光投影与下拉阻尼弹性放大（Pull-to-Zoom）；
+ * - 居中对称排版（8pt 系统）：纯白 H1 标题、浅灰可点击跳转歌手链接、中性灰元数据档案；
+ * - 极简音质线框徽章：移除突兀彩色大底块，回归单色半透明超细线框药丸；
+ * - 高对比主次按键胶囊：纯白实体播放（黑字）与磨砂玻璃随机播放（白字），校准品牌色滥用；
+ * - 滚动吸顶联动：向上越过巨幕后，导航栏平滑过渡为毛玻璃并显现迷你唱片与随手切歌按键；
+ * - 列表工具栏：集成「共 x 首 · 可播 xx 分钟」动态时长与 44pt 触控热区的批量多选与排序。
  */
 export function AlbumDetailScreen() {
   const { colors, mode } = useAppTheme()
   const styles = useStyles()
+  const insets = useSafeAreaInsets()
+  const topHeaderOffset = Math.max(insets.top, 20) + 44
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
   const router = useRouter()
@@ -65,6 +80,79 @@ export function AlbumDetailScreen() {
   })
 
   const album = albumQuery.data
+
+  // 专属流体氛围调色板
+  const palette = useMemo(
+    () => resolveAmbientPalette(album?.id ?? album?.coverId),
+    [album?.id, album?.coverId],
+  )
+
+  // 滚动动效与下拉阻尼缩放（Pull-to-Zoom）
+  const scrollY = useSharedValue(0)
+  const isPinnedSV = useSharedValue(false)
+
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const y = event.contentOffset.y
+      scrollY.value = y
+      const isPast = pinAt > 0 && y >= pinAt
+      if (isPast !== isPinnedSV.value) {
+        isPinnedSV.value = isPast
+        runOnJS(setPinned)(isPast)
+      }
+    },
+  })
+
+  const coverAnimatedStyle = useAnimatedStyle(() => {
+    const scale = interpolate(
+      scrollY.value,
+      [-180, 0],
+      [1.24, 1],
+      Extrapolation.CLAMP,
+    )
+    return {
+      transform: [{ scale }],
+    }
+  })
+
+  const navBgAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [150, 230],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    return { opacity }
+  })
+
+  const navTitleAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [190, 240],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    const translateY = interpolate(
+      scrollY.value,
+      [190, 240],
+      [6, 0],
+      Extrapolation.CLAMP,
+    )
+    return {
+      opacity,
+      transform: [{ translateY }],
+    }
+  })
+
+  const navPlayAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [190, 240],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    return { opacity }
+  })
 
   // 播放整张专辑
   async function play(startIndex: number, shuffle = false) {
@@ -160,57 +248,126 @@ export function AlbumDetailScreen() {
 
   return (
     <View style={styles.root}>
+      {/* 顶部自适应毛玻璃导航栏 */}
       <Stack.Screen
         options={{
           headerShown: true,
-          title: pinned ? album.name : '',
+          headerTransparent: true,
+          title: '',
           headerLeft: () => <StackBackButton />,
+          headerBackground: () => (
+            <Animated.View style={[StyleSheet.absoluteFill, navBgAnimatedStyle]} pointerEvents="none">
+              <BlurView
+                tint={mode === 'dark' ? 'dark' : 'light'}
+                intensity={100}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
+              <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
+            </Animated.View>
+          ),
+          headerTitle: () => (
+            <Animated.View style={[styles.navTitleRow, navTitleAnimatedStyle]}>
+              <CoverImage coverId={album.coverId} size={28} borderRadius={4} />
+              <Text style={styles.navTitleText} numberOfLines={1}>
+                {album.name}
+              </Text>
+            </Animated.View>
+          ),
           headerRight: () => (
-            <MenuView
-              title={album.name}
-              themeVariant={mode === 'dark' ? 'dark' : 'light'}
-              shouldOpenOnLongPress={false}
-              isAnchoredToRight={true}
-              actions={menuActions}
-              onPressAction={handleMenuAction}
-            >
-              <View
-                style={styles.moreButton}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel="专辑菜单"
+            <View style={styles.navRightRow}>
+              <Animated.View style={navPlayAnimatedStyle}>
+                <Pressable
+                  hitSlop={8}
+                  style={styles.navPlayButton}
+                  onPress={() => {
+                    tap()
+                    void play(0)
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="播放全部"
+                >
+                  <Icon name="play" size={16} color={colors.textPrimary} filled />
+                </Pressable>
+              </Animated.View>
+              <MenuView
+                title={album.name}
+                themeVariant={mode === 'dark' ? 'dark' : 'light'}
+                shouldOpenOnLongPress={false}
+                isAnchoredToRight={true}
+                actions={menuActions}
+                onPressAction={handleMenuAction}
               >
-                <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
-              </View>
-            </MenuView>
+                <View
+                  style={styles.moreButton}
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel="专辑菜单"
+                >
+                  <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
+                </View>
+              </MenuView>
+            </View>
           ),
         }}
       />
 
-      <FlatList
+      {/* 顶部柔和流体弥散氛围光底色 */}
+      <View style={styles.ambientRoot} pointerEvents="none">
+        <View style={styles.ambientBlobContainer}>
+          <View
+            style={[
+              styles.ambientBlob,
+              styles.ambientBlobPrimary,
+              { backgroundColor: palette.primary },
+            ]}
+          />
+          <View
+            style={[
+              styles.ambientBlob,
+              styles.ambientBlobSecondary,
+              { backgroundColor: palette.secondary },
+            ]}
+          />
+        </View>
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 90 : 100}
+          tint={mode === 'dark' ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)', colors.bgPrimary]}
+          locations={[0.25, 0.65, 1.0]}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+
+      <Animated.FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        contentContainerStyle={[
+          styles.list,
+          { paddingTop: topHeaderOffset + spacing.xs, paddingBottom: bottom },
+        ]}
         scrollEventThrottle={16}
-        onScroll={(event) => {
-          const y = event.nativeEvent.contentOffset.y
-          const next = pinAt > 0 && y >= pinAt
-          setPinned((previous) => (previous === next ? previous : next))
-        }}
+        onScroll={onScroll}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
             <View style={styles.coverBlock}>
               {/* 大封面封套与景深阴影 */}
-              <View style={styles.coverShadowWrapper}>
-                <CoverImage coverId={album.coverId} size={210} borderRadius={radius.album} />
-              </View>
+              <Animated.View style={[styles.coverContainer, coverAnimatedStyle]}>
+                <View style={[styles.coverGlow, { shadowColor: palette.primary }]}>
+                  <CoverImage coverId={album.coverId} size={220} borderRadius={16} />
+                  <View style={styles.coverInnerBorder} pointerEvents="none" />
+                </View>
+              </Animated.View>
 
-              {/* 专辑标题 */}
+              {/* 专辑标题（24pt Bold 纯白，居中对齐） */}
               <Text style={styles.name} numberOfLines={2}>
                 {album.name}
               </Text>
 
-              {/* 艺术家名称（支持点击无缝跳转） */}
+              {/* 艺术家名称（16pt Medium 浅灰，支持点击无缝跳转，彻底告别红字） */}
               {firstArtistId ? (
                 <Pressable
                   onPress={handleGotoArtist}
@@ -222,7 +379,7 @@ export function AlbumDetailScreen() {
                   <Text style={styles.artistText} numberOfLines={1}>
                     {artistText}
                   </Text>
-                  <Icon name="chevronRight" size={14} color={colors.primaryAction} />
+                  <Icon name="chevronRight" size={13} color={colors.textTertiary} />
                 </Pressable>
               ) : (
                 <Text style={styles.artistText} numberOfLines={1}>
@@ -230,7 +387,7 @@ export function AlbumDetailScreen() {
                 </Text>
               )}
 
-              {/* 精炼元数据：年份 · 规格徽章（无多余“专辑”标签与长串歌曲数） */}
+              {/* 精炼元数据：年份 · 规格徽章（中性灰微型药丸，无红字与彩色大块） */}
               {formattedYear || specBadge ? (
                 <View style={styles.metaRow}>
                   {formattedYear ? <Text style={styles.metaText}>{formattedYear}</Text> : null}
@@ -243,25 +400,31 @@ export function AlbumDetailScreen() {
                 </View>
               ) : null}
 
-              {/* 核心动作：大号播放与随机播放双胶囊 */}
+              {/* 核心动作：高对比主次双胶囊（纯白播放全部 + 磨砂玻璃随机播放） */}
               <View style={styles.actions}>
                 <Pressable
                   style={({ pressed }) => [styles.playButton, pressed && styles.buttonPressed]}
-                  onPress={() => void play(0)}
+                  onPress={() => {
+                    tap()
+                    void play(0)
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="播放专辑全部歌曲"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                  <Text style={styles.playButtonLabel}>播放</Text>
+                  <Icon name="play" size={16} color={colors.ctaPrimaryText} filled />
+                  <Text style={styles.playButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
                   style={({ pressed }) => [styles.shuffleButton, pressed && styles.buttonPressed]}
-                  onPress={() => void play(0, true)}
+                  onPress={() => {
+                    tap()
+                    void play(0, true)
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="随机播放专辑"
                 >
-                  <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
+                  <Icon name="shuffle" size={16} color={colors.textPrimary} />
                   <Text style={styles.shuffleButtonLabel}>随机播放</Text>
                 </Pressable>
               </View>
@@ -295,7 +458,11 @@ export function AlbumDetailScreen() {
       />
 
       {/* 滚动过头部后吸附顶部的精简工具条 */}
-      {pinned && total > 0 ? <View style={styles.pinnedBar}>{toolbar}</View> : null}
+      {pinned && total > 0 ? (
+        <View style={[styles.pinnedBar, { top: topHeaderOffset }]}>
+          {toolbar}
+        </View>
+      ) : null}
 
       {/* 批量操作模态弹窗（同步切为 leading="index"） */}
       <TrackSelectionModal
@@ -329,41 +496,81 @@ export function AlbumDetailScreen() {
 const useStyles = createThemedStyles((colors) => ({
   root: {
     flex: 1,
+    backgroundColor: colors.bgPrimary,
   },
   list: {
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
+  },
+  ambientRoot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 480,
+    overflow: 'hidden',
+  },
+  ambientBlobContainer: {
+    ...StyleSheet.absoluteFill,
+  },
+  ambientBlob: {
+    position: 'absolute',
+  },
+  ambientBlobPrimary: {
+    top: -20,
+    left: -30,
+    width: 290,
+    height: 290,
+    borderRadius: 145,
+    opacity: 0.72,
+  },
+  ambientBlobSecondary: {
+    top: 40,
+    right: -40,
+    width: 270,
+    height: 270,
+    borderRadius: 135,
+    opacity: 0.6,
   },
   headerRoot: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   coverBlock: {
     alignItems: 'center',
-    gap: spacing.xs,
     paddingTop: spacing.xs,
   },
-  coverShadowWrapper: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.26,
-    shadowRadius: 16,
-    elevation: 8,
-    marginBottom: spacing.xs,
+  coverContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverGlow: {
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.38,
+    shadowRadius: 32,
+    elevation: 12,
+    borderRadius: 16,
+  },
+  coverInnerBorder: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   name: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: 20,
     paddingHorizontal: spacing.lg,
+    lineHeight: 30,
   },
   artistLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
+    marginTop: 6,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
@@ -372,30 +579,33 @@ const useStyles = createThemedStyles((colors) => ({
   },
   artistText: {
     ...typography.subhead,
-    fontSize: 15,
+    fontSize: 16,
     fontFamily: fonts.medium,
-    color: colors.primaryAction,
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    marginTop: 2,
+    marginTop: 8,
   },
   metaText: {
-    ...typography.footnote,
+    ...typography.caption,
+    fontSize: 12,
     fontFamily: fonts.regular,
-    color: colors.textSecondary,
+    color: colors.textTertiary,
   },
   metaDot: {
-    ...typography.footnote,
+    ...typography.caption,
+    fontSize: 12,
     color: colors.textTertiary,
   },
   specBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.badgeBorder,
     backgroundColor: colors.badgeBg,
@@ -404,48 +614,52 @@ const useStyles = createThemedStyles((colors) => ({
   specBadgeText: {
     fontSize: 10,
     fontFamily: fonts.bold,
-    color: colors.brandTint,
+    color: colors.badgeText,
     letterSpacing: 0.4,
   },
   actions: {
     flexDirection: 'row',
     gap: spacing.md,
-    marginTop: spacing.md + 2,
+    marginTop: 22,
     width: '100%',
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: spacing.sm,
   },
   playButton: {
     flex: 1,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primaryAction,
+    gap: spacing.xs + 2,
+    borderRadius: 22,
+    backgroundColor: colors.ctaPrimaryBg,
   },
   playButtonLabel: {
     ...typography.headline,
+    fontSize: 15,
     fontFamily: fonts.semibold,
-    color: colors.textOnAccent,
+    color: colors.ctaPrimaryText,
   },
   shuffleButton: {
     flex: 1,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
+    gap: spacing.xs + 2,
+    borderRadius: 22,
     backgroundColor: colors.bgButtonSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   shuffleButtonLabel: {
     ...typography.headline,
+    fontSize: 15,
     fontFamily: fonts.medium,
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.82,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
   moreButton: {
@@ -457,16 +671,17 @@ const useStyles = createThemedStyles((colors) => ({
   },
   toolbarSlot: {
     alignSelf: 'stretch',
-    marginTop: spacing.lg,
+    marginTop: 24,
+    marginBottom: 12,
     paddingBottom: spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
   pinnedBar: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
+    zIndex: 40,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
     paddingBottom: spacing.xs,
@@ -478,5 +693,36 @@ const useStyles = createThemedStyles((colors) => ({
     height: 1,
     marginLeft: 48,
     backgroundColor: colors.borderSubtle,
+  },
+  navBottomBorder: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+  },
+  navTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    maxWidth: 220,
+  },
+  navTitleText: {
+    ...typography.headline,
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  navRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  navPlayButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
   },
 }))
