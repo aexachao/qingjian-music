@@ -230,7 +230,7 @@ function SettingsRow({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
     >
-      <Icon name={icon} size={22} color={colors.brandTint} />
+      <Icon name={icon} size={22} color={colors.textSecondary} />
       <Text numberOfLines={1} style={styles.label}>
         {label}
       </Text>

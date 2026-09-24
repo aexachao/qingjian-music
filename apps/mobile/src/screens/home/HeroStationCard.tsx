@@ -56,7 +56,7 @@ export function HeroStationCard({
       </View>
 
       <View style={styles.playCircle}>
-        <Icon name="play" size={iconSize.md + 2} color={colors.textOnAccent} />
+        <Icon name="play" size={iconSize.md + 2} color={colors.ctaPrimaryText} filled />
       </View>
     </Pressable>
   )
@@ -89,7 +89,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.badge,
     fontSize: 11,
     fontFamily: fonts.bold,
-    color: colors.brandTint,
+    color: colors.textSecondary,
   },
   title: {
     ...typography.title,
@@ -106,12 +106,12 @@ const useStyles = createThemedStyles((colors) => ({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.brandTint,
+    backgroundColor: colors.ctaPrimaryBg,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.brandTint,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
   },
 }))

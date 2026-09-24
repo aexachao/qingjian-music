@@ -171,12 +171,12 @@ export function FavoritesScreen() {
                   <View style={styles.coverRelative}>
                     <CoverImage coverId={firstTrackCoverId} size={210} borderRadius={radius.album} />
                     <View style={styles.heartFloatBadge}>
-                      <Icon name="heart" size={24} color={colors.primaryAction} filled />
+                      <Icon name="heart" size={24} color={colors.like} filled />
                     </View>
                   </View>
                 ) : (
                   <View style={styles.heroHeartCard}>
-                    <Icon name="heart" size={72} color={colors.primaryAction} filled />
+                    <Icon name="heart" size={72} color={colors.like} filled />
                   </View>
                 )}
               </View>
@@ -204,8 +204,8 @@ export function FavoritesScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="播放我喜欢的音乐"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                  <Text style={styles.playButtonLabel}>播放</Text>
+                  <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
+                  <Text style={styles.playButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
@@ -374,12 +374,12 @@ const useStyles = createThemedStyles((colors) => ({
     gap: spacing.xs,
     paddingVertical: spacing.sm + 4,
     borderRadius: radius.pill,
-    backgroundColor: colors.primaryAction,
+    backgroundColor: colors.ctaPrimaryBg,
   },
   playButtonLabel: {
     ...typography.headline,
     fontFamily: fonts.semibold,
-    color: colors.textOnAccent,
+    color: colors.ctaPrimaryText,
   },
   shuffleButton: {
     flex: 1,
@@ -390,6 +390,8 @@ const useStyles = createThemedStyles((colors) => ({
     paddingVertical: spacing.sm + 4,
     borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   shuffleButtonLabel: {
     ...typography.headline,

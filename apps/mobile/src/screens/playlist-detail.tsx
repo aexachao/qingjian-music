@@ -296,8 +296,8 @@ export function PlaylistDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="播放歌单全部歌曲"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textOnAccent} filled />
-                  <Text style={styles.playButtonLabel}>播放</Text>
+                  <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
+                  <Text style={styles.playButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
@@ -450,12 +450,12 @@ const useStyles = createThemedStyles((colors) => ({
     gap: spacing.xs,
     paddingVertical: spacing.sm + 4,
     borderRadius: radius.pill,
-    backgroundColor: colors.primaryAction,
+    backgroundColor: colors.ctaPrimaryBg,
   },
   playButtonLabel: {
     ...typography.headline,
     fontFamily: fonts.semibold,
-    color: colors.textOnAccent,
+    color: colors.ctaPrimaryText,
   },
   shuffleButton: {
     flex: 1,
@@ -466,6 +466,8 @@ const useStyles = createThemedStyles((colors) => ({
     paddingVertical: spacing.sm + 4,
     borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   shuffleButtonLabel: {
     ...typography.headline,

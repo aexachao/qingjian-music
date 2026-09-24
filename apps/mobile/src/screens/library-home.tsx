@@ -102,7 +102,7 @@ export function LibraryHomeScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={entry.label}
                     >
-                      <Icon name={entry.icon} size={iconSize.md} color={colors.brandTint} />
+                      <Icon name={entry.icon} size={iconSize.md} color={colors.textSecondary} />
                       <Text style={styles.label}>{entry.label}</Text>
                       <Icon name="chevronRight" size={iconSize.sm} color={colors.textQuaternary} />
                     </Pressable>

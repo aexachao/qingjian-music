@@ -74,7 +74,7 @@ export function PlaylistsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="新建歌单"
                 >
-                  <Icon name="add" size={iconSize.lg} color={colors.primaryAction} />
+                  <Icon name="add" size={iconSize.lg} color={colors.textPrimary} />
                 </Pressable>
               )
             : undefined,
@@ -145,9 +145,9 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.pill,
-    backgroundColor: colors.primaryAction,
+    backgroundColor: colors.ctaPrimaryBg,
   },
-  emptyButtonLabel: { ...typography.headline, color: colors.textOnAccent },
+  emptyButtonLabel: { ...typography.headline, color: colors.ctaPrimaryText },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   text: { flex: 1, gap: 2 },
   name: { ...typography.callout, color: colors.textPrimary },

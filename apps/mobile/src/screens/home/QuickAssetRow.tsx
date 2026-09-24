@@ -34,7 +34,7 @@ export function QuickAssetRow({ isInteracting }: QuickAssetRowProps) {
       key: 'favorites',
       label: '我喜欢的',
       icon: 'heart',
-      iconColor: colors.brandTint,
+      iconColor: colors.like,
       href: '/home/favorites',
     },
     {

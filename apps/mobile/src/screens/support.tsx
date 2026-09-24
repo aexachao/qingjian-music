@@ -119,7 +119,7 @@ export function SupportScreen() {
       {/* 头部：简洁真诚、无冗余说教 */}
       <View style={styles.hero}>
         <View style={styles.heroBadge}>
-          <Icon name="heartOutline" size={24} color={colors.primaryAction} />
+          <Icon name="heartOutline" size={24} color={colors.like} />
         </View>
         <Text style={styles.heroTitle}>支持轻简音乐</Text>
         <Text style={styles.heroSubtitle}>
@@ -356,7 +356,7 @@ const useStyles = createThemedStyles((colors) => ({
     gap: 4,
   },
   tierCardSelected: {
-    borderColor: colors.primaryAction,
+    borderColor: colors.stateSelected,
   },
   tierImage: {
     width: 56,
@@ -377,7 +377,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   tierAmountSelected: {
-    color: colors.primaryAction,
+    color: colors.stateSelected,
   },
 
   // 渠道选择区

@@ -257,7 +257,7 @@ export function ArtistDetailScreen() {
             <IconButton
               name="play"
               size={iconSize.md}
-              color={colors.brandTint}
+              color={colors.textPrimary}
               onPress={() => void playArtistTracks(0)}
               accessibilityLabel="播放全部"
             />
@@ -374,8 +374,8 @@ export function ArtistDetailScreen() {
               accessibilityRole="button"
               accessibilityLabel="播放全部"
             >
-              <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
-              <Text style={styles.actionButtonText}>播放</Text>
+              <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
+              <Text style={styles.actionButtonTextPlay}>播放</Text>
             </Pressable>
 
             {/* 磨砂半透随机播放胶囊 */}
@@ -825,10 +825,12 @@ const useStyles = createThemedStyles((colors) => ({
     minWidth: 130,
   },
   buttonPlay: {
-    backgroundColor: colors.primaryAction,
+    backgroundColor: colors.ctaPrimaryBg,
   },
   buttonShuffle: {
     backgroundColor: colors.bgButtonSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   buttonPressed: {
     opacity: 0.75,
@@ -838,6 +840,11 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.callout,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  actionButtonTextPlay: {
+    ...typography.callout,
+    fontWeight: '600',
+    color: colors.ctaPrimaryText,
   },
   tabsWrapper: {
     marginTop: spacing.md,
@@ -896,7 +903,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textTertiary,
   },
   rankFirst: {
-    color: colors.brandTint,
+    color: colors.textPrimary,
     fontWeight: '700',
   },
   trackInfoCol: {
@@ -984,7 +991,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   latestBadge: {
     ...typography.badge,
-    color: colors.brandTint,
+    color: colors.badgeText,
   },
   latestTitle: {
     ...typography.headline,
@@ -1007,7 +1014,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   bioExpandHint: {
     ...typography.caption,
-    color: colors.brandTint,
+    color: colors.textSecondary,
     fontWeight: '600',
   },
   tagsRow: {

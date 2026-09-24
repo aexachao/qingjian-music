@@ -59,28 +59,48 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 | L2 语义角色 | 见下表 | 组件（`colors.<角色>`） |
 | L3 组件 | `src/**` | —— |
 
-| 角色 | 用在哪 |
-| --- | --- |
-| `primaryAction` | **每屏最多一处**的主行动（确认按钮、页面主 CTA）。**并列的同等重要动作不要用它** —— 那种情况下一律给 `bgButtonSecondary` + `textPrimary`（见下面第 4 条） |
+| `ctaPrimaryBg` / `ctaPrimaryText` | **高对比主行动胶囊**（对齐 Apple Music）：深色下纯白底深黑字、浅色下纯黑底纯白字。专门用于详情页主播放等焦点 CTA，杜绝彩色大底块 |
+| `primaryAction` | 业务强引导主行动（如表单提交、连接确认按钮） |
 | `stateSelected` | 选中 / 激活：勾选框、页签、开关、导航高亮、输入光标 |
-| `playing` | 正在播放（标题、律动条） |
+| `playing` | 正在播放（标题高亮、动态律动条 `LivePlayingBars`） |
 | `like` | 收藏（心形）。**独立色值**，与品牌色无关 |
 | `danger` | 破坏性动作（删除 / 清空）。**独立色值**（`#ff3b30`），改品牌色不会连累它 |
 | `actionText` / `actionTextMuted` / `disabledText` | 普通可点动作 / 次要动作 / 不可点 |
-| `brandTint` | 品牌色的**装饰**用法：加载指示器、设置入口小图标等 |
+| `brandTint` | 品牌色的**装饰**用法：全局微型加载指示器等（严格限制使用范围，禁止滥用至通用列表行图标） |
 | `coverPlaceholder` / `coverPlaceholderMark` | 无封面时的占位**底**与**记号**：浅灰底 + 比底更有存在感的灰记号（不用品牌红）。记号形状取自默认应用图标「绯红声谱」的 15 根竖条，画成矢量（`components/brand-mark.tsx`），且**不跟随设置里切换的启动图标** |
 | `accent` | 品牌色本身，**只用于品牌标识**（应用图标预览、关于页）。组件里直接用会被架构守卫拦下 |
 
-三条纪律（`scripts/guard-architecture.mjs` 机械检查）：
+### 核心设计纪律与品牌色收敛原则（2026-09-24 校准）
+
+1. **以黑白灰为主导（Neutral Monochrome Core 90%）**：
+   - 界面整体以深黑（`#0f0f0f` / `#0A0A0C`）、纯白（`#ffffff`）、层次浅灰（`#ffffffcc` / `#EBEBF5`）、中性灰（`#ffffff99` / `#8E8E93`）构建，保持沉稳克制，让唱片艺术本身成为视觉焦点。
+2. **沉浸式动态氛围光（Ambient Aurora Glow）**：
+   - 杜绝直接拉伸模糊原始专辑封面（避免人像形变拉伸与条纹残影）；
+   - 通过 `theme/ambient-palette.ts` 动态提取唱片主色（`primary`、`secondary`），在屏幕上半部分渲染柔和的高斯模糊弥散光晕，并由渐进式暗化遮罩（Scrim）平滑过渡到深黑底色。
+3. **CTA 按键体系（Apple Music 经典规范）**：
+   - **主行动（播放全部）**：高对比实体胶囊（`ctaPrimaryBg` / `ctaPrimaryText`），暗色下纯白底黑字，亮色下纯黑底白字；
+   - **次行动（随机播放）**：高级微透磨砂玻璃材质（`bgButtonSecondary` + `borderDefault` + `textPrimary`），纯白字与图标；
+   - 彻底告别大面积红色胶囊底块！
+4. **品牌强调色出场边界（Brand Accent Red 10% 严格收敛）**：
+   - ✅ **允许出现的场景**：
+     - 当前正在播放的音轨标题与动态声波律动柱（`colors.playing`）；
+     - 收藏按钮（心形）激活状态（`colors.like`）；
+     - 批量多选复选框打勾状态（`colors.stateSelected`）；
+     - 必要的后台扫描进度指示。
+   - ❌ **严禁滥用的场景**：
+     - 普通 CTA 播放胶囊按键（禁止使用品牌红底块）；
+     - 艺术家链接文本与跳转小箭头（必须使用高亮浅灰与次级中性灰）；
+     - 音频规格徽章（Hi-Res / FLAC 等必须使用中性细线框药丸，禁止彩色大底或红字）；
+     - 通用列表行图标（如资料库分类列表、设置项，禁止将整列图标染红）；
+     - 排行榜序号、简介展开提示等次要文本。
+
+四条开发纪律（`scripts/guard-architecture.mjs` 机械检查）：
 
 1. `src/**`（除 `theme/`）**不许出现十六进制颜色字面量**。唯一白名单是致命错误屏
    `apps/mobile/src/components/fatal-error-screen.tsx` —— 它刻意不依赖主题（主题 Provider 可能就是崩掉的那一环）。
 2. 组件里**不许直接用 `colors.accent`**，必须走上面的角色。
-3. 「一屏最多一处 `primaryAction`」靠 review 与截图（品牌红像素占比）把关。
-4. **同等重要的并列动作不给主次**：像详情页的「播放 / 随机播放」这类，用户需要的是**同等的选择机会**，
-   而不是被引导去点某一个。两个都用次要按钮（`bgButtonSecondary` + `textPrimary` 图标文案），
-   视觉上平级。`primaryAction` 只留给**真正唯一**的那一个行动（如弹窗的确认）。
-   （2026-09-16 确认：专辑 / 艺术家 / 流派三个详情页的播放与随机都按这条改平级。）
+3. 组件里禁止内联硬编码高饱和度颜色，全部走 `theme/tokens.ts` 与 `theme/ambient-palette.ts`。
+4. 页面按钮与文字色彩严格遵从上述品牌色收敛原则。
 
 > 背景：2026-09-15 之前 `accent` 同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，
 > 而 `accent`、`danger`、`like`、`playing` 是同一个值 —— 一屏出现三四处红就吵，
