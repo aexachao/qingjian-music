@@ -27,6 +27,7 @@ import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { DarkThemeScope } from '@/theme/theme-provider'
+import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { getThemeColors, radius, spacing, typography } from '@/theme/tokens'
 
 const LYRIC_TICK_MS = 200
@@ -40,6 +41,10 @@ export default function PlayerScreen() {
   const { height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
+  const palette = useMemo(
+    () => resolveAmbientPalette(current?.trackId ?? current?.coverId),
+    [current?.trackId, current?.coverId],
+  )
 
   const [mode, setMode] = useState<PlayerMode>('cover')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -262,7 +267,7 @@ export default function PlayerScreen() {
       <AuthGate group="protected">
       <GestureDetector gesture={dismissGesture}>
         <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
-          <CoverBackdrop artwork={current.artwork} />
+          <CoverBackdrop artwork={current.artwork} palette={palette} />
           {/* 沉浸式暗化渐变遮罩：在 CoverBackdrop 之上、内容之下，切歌词/列表时平滑淡出 */}
           <Animated.View style={[StyleSheet.absoluteFill, immersiveCoverStyle]} pointerEvents="none">
             <ImmersiveDarkOverlay />

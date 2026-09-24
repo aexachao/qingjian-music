@@ -1,4 +1,3 @@
-import MaskedView from '@react-native-masked-view/masked-view'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { StyleSheet, View } from 'react-native'
@@ -11,11 +10,11 @@ import { useServerSession } from '@/lib/server-session'
 const IMMERSIVE_COVER_SIZE = 1200
 
 /**
- * 视口清晰专辑封面：
- * - 严格处于「导航栏底部至歌名行顶部」的舞台视口内；
- * - 按照屏幕宽度（width: 100%）铺满，aspectRatio: 1 保持正方形比例，
- *   彻底解决此前按高度放大导致左右主体被严重裁切的问题；
- * - 专辑图下边缘通过渐变 Mask 平滑羽化淡出，自然透出底层 CoverBackdrop 的边缘模糊拉伸光影。
+ * 悬浮正方形专辑卡片（Floating Album Card）：
+ * - 对齐 Apple Music 经典规范，不再对图片进行全屏拉伸；
+ * - 以正方形卡片形式悬浮于抽象弥散流体光斑之上；
+ * - 携带精致微圆角（borderRadius: 14）与环境深色软阴影；
+ * - 画面 100% 完整清晰呈现，拒绝任何畸变、裁切或黑雾遮挡。
  */
 export function ViewportCover({
   artwork,
@@ -31,29 +30,15 @@ export function ViewportCover({
 
   if (!source) {
     return (
-      <View style={[styles.viewportCoverBox, { backgroundColor: colors.coverPlaceholder }]}>
-        <BrandMark width={120} color={colors.coverPlaceholderMark} />
+      <View style={[styles.cardContainer, styles.placeholderBox, { backgroundColor: colors.coverPlaceholder }]}>
+        <BrandMark width={100} color={colors.coverPlaceholderMark} />
       </View>
     )
   }
 
   return (
-    <View style={styles.viewportCoverBox}>
-      <MaskedView
-        style={StyleSheet.absoluteFill}
-        maskElement={
-          <LinearGradient
-            colors={[
-              'transparent',
-              'white',
-              'white',
-              'transparent',
-            ]}
-            locations={[0, 0.12, 0.88, 1.0]}
-            style={StyleSheet.absoluteFill}
-          />
-        }
-      >
+    <View style={styles.cardContainer}>
+      <View style={styles.cardInner}>
         <Image
           source={{ uri: source.url, headers: source.headers }}
           style={StyleSheet.absoluteFill}
@@ -62,30 +47,22 @@ export function ViewportCover({
           cachePolicy="memory-disk"
           accessibilityIgnoresInvertColors
         />
-      </MaskedView>
+      </View>
     </View>
   )
 }
 
 /**
  * 沉浸式暗化渐变遮罩：
- * - 顶部轻防眩：保证导航栏拖动条与状态栏在浅色封面上可见；
- * - 下半部暗化渐变遮罩：从封面底沿开始平缓沉淀，最大浓度仅 0.48，
- *   在保证歌名、进度条、播放按钮具有极高对比度的同时，保留底层的通透漫反射光影。
+ * - 顶部轻防眩：保证状态栏与拖动条在浅色极光下清晰可辨；
+ * - 底部由底层的 AmbientMeshBackground 内置 Scrim 统一管理，避免重叠过度压黑。
  */
 export function ImmersiveDarkOverlay() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* 顶部轻防眩 */}
       <LinearGradient
         colors={['rgba(0,0,0,0.16)', 'rgba(0,0,0,0)']}
         locations={[0, 0.14]}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* 下半部暗化遮罩：在控件区域提供深色对比度 */}
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.48)']}
-        locations={[0.48, 0.70, 0.98]}
         style={StyleSheet.absoluteFill}
       />
     </View>
@@ -96,11 +73,26 @@ export function ImmersiveDarkOverlay() {
 export const ImmersiveCover = ImmersiveDarkOverlay
 
 const styles = StyleSheet.create({
-  viewportCoverBox: {
-    width: '100%',
+  cardContainer: {
+    width: '84%',
+    maxWidth: 340,
     aspectRatio: 1,
-    position: 'relative',
+    borderRadius: 14,
+    // iOS / Android 环境软阴影
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.38,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  cardInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  placeholderBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 })
-
-
