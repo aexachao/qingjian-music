@@ -4,14 +4,22 @@
  */
 import { installGlobalErrorHandler } from './src/lib/fatal-error-capture'
 import { installFatalErrorAlert } from './src/lib/fatal-error-alert'
+import { installCrashLogPersistence, setCrashLogMeta } from './src/lib/crash-log-store'
+import Constants from 'expo-constants'
 import TrackPlayer from 'react-native-track-player'
 import { playbackService } from './src/player/service'
 
-// 顺序是刻意的，两步都要在 expo-router/entry 之前：
+// 顺序是刻意的，三步都要在 expo-router/entry 之前：
 //   1. 先装全局处理器，才能捕获到模块初始化阶段抛的错（那时还没有任何组件）
-//   2. 再订阅原生弹窗，让错误在 React 挂载失败时仍能显示出来
+//   2. 订阅原生弹窗，让错误在 React 挂载失败时仍能显示出来
+//   3. 订阅崩溃日志落盘，供测试人员崩溃后在设置里查看/复制/分享
+setCrashLogMeta({
+  appVersion: Constants.expoConfig?.version,
+  buildNumber: Constants.expoConfig?.ios?.buildNumber ?? String(Constants.expoConfig?.android?.versionCode ?? ''),
+})
 installGlobalErrorHandler()
 installFatalErrorAlert()
+installCrashLogPersistence()
 
 TrackPlayer.registerPlaybackService(() => playbackService)
 

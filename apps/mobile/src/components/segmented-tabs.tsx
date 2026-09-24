@@ -21,6 +21,8 @@ export interface SegmentedTabsProps<T extends string = string> {
   onChange: (key: T) => void
   /** 无障碍：整条控件的名字，例如「搜索结果分类」 */
   accessibilityLabel?: string
+  /** 是否居中显示页签（页签较少时居中对齐） */
+  center?: boolean
 }
 
 export function SegmentedTabs<T extends string = string>({
@@ -28,6 +30,7 @@ export function SegmentedTabs<T extends string = string>({
   value,
   onChange,
   accessibilityLabel,
+  center,
 }: SegmentedTabsProps<T>) {
   const styles = useStyles()
 
@@ -35,7 +38,7 @@ export function SegmentedTabs<T extends string = string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.row}
+      contentContainerStyle={[styles.row, center && styles.rowCenter]}
       keyboardShouldPersistTaps="handled"
       accessibilityLabel={accessibilityLabel}
     >
@@ -65,6 +68,10 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.xl,
     paddingHorizontal: spacing.lg,
+  },
+  rowCenter: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   item: {
     paddingTop: spacing.sm,

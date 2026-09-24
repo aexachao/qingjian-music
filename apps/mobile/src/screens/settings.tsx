@@ -189,6 +189,12 @@ export function SettingsScreen() {
             value={`v${APP_VERSION}`}
             onPress={onAbout}
           />
+          <View style={styles.divider} />
+          <SettingsRow
+            icon="document"
+            label="崩溃日志"
+            onPress={() => router.push('/(tabs)/settings/crash-log')}
+          />
         </View>
 
         {/* 卡片 3：账号退出 */}

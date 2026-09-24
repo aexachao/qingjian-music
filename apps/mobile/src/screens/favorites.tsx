@@ -16,7 +16,6 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { formatPlaylistDuration } from '@/lib/playlist-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
@@ -98,12 +97,11 @@ export function FavoritesScreen() {
   // 提取首曲封面用于大封套
   const firstTrackCoverId = items[0]?.coverId ?? items[0]?.album?.coverId
 
-  // 播放总时长统计
+  // 播放总时长统计（毫秒）
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
   )
-  const formattedDuration = formatPlaylistDuration(totalDurationMs)
 
   if (provider && !provider.capabilities.favorites) {
     return <EmptyState text="当前服务器不支持收藏" />
@@ -118,6 +116,7 @@ export function FavoritesScreen() {
     <ListToolbar
       kind="favorites"
       total={total}
+      totalDurationMs={totalDurationMs}
       selection={selection}
       onSelect={setSelection}
       onStartSelection={() => setSelecting(true)}
@@ -181,19 +180,8 @@ export function FavoritesScreen() {
                 )}
               </View>
 
-              {/* 收藏属性角标 */}
-              <View style={styles.badgeWrapper}>
-                <Text style={styles.badgeText}>精选收藏</Text>
-              </View>
-
               <Text style={styles.name} numberOfLines={1}>
                 我喜欢的音乐
-              </Text>
-
-              {/* 歌曲数与总时长统计 */}
-              <Text style={styles.meta}>
-                {total} 首歌曲
-                {formattedDuration ? ` · ${formattedDuration}` : ''}
               </Text>
 
               {/* 核心动作：大号播放与随机播放双胶囊 */}
@@ -330,34 +318,14 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeWrapper: {
-    backgroundColor: colors.bgButtonSecondary,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-    marginTop: spacing.xs,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontSize: 11,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
   name: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
-  },
-  meta: {
-    ...typography.footnote,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',

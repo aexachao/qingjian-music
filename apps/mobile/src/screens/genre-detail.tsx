@@ -16,7 +16,6 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { formatPlaylistDuration } from '@/lib/playlist-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
@@ -114,12 +113,11 @@ export function GenreDetailScreen() {
     setStableCoverId(items[0].coverId)
   }
 
-  // 播放总时长统计
+  // 播放总时长统计（毫秒）
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
   )
-  const formattedDuration = formatPlaylistDuration(totalDurationMs)
 
   if (query.isPending && items.length === 0) return <LoadingState />
   if (query.isLoadingError && items.length === 0) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -127,7 +125,8 @@ export function GenreDetailScreen() {
   const toolbar = (
     <ListToolbar
       kind="genreTracks"
-      total={total}
+      total={trackTotal}
+      totalDurationMs={totalDurationMs}
       selection={selection}
       onSelect={setSelection}
       onStartSelection={() => setSelecting(true)}
@@ -175,21 +174,12 @@ export function GenreDetailScreen() {
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
             <View style={styles.coverBlock}>
-              <VinylDisc genreId={id} coverId={firstTrackCoverId} size={340} variant="detail" />
-              
-              {/* 流派属性角标 */}
-              <View style={styles.badgeWrapper}>
-                <Text style={styles.badgeText}>音乐流派</Text>
+              <View style={styles.discShadowWrapper}>
+                <VinylDisc genreId={id} coverId={firstTrackCoverId} size={200} variant="full" />
               </View>
 
               <Text style={styles.name} numberOfLines={2}>
                 {displayName}
-              </Text>
-
-              {/* 歌曲数与总时长统计 */}
-              <Text style={styles.meta}>
-                {trackTotal} 首歌曲
-                {formattedDuration ? ` · ${formattedDuration}` : ''}
               </Text>
 
               {/* 核心动作：大号播放与随机播放双胶囊 */}
@@ -290,34 +280,22 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  badgeWrapper: {
-    backgroundColor: colors.bgButtonSecondary,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-    marginTop: spacing.xs,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontSize: 11,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
+  discShadowWrapper: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    elevation: 8,
+    marginBottom: spacing.xs,
   },
   name: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
-  },
-  meta: {
-    ...typography.footnote,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',

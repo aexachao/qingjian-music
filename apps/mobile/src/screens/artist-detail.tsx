@@ -394,7 +394,7 @@ export function ArtistDetailScreen() {
 
       {/* 3. 随页面自然滚动的分类页签（精选 | 专辑 | 全部歌曲） */}
       <View style={styles.tabsWrapper}>
-        <SegmentedTabs items={TABS} value={tab} onChange={setTab} accessibilityLabel="音乐人内容分类" />
+        <SegmentedTabs items={TABS} value={tab} onChange={setTab} accessibilityLabel="音乐人内容分类" center />
       </View>
     </View>
   )
@@ -774,13 +774,14 @@ const useStyles = createThemedStyles((colors) => ({
     height: 250,
   },
   heroInfoOverlay: {
+    alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
     gap: 6,
     zIndex: 2,
   },
   kickerBadge: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radius.xs,
@@ -798,6 +799,8 @@ const useStyles = createThemedStyles((colors) => ({
     fontFamily: fonts.bold,
     fontWeight: '800',
     letterSpacing: -0.5,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
     color: colors.textPrimary,
     textShadowColor: 'rgba(0, 0, 0, 0.65)',
     textShadowOffset: { width: 0, height: 1 },
@@ -805,24 +808,28 @@ const useStyles = createThemedStyles((colors) => ({
   },
   heroMetaText: {
     ...typography.subhead,
+    textAlign: 'center',
     color: colors.textSecondary,
     marginBottom: 6,
   },
   heroActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.md,
     marginTop: 2,
+    width: '100%',
+    paddingHorizontal: spacing.sm,
   },
   actionButton: {
+    flex: 1,
+    maxWidth: 180,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.xl,
-    height: 42,
+    gap: spacing.xs + 2,
+    height: 44,
     borderRadius: radius.pill,
-    minWidth: 130,
   },
   buttonPlay: {
     backgroundColor: colors.ctaPrimaryBg,

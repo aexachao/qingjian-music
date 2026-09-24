@@ -19,7 +19,7 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useIsMenuOpen } from '@/lib/menu-guard'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
-import { formatPlaylistDuration, resolvePlaylistCover } from '@/lib/playlist-meta'
+import { resolvePlaylistCover } from '@/lib/playlist-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
@@ -81,12 +81,11 @@ export function PlaylistDetailScreen() {
     firstTrackCoverId,
   })
 
-  // 播放总时长统计
+  // 播放总时长统计（毫秒）
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
   )
-  const formattedDuration = formatPlaylistDuration(totalDurationMs)
 
   // 播放整张歌单
   async function play(startIndex: number, shuffle = false) {
@@ -212,6 +211,7 @@ export function PlaylistDetailScreen() {
     <ListToolbar
       kind="playlistTracks"
       total={total}
+      totalDurationMs={totalDurationMs}
       selection={selection}
       onSelect={setSelection}
       onStartSelection={() => setSelecting(true)}
@@ -265,20 +265,9 @@ export function PlaylistDetailScreen() {
                 <CoverImage coverId={resolvedCoverId} size={210} borderRadius={radius.album} />
               </View>
 
-              {/* 歌单属性标识 */}
-              <View style={styles.badgeWrapper}>
-                <Text style={styles.badgeText}>歌单</Text>
-              </View>
-
               {/* 歌单标题 */}
               <Text style={styles.title} numberOfLines={2}>
                 {displayName}
-              </Text>
-
-              {/* 元数据：歌曲数量与总时长 */}
-              <Text style={styles.meta}>
-                {total} 首歌曲
-                {formattedDuration ? ` · ${formattedDuration}` : ''}
               </Text>
 
               {/* 歌单介绍（若有） */}
@@ -399,41 +388,21 @@ const useStyles = createThemedStyles((colors) => ({
     elevation: 8,
     marginBottom: spacing.xs,
   },
-  badgeWrapper: {
-    backgroundColor: colors.bgButtonSecondary,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-    marginTop: spacing.xs,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontSize: 11,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
   title: {
     ...typography.title,
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
-  },
-  meta: {
-    ...typography.footnote,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    textAlign: 'center',
   },
   description: {
     ...typography.footnote,
     color: colors.textTertiary,
     textAlign: 'center',
     paddingHorizontal: spacing.xl,
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
   actions: {
     flexDirection: 'row',
