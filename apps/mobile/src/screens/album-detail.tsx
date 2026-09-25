@@ -17,6 +17,7 @@ import type { Track } from '@qj/core-domain'
 import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { CDSleeveCover } from '@/components/cd-sleeve-cover'
 import { CoverImage } from '@/components/cover-image'
+import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
@@ -27,6 +28,7 @@ import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { useIsMenuOpen } from '@/lib/menu-guard'
+import { useLocalFavoritesStore } from '@/lib/local-favorites'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { tap } from '@/lib/haptics'
@@ -232,6 +234,22 @@ export function AlbumDetailScreen() {
 
   const isMenuOpen = useIsMenuOpen()
 
+  const isFavorited = useLocalFavoritesStore((s) => (connection ? s.isAlbumFavorited(connection.id, id) : false))
+  const toggleAlbumFavorite = useLocalFavoritesStore((s) => s.toggleAlbum)
+
+  const handleToggleFavorite = () => {
+    if (!connection || !album) return
+    tap()
+    const added = toggleAlbumFavorite(connection.id, {
+      id,
+      name: album.name,
+      coverId: album.coverId,
+      artistName: album.artists[0]?.name,
+      trackCount: album.trackCount,
+    })
+    toast(added ? '已收藏专辑' : '已取消收藏')
+  }
+
   if (albumQuery.isPending) return <LoadingState />
   if (albumQuery.isLoadingError) return <ErrorState error={albumQuery.error} onRetry={() => void albumQuery.refetch()} />
   if (!album) return <EmptyState text="专辑不存在" />
@@ -257,7 +275,7 @@ export function AlbumDetailScreen() {
           title: '',
           headerLeft: () => <StackBackButton />,
           headerBackground: () => (
-            <Animated.View style={[StyleSheet.absoluteFill, navBgAnimatedStyle]} pointerEvents="none">
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: 0 }, navBgAnimatedStyle]} pointerEvents="none">
               <BlurView
                 tint={mode === 'dark' ? 'dark' : 'light'}
                 intensity={100}
@@ -280,7 +298,7 @@ export function AlbumDetailScreen() {
               <Animated.View style={navPlayAnimatedStyle}>
                 <Pressable
                   hitSlop={8}
-                  style={styles.navPlayButton}
+                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
                   onPress={() => {
                     tap()
                     void play(0)
@@ -288,7 +306,7 @@ export function AlbumDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="播放全部"
                 >
-                  <Icon name="play" size={16} color={colors.textPrimary} filled />
+                  <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
               </Animated.View>
               <MenuView
@@ -299,14 +317,14 @@ export function AlbumDetailScreen() {
                 actions={menuActions}
                 onPressAction={handleMenuAction}
               >
-                <View
-                  style={styles.moreButton}
+                <Pressable
+                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel="专辑菜单"
                 >
-                  <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
-                </View>
+                  <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
+                </Pressable>
               </MenuView>
             </View>
           ),
@@ -321,86 +339,97 @@ export function AlbumDetailScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           styles.list,
-          { paddingTop: topHeaderOffset + spacing.xs, paddingBottom: bottom },
+          { paddingTop: topHeaderOffset + 16, paddingBottom: bottom },
         ]}
         scrollEventThrottle={16}
         onScroll={onScroll}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
-            <View style={styles.coverBlock}>
-              {/* 大封面封套与景深阴影 */}
+            {/* 左右分栏布局：左侧 CD 实体大封套 (196×131pt)，右侧层级化专辑名称与元数据 */}
+            <View style={styles.heroRow}>
+              {/* 左侧：大幅拟物 CD 封套 (196×131pt，封面 121×119pt)，带微透高光与环境光投影 */}
               <Animated.View style={[styles.coverContainer, coverAnimatedStyle]}>
                 <View style={[styles.coverGlow, { shadowColor: palette.primary }]}>
-                  <CDSleeveCover coverId={album.coverId} size={180} />
+                  <CDSleeveCover coverId={album.coverId} width={196} />
                 </View>
               </Animated.View>
 
-              {/* 专辑标题（24pt Bold 纯白，居中对齐） */}
-              <Text style={styles.name} numberOfLines={2}>
-                {album.name}
-              </Text>
-
-              {/* 艺术家名称（16pt Medium 浅灰，支持点击无缝跳转，彻底告别红字） */}
-              {firstArtistId ? (
-                <Pressable
-                  onPress={handleGotoArtist}
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.artistLink, pressed && styles.artistLinkPressed]}
-                  accessibilityRole="link"
-                  accessibilityLabel={`查看艺术家 ${artistText}`}
-                >
+              {/* 右侧：紧凑垂直排列的歌手、专辑大标题、发行年份与规格档案（右对齐） */}
+              <View style={styles.metaRightCol}>
+                {/* 1. 艺术家名称（支持点击进入艺术家页面，带小箭头） */}
+                {firstArtistId ? (
+                  <Pressable
+                    onPress={handleGotoArtist}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.artistLink, pressed && styles.artistLinkPressed]}
+                    accessibilityRole="link"
+                    accessibilityLabel={`查看艺术家 ${artistText}`}
+                  >
+                    <Text style={styles.artistText} numberOfLines={1}>
+                      {artistText}
+                    </Text>
+                    <Icon name="chevronRight" size={12} color={colors.textTertiary} />
+                  </Pressable>
+                ) : (
                   <Text style={styles.artistText} numberOfLines={1}>
                     {artistText}
                   </Text>
-                  <Icon name="chevronRight" size={13} color={colors.textTertiary} />
-                </Pressable>
-              ) : (
-                <Text style={styles.artistText} numberOfLines={1}>
-                  {artistText}
+                )}
+
+                {/* 2. 专辑大标题（20pt Bold 纯白，靠右对齐） */}
+                <Text style={styles.name} numberOfLines={2}>
+                  {album.name}
                 </Text>
-              )}
 
-              {/* 精炼元数据：年份 · 规格徽章（中性灰微型药丸，无红字与彩色大块） */}
-              {formattedYear || specBadge ? (
-                <View style={styles.metaRow}>
-                  {formattedYear ? <Text style={styles.metaText}>{formattedYear}</Text> : null}
-                  {formattedYear && specBadge ? <Text style={styles.metaDot}>·</Text> : null}
-                  {specBadge ? (
-                    <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
-                      <Text style={styles.specBadgeText}>{specBadge}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
+                {/* 3. 发行年份 */}
+                {formattedYear ? (
+                  <Text style={styles.yearText}>{formattedYear}</Text>
+                ) : null}
 
-              {/* 核心动作：高对比主次双胶囊（纯白播放全部 + 磨砂玻璃随机播放） */}
-              <View style={styles.actions}>
-                <Pressable
-                  style={({ pressed }) => [styles.playButton, pressed && styles.buttonPressed]}
-                  onPress={() => {
-                    tap()
-                    void play(0)
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="播放专辑全部歌曲"
-                >
-                  <Icon name="play" size={16} color={colors.ctaPrimaryText} filled />
-                  <Text style={styles.playButtonLabel}>播放全部</Text>
-                </Pressable>
-
-                <Pressable
-                  style={({ pressed }) => [styles.shuffleButton, pressed && styles.buttonPressed]}
-                  onPress={() => {
-                    tap()
-                    void play(0, true)
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="随机播放专辑"
-                >
-                  <Icon name="shuffle" size={16} color={colors.textPrimary} />
-                  <Text style={styles.shuffleButtonLabel}>随机播放</Text>
-                </Pressable>
+                {/* 4. 音频规格微型药丸 */}
+                {specBadge ? (
+                  <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
+                    <Text style={styles.specBadgeText}>{specBadge}</Text>
+                  </View>
+                ) : null}
               </View>
+            </View>
+
+            {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
+            <View style={styles.actions}>
+              <Pressable
+                style={({ pressed }) => [styles.actionButton, pressed && styles.buttonPressed]}
+                onPress={() => {
+                  tap()
+                  void play(0)
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="播放专辑全部歌曲"
+              >
+                <Icon name="play" size={16} color={colors.textPrimary} filled />
+                <Text style={styles.actionButtonLabel}>播放全部</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  isFavorited && styles.actionButtonActive,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={handleToggleFavorite}
+                accessibilityRole="button"
+                accessibilityLabel={isFavorited ? '取消喜欢' : '喜欢'}
+              >
+                <Icon
+                  name="heart"
+                  size={16}
+                  color={isFavorited ? colors.like : colors.textPrimary}
+                  filled={isFavorited}
+                />
+                <Text style={[styles.actionButtonLabel, isFavorited && { color: colors.like }]}>
+                  {isFavorited ? '取消喜欢' : '喜欢'}
+                </Text>
+              </Pressable>
             </View>
 
             {/* 列表工具栏（排序与批量多选入口） */}
@@ -432,9 +461,9 @@ export function AlbumDetailScreen() {
 
       {/* 滚动过头部后吸附顶部的精简工具条 */}
       {pinned && total > 0 ? (
-        <View style={[styles.pinnedBar, { top: topHeaderOffset }]}>
+        <DetailPinnedToolbar top={topHeaderOffset}>
           {toolbar}
-        </View>
+        </DetailPinnedToolbar>
       ) : null}
 
       {/* 批量操作模态弹窗（同步切为 leading="index"） */}
@@ -476,10 +505,12 @@ const useStyles = createThemedStyles((colors) => ({
     paddingHorizontal: spacing.lg,
   },
   headerRoot: {
-    marginBottom: spacing.xs,
+    marginBottom: 0,
   },
-  coverBlock: {
+  heroRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
     paddingTop: spacing.xs,
   },
   coverContainer: {
@@ -487,55 +518,43 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
   },
   coverGlow: {
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.38,
-    shadowRadius: 32,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  metaRightCol: {
+    flex: 1,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 6,
   },
   name: {
     ...typography.title,
-    fontSize: 24,
+    fontSize: 20,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
-    textAlign: 'center',
-    marginTop: 34,
-    paddingHorizontal: spacing.lg,
-    lineHeight: 30,
+    lineHeight: 25,
+    textAlign: 'right',
   },
   artistLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    gap: 2,
+    alignSelf: 'flex-end',
   },
   artistLinkPressed: {
     opacity: 0.7,
   },
   artistText: {
     ...typography.subhead,
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: fonts.medium,
     color: colors.textSecondary,
-    textAlign: 'center',
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 8,
-  },
-  metaText: {
-    ...typography.caption,
-    fontSize: 12,
-    fontFamily: fonts.regular,
-    color: colors.textTertiary,
-  },
-  metaDot: {
-    ...typography.caption,
-    fontSize: 12,
+  yearText: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
     color: colors.textTertiary,
   },
   specBadge: {
@@ -545,7 +564,7 @@ const useStyles = createThemedStyles((colors) => ({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.badgeBorder,
     backgroundColor: colors.badgeBg,
-    marginLeft: 2,
+    marginTop: 2,
   },
   specBadgeText: {
     fontSize: 10,
@@ -556,27 +575,10 @@ const useStyles = createThemedStyles((colors) => ({
   actions: {
     flexDirection: 'row',
     gap: spacing.md,
-    marginTop: 22,
+    marginTop: 20,
     width: '100%',
-    paddingHorizontal: spacing.sm,
   },
-  playButton: {
-    flex: 1,
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs + 2,
-    borderRadius: 22,
-    backgroundColor: colors.ctaPrimaryBg,
-  },
-  playButtonLabel: {
-    ...typography.headline,
-    fontSize: 15,
-    fontFamily: fonts.semibold,
-    color: colors.ctaPrimaryText,
-  },
-  shuffleButton: {
+  actionButton: {
     flex: 1,
     height: 44,
     flexDirection: 'row',
@@ -588,7 +590,10 @@ const useStyles = createThemedStyles((colors) => ({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
-  shuffleButtonLabel: {
+  actionButtonActive: {
+    borderColor: colors.borderEmphasis,
+  },
+  actionButtonLabel: {
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.medium,
@@ -598,30 +603,21 @@ const useStyles = createThemedStyles((colors) => ({
     opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
-  moreButton: {
-    width: 36,
-    height: 36,
+  navIconButton: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 18,
+    borderRadius: 22,
+  },
+  navIconButtonPressed: {
+    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',
-    marginTop: 24,
-    marginBottom: 12,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderSubtle,
-  },
-  pinnedBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 40,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-    backgroundColor: colors.bgPrimary,
+    marginTop: 20,
+    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
@@ -653,12 +649,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-  },
-  navPlayButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
+    marginRight: -spacing.sm,
   },
 }))

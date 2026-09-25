@@ -239,7 +239,14 @@ export function ConfirmModal({
               accessibilityRole="button"
               accessibilityLabel={displayConfirmText}
             >
-              <Text style={styles.confirmText}>{displayConfirmText}</Text>
+              <Text
+                style={[
+                  styles.confirmText,
+                  isDestructive ? styles.destructiveText : styles.normalConfirmText,
+                ]}
+              >
+                {displayConfirmText}
+              </Text>
             </Pressable>
           </View>
         </Animated.View>
@@ -386,7 +393,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   confirmButton: {
-    backgroundColor: colors.primaryAction,
+    backgroundColor: colors.ctaPrimaryBg,
   },
   destructiveButton: {
     backgroundColor: colors.danger,
@@ -395,6 +402,11 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.body,
     fontSize: 16,
     fontWeight: '600',
+  },
+  normalConfirmText: {
+    color: colors.ctaPrimaryText,
+  },
+  destructiveText: {
     color: colors.textOnAccent,
   },
 }))

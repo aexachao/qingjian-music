@@ -13,6 +13,7 @@ import {
   type SortSelection,
 } from '@/lib/list-sort-policy'
 import { formatPlayableDurationText } from '@/lib/playlist-meta'
+import { tap } from '@/lib/haptics'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { spacing, typography } from '@/theme/tokens'
 
@@ -87,9 +88,12 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
       <View style={styles.actions}>
         {onStartSelection ? (
           <Pressable
-            hitSlop={{ top: 10, bottom: 10, left: 8, right: 4 }}
-            style={styles.actionButton}
-            onPress={onStartSelection}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 6 }}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+            onPress={() => {
+              tap()
+              onStartSelection()
+            }}
             accessibilityRole="button"
             accessibilityLabel="批量选择"
           >
@@ -100,8 +104,8 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
         {canSort(kind) ? (
           <Pressable
             ref={buttonRef}
-            hitSlop={{ top: 10, bottom: 10, left: 4, right: 8 }}
-            style={styles.actionButton}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 8 }}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
             onPress={openMenu}
             accessibilityRole="button"
             accessibilityLabel={currentLabel ? `排序，当前按${currentLabel}` : '排序'}
@@ -135,8 +139,17 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'space-between',
   },
   count: { ...typography.caption, color: colors.textTertiary },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  actionButton: { width: 28, height: 24, alignItems: 'center', justifyContent: 'center' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  actionButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  actionButtonPressed: {
+    opacity: 0.6,
+  },
 }))
 
 /**

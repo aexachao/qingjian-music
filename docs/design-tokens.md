@@ -77,10 +77,11 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 2. **沉浸式动态氛围光（Ambient Aurora Glow）**：
    - 杜绝直接拉伸模糊原始专辑封面（避免人像形变拉伸与条纹残影）；
    - 通过 `theme/ambient-palette.ts` 动态提取唱片主色（`primary`、`secondary`），在屏幕上半部分渲染柔和的高斯模糊弥散光晕，并由渐进式暗化遮罩（Scrim）平滑过渡到深黑底色。
-3. **CTA 按键体系（Apple Music 经典规范）**：
-   - **主行动（播放全部）**：高对比实体胶囊（`ctaPrimaryBg` / `ctaPrimaryText`），暗色下纯白底黑字，亮色下纯黑底白字；
-   - **次行动（随机播放）**：高级微透磨砂玻璃材质（`bgButtonSecondary` + `borderDefault` + `textPrimary`），纯白字与图标；
-   - 彻底告别大面积红色胶囊底块！
+3. **详情页双动作胶囊规范（2026-09-25 平权次级胶囊原则）**：
+   - **双动作同级平权**：在专辑、歌单、流派、收藏、艺术家等所有详情页中，并排的两枚主操作胶囊（如「播放全部」+「喜欢」/「添加到队列」）**统一采用 `secondaryButton` 风格**（高级微透磨砂玻璃材质 `bgButtonSecondary` + `borderDefault` + 纯白文字与图标 `textPrimary`）；
+   - **杜绝单侧强引导纯白底块**：严禁在双胶囊并列场景中使用刺眼的 100% 纯白实心大底（`ctaPrimaryBg`），避免强引导破坏黑胶/发烧友暗黑界面的沉浸静谧感，保持两枚探索操作在视觉重心上的绝对平衡；
+   - **收藏激活态高亮**：已喜欢时，仅将心形图标与文字高亮切换为 `colors.like`，边框切换为 `colors.borderEmphasis`，整体几何形态与背景色保持与相邻按钮完全对称；
+   - 彻底告别大面积红色胶囊底块与失衡对比！
 4. **品牌强调色出场边界（Brand Accent Red 10% 严格收敛）**：
    - ✅ **允许出现的场景**：
      - 当前正在播放的音轨标题与动态声波律动柱（`colors.playing`）；
@@ -89,6 +90,8 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
      - 必要的后台扫描进度指示。
    - ❌ **严禁滥用的场景**：
      - 普通 CTA 播放胶囊按键（禁止使用品牌红底块）；
+     - 模态弹窗顶部导航与完成按钮（「完成」等常规关闭动作严禁使用品牌红，统一使用 `colors.textPrimary` 高对比白字，对齐 iOS HIG）；
+     - 常规非破坏性弹窗确认按钮（输入框/确认框「确定」使用 `colors.ctaPrimaryBg` / `ctaPrimaryText` 高对比黑白胶囊，严禁染红；红色仅留给 `colors.danger` 破坏性删除）；
      - 艺术家链接文本与跳转小箭头（必须使用高亮浅灰与次级中性灰）；
      - 音频规格徽章（Hi-Res / FLAC 等必须使用中性细线框药丸，禁止彩色大底或红字）；
      - 通用列表行图标（如资料库分类列表、设置项，禁止将整列图标染红）；

@@ -16,6 +16,7 @@ import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native
 import type { Track } from '@qj/core-domain'
 import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { Icon, iconSize } from '@/components/icon'
+import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
@@ -229,7 +230,7 @@ export function GenreDetailScreen() {
           title: '',
           headerLeft: () => <StackBackButton />,
           headerBackground: () => (
-            <Animated.View style={[StyleSheet.absoluteFill, navBgAnimatedStyle]} pointerEvents="none">
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: 0 }, navBgAnimatedStyle]} pointerEvents="none">
               <BlurView
                 tint={mode === 'dark' ? 'dark' : 'light'}
                 intensity={100}
@@ -252,14 +253,14 @@ export function GenreDetailScreen() {
               <Animated.View style={navPlayAnimatedStyle}>
                 <Pressable
                   hitSlop={8}
-                  style={styles.navPlayButton}
+                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
                   onPress={() => {
                     void play(0)
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="播放全部"
                 >
-                  <Icon name="play" size={16} color={colors.textPrimary} filled />
+                  <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
               </Animated.View>
               <MenuView
@@ -270,14 +271,14 @@ export function GenreDetailScreen() {
                 actions={menuActions}
                 onPressAction={handleMenuAction}
               >
-                <View
-                  style={styles.moreButton}
+                <Pressable
+                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel="流派菜单"
                 >
-                  <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
-                </View>
+                  <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
+                </Pressable>
               </MenuView>
             </View>
           ),
@@ -292,7 +293,7 @@ export function GenreDetailScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           styles.list,
-          { paddingTop: topHeaderOffset + spacing.xs, paddingBottom: bottom },
+          { paddingTop: topHeaderOffset + 16, paddingBottom: bottom },
         ]}
         scrollEventThrottle={16}
         onScroll={onScroll}
@@ -309,26 +310,26 @@ export function GenreDetailScreen() {
                 {displayName}
               </Text>
 
-              {/* 核心动作：大号播放与随机播放双胶囊 */}
+              {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
               <View style={styles.actions}>
                 <Pressable
-                  style={({ pressed }) => [styles.playButton, pressed && styles.buttonPressed]}
+                  style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
                   onPress={() => void play(0)}
                   accessibilityRole="button"
                   accessibilityLabel="播放全部歌曲"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
-                  <Text style={styles.playButtonLabel}>播放全部</Text>
+                  <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                  <Text style={styles.secondaryButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
-                  style={({ pressed }) => [styles.shuffleButton, pressed && styles.buttonPressed]}
-                  onPress={() => void play(0, true)}
+                  style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                  onPress={() => void handleAppendToQueue()}
                   accessibilityRole="button"
-                  accessibilityLabel="随机播放"
+                  accessibilityLabel="添加到播放队列"
                 >
-                  <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-                  <Text style={styles.shuffleButtonLabel}>随机播放</Text>
+                  <Icon name="add" size={iconSize.sm} color={colors.textPrimary} />
+                  <Text style={styles.secondaryButtonLabel}>添加到队列</Text>
                 </Pressable>
               </View>
             </View>
@@ -362,10 +363,11 @@ export function GenreDetailScreen() {
         }
       />
 
+      {/* 滚动过头部后吸附顶部的精简工具条 */}
       {pinned && total > 0 ? (
-        <View style={[styles.pinnedBar, { top: topHeaderOffset }]}>
+        <DetailPinnedToolbar top={topHeaderOffset}>
           {toolbar}
-        </View>
+        </DetailPinnedToolbar>
       ) : null}
 
       <TrackSelectionModal
@@ -405,7 +407,7 @@ const useStyles = createThemedStyles((colors) => ({
     paddingTop: spacing.sm,
   },
   headerRoot: {
-    marginBottom: spacing.sm,
+    marginBottom: 0,
   },
   coverBlock: {
     alignItems: 'center',
@@ -435,69 +437,46 @@ const useStyles = createThemedStyles((colors) => ({
   actions: {
     flexDirection: 'row',
     gap: spacing.md,
-    marginTop: spacing.md + 2,
+    marginTop: 20,
     width: '100%',
-    paddingHorizontal: spacing.xs,
   },
-  playButton: {
+  secondaryButton: {
     flex: 1,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.ctaPrimaryBg,
-  },
-  playButtonLabel: {
-    ...typography.headline,
-    fontFamily: fonts.semibold,
-    color: colors.ctaPrimaryText,
-  },
-  shuffleButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
+    gap: spacing.xs + 2,
+    borderRadius: 22,
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
-  shuffleButtonLabel: {
+  secondaryButtonLabel: {
     ...typography.headline,
+    fontSize: 15,
     fontFamily: fonts.medium,
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.82,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
-  moreButton: {
-    width: 36,
-    height: 36,
+  navIconButton: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 18,
+    borderRadius: 22,
+  },
+  navIconButtonPressed: {
+    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',
-    marginTop: spacing.xl + spacing.sm,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderSubtle,
-  },
-  pinnedBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 40,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-    backgroundColor: colors.bgPrimary,
+    marginTop: 20,
+    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
@@ -529,12 +508,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-  },
-  navPlayButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
+    marginRight: -spacing.sm,
   },
 }))

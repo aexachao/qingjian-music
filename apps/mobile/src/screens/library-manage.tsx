@@ -157,7 +157,7 @@ export function LibraryManageScreen() {
             return (
               <View key={lib.id} style={styles.card}>
                 <View style={styles.folderIcon}>
-                  <Icon name="storage" size={iconSize.lg} color={colors.brandTint} />
+                  <Icon name="storage" size={iconSize.lg} color={colors.iconMid} />
                 </View>
                 <View style={styles.cardInfo}>
                   <Text numberOfLines={1} style={styles.libName}>

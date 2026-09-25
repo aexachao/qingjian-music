@@ -24,8 +24,11 @@ import { StackBackButton } from '@/components/stack-back-button'
 import { TrackMoreButton } from '@/components/track-more-button'
 import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
+import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
+import { tap } from '@/lib/haptics'
+import { useLocalFavoritesStore } from '@/lib/local-favorites'
 import {
   cleanSongTitle,
   fetchArtistInfo,
@@ -42,6 +45,8 @@ import { createThemedStyles, useAppTheme, useThemeColors } from '@/theme/theme-p
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
 type ArtistTab = 'overview' | 'albums' | 'tracks'
+
+const DEFAULT_ARTIST_HERO = require('../../assets/images/default-artist-hero.jpg')
 
 const TABS: readonly { key: ArtistTab; label: string }[] = [
   { key: 'overview', label: '精选' },
@@ -66,6 +71,9 @@ export function ArtistDetailScreen() {
   const bottom = useBottomSpace()
   const href = useDetailHref()
   const current = usePlayerStore(selectCurrent)
+  const toast = useToast()
+  const isFavorited = useLocalFavoritesStore((s) => (connection ? s.isArtistFavorited(connection.id, id) : false))
+  const toggleArtistFavorite = useLocalFavoritesStore((s) => s.toggleArtist)
 
   const [tab, setTab] = useState<ArtistTab>('overview')
   const [pinned, setPinned] = useState(false)
@@ -244,6 +252,18 @@ export function ArtistDetailScreen() {
     setPinned((prev) => (prev === isPast ? prev : isPast))
   }, [])
 
+  const handleToggleFavorite = () => {
+    if (!connection || !id) return
+    tap()
+    const added = toggleArtistFavorite(connection.id, {
+      id,
+      name: artistName ?? '艺术家',
+      coverId: backdropCoverId,
+      trackCount: trackTotal,
+    })
+    toast(added ? '已添加到喜欢' : '已取消喜欢')
+  }
+
   // 导航栏必须显式声明 headerLeft: () => <StackBackButton /> 满足架构契约
   const titleScreen = (
     <Stack.Screen
@@ -321,7 +341,12 @@ export function ArtistDetailScreen() {
             cachePolicy="memory-disk"
           />
         ) : (
-          <View style={[styles.billboardImage, { backgroundColor: colors.surfaceCard }]} />
+          <Image
+            source={DEFAULT_ARTIST_HERO}
+            style={styles.billboardImage}
+            contentFit="cover"
+            transition={250}
+          />
         )}
 
         {/* 顶部暗色微晕：防眩光，确保无论写真背景明暗，iOS 时间、电池、返回键均 100% 清晰 */}
@@ -369,24 +394,36 @@ export function ArtistDetailScreen() {
           <View style={styles.heroActionsRow}>
             {/* 核心大号播放胶囊 */}
             <Pressable
-              style={({ pressed }) => [styles.actionButton, styles.buttonPlay, pressed && styles.buttonPressed]}
+              style={({ pressed }) => [styles.actionButton, styles.buttonSecondary, pressed && styles.buttonPressed]}
               onPress={() => void playArtistTracks(0)}
               accessibilityRole="button"
               accessibilityLabel="播放全部"
             >
-              <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
-              <Text style={styles.actionButtonTextPlay}>播放</Text>
+              <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+              <Text style={styles.actionButtonText}>播放全部</Text>
             </Pressable>
 
-            {/* 磨砂半透随机播放胶囊 */}
+            {/* 喜欢 / 取消喜欢胶囊 */}
             <Pressable
-              style={({ pressed }) => [styles.actionButton, styles.buttonShuffle, pressed && styles.buttonPressed]}
-              onPress={() => void playArtistTracks(0, true)}
+              style={({ pressed }) => [
+                styles.actionButton,
+                styles.buttonSecondary,
+                isFavorited && styles.buttonFavoriteActive,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={handleToggleFavorite}
               accessibilityRole="button"
-              accessibilityLabel="随机播放"
+              accessibilityLabel={isFavorited ? '取消喜欢' : '喜欢'}
             >
-              <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-              <Text style={styles.actionButtonText}>随机播放</Text>
+              <Icon
+                name="heart"
+                size={iconSize.sm}
+                color={isFavorited ? colors.like : colors.textPrimary}
+                filled={isFavorited}
+              />
+              <Text style={[styles.actionButtonText, isFavorited && { color: colors.like }]}>
+                {isFavorited ? '取消喜欢' : '喜欢'}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -394,7 +431,7 @@ export function ArtistDetailScreen() {
 
       {/* 3. 随页面自然滚动的分类页签（精选 | 专辑 | 全部歌曲） */}
       <View style={styles.tabsWrapper}>
-        <SegmentedTabs items={TABS} value={tab} onChange={setTab} accessibilityLabel="音乐人内容分类" center />
+        <SegmentedTabs items={TABS} value={tab} onChange={setTab} accessibilityLabel="音乐人内容分类" />
       </View>
     </View>
   )
@@ -831,13 +868,13 @@ const useStyles = createThemedStyles((colors) => ({
     height: 44,
     borderRadius: radius.pill,
   },
-  buttonPlay: {
-    backgroundColor: colors.ctaPrimaryBg,
-  },
-  buttonShuffle: {
+  buttonSecondary: {
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
+  },
+  buttonFavoriteActive: {
+    borderColor: colors.borderEmphasis,
   },
   buttonPressed: {
     opacity: 0.75,
@@ -847,11 +884,6 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.callout,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  actionButtonTextPlay: {
-    ...typography.callout,
-    fontWeight: '600',
-    color: colors.ctaPrimaryText,
   },
   tabsWrapper: {
     marginTop: spacing.md,
@@ -934,7 +966,7 @@ const useStyles = createThemedStyles((colors) => ({
     flex: 1,
   },
   trackTitlePlaying: {
-    color: colors.brandTint,
+    color: colors.playing,
   },
   trackSubRow: {
     flexDirection: 'row',

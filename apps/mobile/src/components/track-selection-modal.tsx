@@ -26,7 +26,7 @@ export interface TrackSelectionModalProps {
   source: PlaySource
   /** 专辑内用序号，其它列表用封面 —— 与宿主列表保持一致 */
   leading: 'index' | 'cover'
-  isPlaying: (trackId: string) => boolean
+  isPlaying?: (trackId: string) => boolean
   /** 滚到底加载下一页（复用宿主的分页查询） */
   onEndReached: () => void
   /** 宿主的加载更多页脚（把它的 loading / error / retry 一起带过来，避免两套状态） */
@@ -91,7 +91,7 @@ export function TrackSelectionModal({
               track={item}
               index={index}
               leading="cover"
-              playing={isPlaying(item.id)}
+              playing={false}
               selection={{ selected: selection.isSelected(item.id), onToggle: () => selection.toggle(item.id) }}
             />
           )}

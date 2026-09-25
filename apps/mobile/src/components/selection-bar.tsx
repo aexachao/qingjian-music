@@ -138,7 +138,7 @@ const useStyles = createThemedStyles((colors) => ({
   selectAll: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   label: { ...typography.subhead, color: colors.textPrimary },
   count: { ...typography.subhead, color: colors.textTertiary },
-  done: { ...typography.subhead, color: colors.primaryAction, fontWeight: '600' },
+  done: { ...typography.subhead, color: colors.textPrimary, fontWeight: '600' },
   actionBar: {
     position: 'absolute',
     left: 0,

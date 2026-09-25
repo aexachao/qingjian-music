@@ -177,6 +177,44 @@ export function Icon({ name, size = iconSize.md, color, filled = true }: IconPro
       </View>
     )
   }
+  if (name === 'select') {
+    // 列表多选：左上勾选框 + 左下对勾 + 右侧 3 根横线列表
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={resolvedColor}
+          strokeWidth={2.1}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <Path d="M4.1 3.8h4a1.6 1.6 0 0 1 1.6 1.6v3.2a1.6 1.6 0 0 1-1.6 1.6h-4a1.6 1.6 0 0 1-1.6-1.6V5.4a1.6 1.6 0 0 1 1.6-1.6z M2.8 15.6l2.8 3 4-5 M12.5 5h9 M12.5 11h9 M12.5 17h9" />
+        </Svg>
+      </View>
+    )
+  }
+  if (name === 'sort') {
+    // 列表排序/筛选：3 条水平居中、逐级递减的圆头横线
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg
+          width={size}
+          height={size}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={resolvedColor}
+          strokeWidth={2.1}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <Path d="M2.5 5h19 M5.8 11h12.4 M9.2 17h5.6" />
+        </Svg>
+      </View>
+    )
+  }
   const outline = (OUTLINE_VARIANTS as Partial<Record<IconName, GlyphName>>)[name]
   const glyph: GlyphName = !filled && outline ? outline : ICONS[name]
   return <Ionicons name={glyph} size={size} color={resolvedColor} />

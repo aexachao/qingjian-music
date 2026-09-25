@@ -430,11 +430,11 @@ const useStyles = createThemedStyles((colors) => ({
     fontWeight: '600',
     color: colors.textPrimary,
   },
-  confirmButton: { backgroundColor: colors.primaryAction },
+  confirmButton: { backgroundColor: colors.ctaPrimaryBg },
   confirmText: {
     ...typography.body,
     fontSize: 16,
     fontWeight: '600',
-    color: colors.textOnAccent,
+    color: colors.ctaPrimaryText,
   },
 }))

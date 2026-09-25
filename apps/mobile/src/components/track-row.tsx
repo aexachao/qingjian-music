@@ -80,26 +80,32 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
       >
         {leading === 'index' ? (
           <View style={styles.trackNoSlot}>
-            <Text style={[styles.trackNo, playing && styles.trackNoPlaying]}>
-              {track.trackNo ?? index + 1}
-            </Text>
+            {playing ? (
+              <LivePlayingBars size={11} />
+            ) : (
+              <Text style={styles.trackNo}>
+                {index + 1}
+              </Text>
+            )}
           </View>
         ) : (
-          <CoverImage
-            coverId={track.coverId ?? track.album?.coverId}
-            size={48}
-            borderRadius={radius.sm}
-          />
-        )}
-
-        <View style={styles.metaCol}>
-          {/* 标题行：正在播放时音符律动动画位于标题左侧 */}
-          <View style={styles.titleRow}>
+          <View style={styles.coverWrapper}>
+            <CoverImage
+              coverId={track.coverId ?? track.album?.coverId}
+              size={48}
+              borderRadius={radius.sm}
+            />
             {playing ? (
-              <View style={styles.playingSlot}>
+              <View style={styles.coverPlayingOverlay}>
                 <LivePlayingBars size={11} />
               </View>
             ) : null}
+          </View>
+        )}
+
+        <View style={styles.metaCol}>
+          {/* 标题行：歌名永远保持像素级左平齐，绝不被播放中动画推移偏离 */}
+          <View style={styles.titleRow}>
             <Text numberOfLines={1} style={[styles.title, playing && styles.playing]}>
               {track.title}
             </Text>
@@ -153,6 +159,22 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.playing,
     fontFamily: fonts.semibold,
   },
+  coverWrapper: {
+    position: 'relative',
+    width: 48,
+    height: 48,
+  },
+  coverPlayingOverlay: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.bgFloatingBlur,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   metaCol: {
     flex: 1,
     gap: 3,
@@ -161,11 +183,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  playingSlot: {
-    marginRight: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   title: {
     ...typography.headline,

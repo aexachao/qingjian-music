@@ -48,3 +48,10 @@ export function useStackScreenOptions(): ScreenOptions {
 export const tabRootOptions = {
   headerShown: false,
 } satisfies ScreenOptions
+
+/** 详情页默认透明导航栏，避免进场推屏瞬间闪现不透明底色。 */
+export const detailScreenOptions = {
+  headerTransparent: true,
+  title: '',
+} satisfies ScreenOptions
+

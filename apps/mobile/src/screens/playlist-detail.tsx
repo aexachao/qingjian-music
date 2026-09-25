@@ -16,6 +16,7 @@ import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native
 import type { Track } from '@qj/core-domain'
 import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { CoverImage } from '@/components/cover-image'
+import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { Icon, iconSize } from '@/components/icon'
 import { useConfirm } from '@/components/confirm-modal'
 import { usePrompt } from '@/components/prompt-modal'
@@ -28,6 +29,8 @@ import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useIsMenuOpen } from '@/lib/menu-guard'
+import { useLocalFavoritesStore } from '@/lib/local-favorites'
+import { tap } from '@/lib/haptics'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { resolvePlaylistCover } from '@/lib/playlist-meta'
@@ -288,6 +291,21 @@ export function PlaylistDetailScreen() {
 
   const isMenuOpen = useIsMenuOpen()
 
+  const isFavorited = useLocalFavoritesStore((s) => (connection ? s.isPlaylistFavorited(connection.id, id) : false))
+  const togglePlaylistFavorite = useLocalFavoritesStore((s) => s.togglePlaylist)
+
+  const handleToggleFavorite = () => {
+    if (!connection) return
+    tap()
+    const added = togglePlaylistFavorite(connection.id, {
+      id,
+      name: displayName,
+      coverId: resolvedCoverId,
+      trackCount: total,
+    })
+    toast(added ? '已收藏歌单' : '已取消收藏')
+  }
+
   if (query.isPending && items.length === 0) return <TrackListSkeleton />
   if (query.isLoadingError && items.length === 0) {
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -314,7 +332,7 @@ export function PlaylistDetailScreen() {
           title: '',
           headerLeft: () => <StackBackButton />,
           headerBackground: () => (
-            <Animated.View style={[StyleSheet.absoluteFill, navBgAnimatedStyle]} pointerEvents="none">
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: 0 }, navBgAnimatedStyle]} pointerEvents="none">
               <BlurView
                 tint={mode === 'dark' ? 'dark' : 'light'}
                 intensity={100}
@@ -337,14 +355,14 @@ export function PlaylistDetailScreen() {
               <Animated.View style={navPlayAnimatedStyle}>
                 <Pressable
                   hitSlop={8}
-                  style={styles.navPlayButton}
+                  style={styles.navIconButton}
                   onPress={() => {
                     void play(0)
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="播放全部"
                 >
-                  <Icon name="play" size={16} color={colors.textPrimary} filled />
+                  <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
               </Animated.View>
               <MenuView
@@ -355,14 +373,14 @@ export function PlaylistDetailScreen() {
                 actions={menuActions}
                 onPressAction={handleMenuAction}
               >
-                <View
-                  style={styles.moreButton}
+                <Pressable
+                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel="歌单菜单"
                 >
-                  <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
-                </View>
+                  <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
+                </Pressable>
               </MenuView>
             </View>
           ),
@@ -377,7 +395,7 @@ export function PlaylistDetailScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           styles.list,
-          { paddingTop: topHeaderOffset + spacing.xs, paddingBottom: bottom },
+          { paddingTop: topHeaderOffset + 16, paddingBottom: bottom },
         ]}
         scrollEventThrottle={16}
         onScroll={onScroll}
@@ -403,26 +421,37 @@ export function PlaylistDetailScreen() {
                 </Text>
               ) : null}
 
-              {/* 核心动作：大号播放与随机播放双胶囊 */}
+              {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
               <View style={styles.actions}>
                 <Pressable
-                  style={({ pressed }) => [styles.playButton, pressed && styles.buttonPressed]}
+                  style={({ pressed }) => [styles.actionButton, pressed && styles.buttonPressed]}
                   onPress={() => void play(0)}
                   accessibilityRole="button"
-                  accessibilityLabel="播放歌单全部歌曲"
+                  accessibilityLabel="播放全部"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.ctaPrimaryText} filled />
-                  <Text style={styles.playButtonLabel}>播放全部</Text>
+                  <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                  <Text style={styles.actionButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
-                  style={({ pressed }) => [styles.shuffleButton, pressed && styles.buttonPressed]}
-                  onPress={() => void play(0, true)}
+                  style={({ pressed }) => [
+                    styles.actionButton,
+                    isFavorited && styles.actionButtonActive,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  onPress={handleToggleFavorite}
                   accessibilityRole="button"
-                  accessibilityLabel="随机播放歌单"
+                  accessibilityLabel={isFavorited ? '取消喜欢' : '喜欢'}
                 >
-                  <Icon name="shuffle" size={iconSize.sm} color={colors.textPrimary} />
-                  <Text style={styles.shuffleButtonLabel}>随机播放</Text>
+                  <Icon
+                    name="heart"
+                    size={iconSize.sm}
+                    color={isFavorited ? colors.like : colors.textPrimary}
+                    filled={isFavorited}
+                  />
+                  <Text style={[styles.actionButtonLabel, isFavorited && { color: colors.like }]}>
+                    {isFavorited ? '取消喜欢' : '喜欢'}
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -459,9 +488,9 @@ export function PlaylistDetailScreen() {
 
       {/* 滚动过头部后吸附顶部的精简工具条 */}
       {pinned && total > 0 ? (
-        <View style={[styles.pinnedBar, { top: topHeaderOffset }]}>
+        <DetailPinnedToolbar top={topHeaderOffset}>
           {toolbar}
-        </View>
+        </DetailPinnedToolbar>
       ) : null}
 
       {/* 批量操作模态弹窗 */}
@@ -503,7 +532,7 @@ const useStyles = createThemedStyles((colors) => ({
     paddingTop: spacing.sm,
   },
   headerRoot: {
-    marginBottom: spacing.sm,
+    marginBottom: 0,
   },
   coverBlock: {
     alignItems: 'center',
@@ -528,7 +557,7 @@ const useStyles = createThemedStyles((colors) => ({
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.md,
+    marginTop: 18,
     paddingHorizontal: spacing.lg,
     lineHeight: 30,
   },
@@ -542,69 +571,49 @@ const useStyles = createThemedStyles((colors) => ({
   actions: {
     flexDirection: 'row',
     gap: spacing.md,
-    marginTop: spacing.md + 2,
+    marginTop: 20,
     width: '100%',
-    paddingHorizontal: spacing.xs,
   },
-  playButton: {
+  actionButton: {
     flex: 1,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.ctaPrimaryBg,
-  },
-  playButtonLabel: {
-    ...typography.headline,
-    fontFamily: fonts.semibold,
-    color: colors.ctaPrimaryText,
-  },
-  shuffleButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm + 4,
-    borderRadius: radius.pill,
+    gap: spacing.xs + 2,
+    borderRadius: 22,
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
-  shuffleButtonLabel: {
+  actionButtonActive: {
+    borderColor: colors.borderEmphasis,
+  },
+  actionButtonLabel: {
     ...typography.headline,
+    fontSize: 15,
     fontFamily: fonts.medium,
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.82,
+    opacity: 0.85,
     transform: [{ scale: 0.98 }],
   },
-  moreButton: {
-    width: 36,
-    height: 36,
+  navIconButton: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 18,
+    borderRadius: 22,
+  },
+  navIconButtonPressed: {
+    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',
-    marginTop: spacing.lg,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderSubtle,
-  },
-  pinnedBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 40,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-    backgroundColor: colors.bgPrimary,
+    marginTop: 20,
+    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.borderSubtle,
   },
@@ -636,12 +645,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-  },
-  navPlayButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
+    marginRight: -spacing.sm,
   },
 }))

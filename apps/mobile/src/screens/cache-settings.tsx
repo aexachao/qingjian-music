@@ -368,9 +368,9 @@ const useStyles = createThemedStyles((colors) => ({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(246, 44, 85, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(246, 44, 85, 0.3)',
+    backgroundColor: colors.bgButtonSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderDefault,
   },
   clearButtonPressed: {
     opacity: 0.7,
@@ -379,7 +379,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.caption,
     fontSize: 13,
     fontWeight: '600',
-    color: colors.stateSelected,
+    color: colors.textPrimary,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

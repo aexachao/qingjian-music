@@ -117,7 +117,7 @@ const useStyles = createThemedStyles((colors) => ({
   count: { ...typography.subhead, color: colors.textSecondary },
   toolbarActions: { flexDirection: 'row', gap: spacing.lg },
   toolBtn: { paddingVertical: spacing.xs },
-  toolBtnText: { ...typography.callout, color: colors.brandTint },
+  toolBtnText: { ...typography.callout, color: colors.textPrimary },
   card: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
