@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -13,10 +14,16 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native'
 import Animated, {
+  cancelAnimation,
   Easing,
+  interpolate,
   runOnJS,
+  scrollTo,
+  useAnimatedReaction,
+  useAnimatedRef,
   useAnimatedScrollHandler,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withTiming,
   type SharedValue,
@@ -127,7 +134,7 @@ export function LyricView({
   const playing = playingProp !== undefined ? playingProp : Boolean(hookPlaying?.playing)
   const { height: screenHeight } = useWindowDimensions()
   const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
-  const scrollRef = useRef<ScrollView>(null)
+  const scrollRef = useAnimatedRef<Animated.ScrollView>()
   const offsets = useRef<number[]>(trackOffsetsCache.get(trackId) ?? [])
   const [viewportHeight, setViewportHeight] = useState(lastKnownViewportHeight)
   /** 用户手指按压下的行（按下显示圆角矩形板，手指离开后立即消失） */
@@ -153,9 +160,22 @@ export function LyricView({
   }, [trackId, activeIndex, bottomSpace])
 
   const scrollY = useSharedValue(initialScrollY)
+  const animScrollY = useSharedValue(initialScrollY)
+  const isProgrammaticScroll = useSharedValue(false)
   const isAtTopRef = useSharedValue(true)
   const isDismissing = useSharedValue(false)
   const dragStartedAtTopRef = useSharedValue(false)
+
+  // 监听并执行 UI 线程高精度平滑滚动（iOS 短信列表同款物理动量）
+  useAnimatedReaction(
+    () => animScrollY.value,
+    (currentY, prevY) => {
+      'worklet'
+      if (isProgrammaticScroll.value && currentY !== prevY) {
+        scrollTo(scrollRef, 0, currentY, false)
+      }
+    },
+  )
 
   // 当前行是卡拉OK行时，唱到第几个字（整行高亮的行用不上）
   const activeKaraoke = activeIndex >= 0 && synced && isKaraokeLine(lines[activeIndex]!)
@@ -224,9 +244,30 @@ export function LyricView({
       // 3. 正常自动跟随或已超出舒适安全区：定位到上黄金分割位（约 38% 视口高）
       const targetScroll = Math.max(targetY - effectiveHeight * 0.38, 0)
       currentScrollY.current = targetScroll
-      scrollRef.current?.scrollTo({ y: targetScroll, animated })
+
+      if (animated) {
+        isProgrammaticScroll.value = true
+        animScrollY.value = scrollY.value
+        animScrollY.value = withTiming(
+          targetScroll,
+          {
+            duration: 560,
+            easing: Easing.bezier(0.25, 1, 0.5, 1),
+          },
+          (finished) => {
+            if (finished) {
+              isProgrammaticScroll.value = false
+            }
+          },
+        )
+      } else {
+        isProgrammaticScroll.value = false
+        cancelAnimation(animScrollY)
+        animScrollY.value = targetScroll
+        scrollRef.current?.scrollTo({ y: targetScroll, animated: false })
+      }
     },
-    [synced, viewportHeight, bottomSpace],
+    [synced, viewportHeight, bottomSpace, animScrollY, isProgrammaticScroll, scrollRef, scrollY],
   )
 
   const startIdleResumeTimer = useCallback(() => {
@@ -289,8 +330,11 @@ export function LyricView({
     // 暂停状态下若用户手动滑动过，绝不自动跳转
     if (!playing && userManualOverrideRef.current) return
 
-    // 单步自然推进时（如 activeIndex === prev + 1）平滑滚动；跳跃推进（如快进）直接到位
-    const isStepAdvance = prevActiveIndexRef.current >= 0 && activeIndex === prevActiveIndexRef.current + 1
+    // 单步自然推进时（如 activeIndex === prev + 1 或跳过空行 1~3 步内）平滑滚动；跳跃推进（如快进）直接到位
+    const isStepAdvance =
+      prevActiveIndexRef.current >= 0 &&
+      activeIndex > prevActiveIndexRef.current &&
+      activeIndex - prevActiveIndexRef.current <= 3
     prevActiveIndexRef.current = activeIndex
 
     scrollToActiveIndex(activeIndex, { animated: isStepAdvance })
@@ -349,6 +393,10 @@ export function LyricView({
       }
     },
     onBeginDrag: (event) => {
+      isProgrammaticScroll.value = false
+      cancelAnimation(animScrollY)
+      animScrollY.value = event.contentOffset.y
+
       isDismissing.value = false
       // 记录手势起点：只有在最顶部（offset <= 1）开始拉动才算全屏下拉退场手势
       dragStartedAtTopRef.value = event.contentOffset.y <= 1
@@ -481,6 +529,7 @@ export function LyricView({
         }}
         onScrollEndDrag={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
           currentScrollY.current = event.nativeEvent.contentOffset.y
+          animScrollY.value = event.nativeEvent.contentOffset.y
           const { velocity } = event.nativeEvent
           // 若松手时无明显惯性滑行（静止松手或慢速松手），立即结束物理交互并开启 3.5s 阅读保护（暂停时除外）
           if (!velocity || Math.abs(velocity.y) < 0.05) {
@@ -496,6 +545,7 @@ export function LyricView({
         }}
         onMomentumScrollEnd={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
           currentScrollY.current = event.nativeEvent.contentOffset.y
+          animScrollY.value = event.nativeEvent.contentOffset.y
           isInteractingRef.current = false
           if (playing) {
             startIdleResumeTimer()
@@ -571,6 +621,24 @@ const LyricRow = memo(function LyricRow({
   const chars = karaoke && line.text ? Array.from(line.text) : []
   const sung = Math.min(Math.max(litCount ?? 0, 0), chars.length)
 
+  const activeAnim = useSharedValue(active ? 1 : 0)
+
+  useEffect(() => {
+    activeAnim.value = withTiming(active ? 1 : 0, {
+      duration: 380,
+      easing: Easing.bezier(0.25, 1, 0.5, 1),
+    })
+  }, [active, activeAnim])
+
+  const animatedContentStyle = useAnimatedStyle(() => {
+    const scale = interpolate(activeAnim.value, [0, 1], [0.93, 1.0])
+    const opacity = interpolate(activeAnim.value, [0, 1], [0.32, 1.0])
+    return {
+      opacity: selected ? 1.0 : opacity,
+      transform: [{ scale }],
+    }
+  })
+
   const handlePress = useCallback(() => {
     void Haptics.selectionAsync()
     onTap()
@@ -596,32 +664,34 @@ const LyricRow = memo(function LyricRow({
         selected && styles.rowSelected,
       ]}
     >
-      {line.text ? (
-        <Text
-          style={[
-            styles.line,
-            active && !karaoke && styles.lineActive,
-            karaoke && styles.lineKaraoke,
-            selected && styles.lineSelected,
-          ]}
-        >
-          {karaoke
-            ? chars.map((char, index) => (
-                <Text key={index} style={index < sung ? styles.charSung : styles.charPending}>
-                  {char}
-                </Text>
-              ))
-            : line.text}
-        </Text>
-      ) : (
-        // 前奏 / 间奏这类空行用声波图标占位，不用音符字符
-        <Icon name="playing" size={iconSize.lg} color={active ? colors.playing : colors.iconDim} />
-      )}
-      {line.translation ? (
-        <Text style={[styles.translation, (active || selected) && styles.translationActive]}>
-          {line.translation}
-        </Text>
-      ) : null}
+      <Animated.View style={[styles.rowInner, animatedContentStyle]}>
+        {line.text ? (
+          <Text
+            style={[
+              styles.line,
+              active && !karaoke && styles.lineActive,
+              karaoke && styles.lineKaraoke,
+              selected && styles.lineSelected,
+            ]}
+          >
+            {karaoke
+              ? chars.map((char, index) => (
+                  <Text key={index} style={index < sung ? styles.charSung : styles.charPending}>
+                    {char}
+                  </Text>
+                ))
+              : line.text}
+          </Text>
+        ) : (
+          // 前奏 / 间奏这类空行用声波图标占位，不用音符字符
+          <Icon name="playing" size={iconSize.lg} color={active ? colors.playing : colors.iconDim} />
+        )}
+        {line.translation ? (
+          <Text style={[styles.translation, (active || selected) && styles.translationActive]}>
+            {line.translation}
+          </Text>
+        ) : null}
+      </Animated.View>
     </Pressable>
   )
 })
@@ -769,24 +839,29 @@ const useStyles = createThemedStyles((colors) => ({
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
-
-  // —— 歌词文字：去掉模糊，通过字号与纯度拉大对比度 ——
-  line: {
-    fontSize: 21,
-    lineHeight: 32,
-    fontFamily: fonts.bold,
-    color: colors.textQuaternary,
+  rowInner: {
+    width: '100%',
+    alignSelf: 'stretch',
+    transformOrigin: 'left center',
   },
-  // 正在唱的整行：字号显著增大（28pt），纯白高亮，拉开强烈视觉对比
+
+  // —— 歌词文字：保持统一 28pt 行高 40，杜绝重排抖动，通过 GPU 缩放与透明度实现丝滑聚焦 ——
+  line: {
+    fontSize: 28,
+    lineHeight: 40,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  // 正在唱的整行：纯白高亮，拉开视觉对比
   lineActive: {
     fontSize: 28,
     lineHeight: 40,
     color: colors.textPrimary,
   },
-  // 卡拉OK当前行：放大到 30pt，唱到的字逐字纯白
+  // 卡拉OK当前行：唱到的字逐字纯白
   lineKaraoke: {
-    fontSize: 30,
-    lineHeight: 42,
+    fontSize: 28,
+    lineHeight: 40,
     color: colors.textPrimary,
   },
   // 选中的那一行（点击/长按反馈）：变纯白清晰
@@ -800,9 +875,9 @@ const useStyles = createThemedStyles((colors) => ({
   translation: {
     ...typography.subhead,
     marginTop: spacing.xs,
-    color: colors.textQuaternary,
+    color: colors.textSecondary,
   },
-  translationActive: { color: colors.textSecondary },
+  translationActive: { color: colors.textPrimary },
   // —— 全部歌词面板 ——
   sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.xl },
   sheetCard: { backgroundColor: colors.bgModal, borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },

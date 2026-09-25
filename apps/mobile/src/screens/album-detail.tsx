@@ -9,12 +9,13 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated'
 import { BlurView } from 'expo-blur'
-import { LinearGradient } from 'expo-linear-gradient'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
+import { AmbientHeaderBackground } from '@/components/ambient-header-background'
+import { CDSleeveCover } from '@/components/cd-sleeve-cover'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
@@ -313,34 +314,7 @@ export function AlbumDetailScreen() {
       />
 
       {/* 顶部柔和流体弥散氛围光底色 */}
-      <View style={styles.ambientRoot} pointerEvents="none">
-        <View style={styles.ambientBlobContainer}>
-          <View
-            style={[
-              styles.ambientBlob,
-              styles.ambientBlobPrimary,
-              { backgroundColor: palette.primary },
-            ]}
-          />
-          <View
-            style={[
-              styles.ambientBlob,
-              styles.ambientBlobSecondary,
-              { backgroundColor: palette.secondary },
-            ]}
-          />
-        </View>
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 90 : 100}
-          tint={mode === 'dark' ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)', colors.bgPrimary]}
-          locations={[0.25, 0.65, 1.0]}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
+      <AmbientHeaderBackground palette={palette} />
 
       <Animated.FlatList
         data={items}
@@ -357,8 +331,7 @@ export function AlbumDetailScreen() {
               {/* 大封面封套与景深阴影 */}
               <Animated.View style={[styles.coverContainer, coverAnimatedStyle]}>
                 <View style={[styles.coverGlow, { shadowColor: palette.primary }]}>
-                  <CoverImage coverId={album.coverId} size={220} borderRadius={16} />
-                  <View style={styles.coverInnerBorder} pointerEvents="none" />
+                  <CDSleeveCover coverId={album.coverId} size={180} />
                 </View>
               </Animated.View>
 
@@ -502,36 +475,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexGrow: 1,
     paddingHorizontal: spacing.lg,
   },
-  ambientRoot: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 480,
-    overflow: 'hidden',
-  },
-  ambientBlobContainer: {
-    ...StyleSheet.absoluteFill,
-  },
-  ambientBlob: {
-    position: 'absolute',
-  },
-  ambientBlobPrimary: {
-    top: -20,
-    left: -30,
-    width: 290,
-    height: 290,
-    borderRadius: 145,
-    opacity: 0.72,
-  },
-  ambientBlobSecondary: {
-    top: 40,
-    right: -40,
-    width: 270,
-    height: 270,
-    borderRadius: 135,
-    opacity: 0.6,
-  },
   headerRoot: {
     marginBottom: spacing.xs,
   },
@@ -548,13 +491,6 @@ const useStyles = createThemedStyles((colors) => ({
     shadowOpacity: 0.38,
     shadowRadius: 32,
     elevation: 12,
-    borderRadius: 16,
-  },
-  coverInnerBorder: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderDefault,
   },
   name: {
     ...typography.title,
@@ -562,7 +498,7 @@ const useStyles = createThemedStyles((colors) => ({
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 34,
     paddingHorizontal: spacing.lg,
     lineHeight: 30,
   },

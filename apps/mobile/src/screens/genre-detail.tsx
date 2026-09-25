@@ -1,9 +1,20 @@
 import { useMemo, useState } from 'react'
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated'
+import { BlurView } from 'expo-blur'
 import { Stack, useLocalSearchParams } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
+import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
@@ -18,6 +29,7 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
+import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
@@ -119,6 +131,80 @@ export function GenreDetailScreen() {
     [items],
   )
 
+  const insets = useSafeAreaInsets()
+  const topHeaderOffset = Math.max(insets.top, 20) + 44
+
+  const palette = useMemo(
+    () => resolveAmbientPalette(id ?? firstTrackCoverId),
+    [id, firstTrackCoverId],
+  )
+
+  const scrollY = useSharedValue(0)
+  const isPinnedSV = useSharedValue(false)
+
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const y = event.contentOffset.y
+      scrollY.value = y
+      const isPast = pinAt > 0 && y >= pinAt
+      if (isPast !== isPinnedSV.value) {
+        isPinnedSV.value = isPast
+        runOnJS(setPinned)(isPast)
+      }
+    },
+  })
+
+  const coverAnimatedStyle = useAnimatedStyle(() => {
+    const scale = interpolate(
+      scrollY.value,
+      [-180, 0],
+      [1.24, 1],
+      Extrapolation.CLAMP,
+    )
+    return {
+      transform: [{ scale }],
+    }
+  })
+
+  const navBgAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [150, 230],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    return { opacity }
+  })
+
+  const navTitleAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [190, 240],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    const translateY = interpolate(
+      scrollY.value,
+      [190, 240],
+      [6, 0],
+      Extrapolation.CLAMP,
+    )
+    return {
+      opacity,
+      transform: [{ translateY }],
+    }
+  })
+
+  const navPlayAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [190, 240],
+      [0, 1],
+      Extrapolation.CLAMP,
+    )
+    return { opacity }
+  })
+
   if (query.isPending && items.length === 0) return <LoadingState />
   if (query.isLoadingError && items.length === 0) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
@@ -135,48 +221,89 @@ export function GenreDetailScreen() {
 
   return (
     <View style={styles.root}>
+      {/* 顶部自适应毛玻璃导航栏 */}
       <Stack.Screen
         options={{
           headerShown: true,
-          title: pinned ? displayName : '',
+          headerTransparent: true,
+          title: '',
           headerLeft: () => <StackBackButton />,
+          headerBackground: () => (
+            <Animated.View style={[StyleSheet.absoluteFill, navBgAnimatedStyle]} pointerEvents="none">
+              <BlurView
+                tint={mode === 'dark' ? 'dark' : 'light'}
+                intensity={100}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
+              <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
+            </Animated.View>
+          ),
+          headerTitle: () => (
+            <Animated.View style={[styles.navTitleRow, navTitleAnimatedStyle]}>
+              <VinylDisc genreId={id} coverId={firstTrackCoverId} size={28} variant="full" />
+              <Text style={styles.navTitleText} numberOfLines={1}>
+                {displayName}
+              </Text>
+            </Animated.View>
+          ),
           headerRight: () => (
-            <MenuView
-              title={displayName}
-              themeVariant={mode === 'dark' ? 'dark' : 'light'}
-              shouldOpenOnLongPress={false}
-              isAnchoredToRight={true}
-              actions={menuActions}
-              onPressAction={handleMenuAction}
-            >
-              <View
-                style={styles.moreButton}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel="流派菜单"
+            <View style={styles.navRightRow}>
+              <Animated.View style={navPlayAnimatedStyle}>
+                <Pressable
+                  hitSlop={8}
+                  style={styles.navPlayButton}
+                  onPress={() => {
+                    void play(0)
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="播放全部"
+                >
+                  <Icon name="play" size={16} color={colors.textPrimary} filled />
+                </Pressable>
+              </Animated.View>
+              <MenuView
+                title={displayName}
+                themeVariant={mode === 'dark' ? 'dark' : 'light'}
+                shouldOpenOnLongPress={false}
+                isAnchoredToRight={true}
+                actions={menuActions}
+                onPressAction={handleMenuAction}
               >
-                <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
-              </View>
-            </MenuView>
+                <View
+                  style={styles.moreButton}
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel="流派菜单"
+                >
+                  <Icon name="more" size={iconSize.md} color={colors.textPrimary} />
+                </View>
+              </MenuView>
+            </View>
           ),
         }}
       />
-      <FlatList
+
+      {/* 顶部柔和流体弥散氛围光底色 */}
+      <AmbientHeaderBackground palette={palette} />
+
+      <Animated.FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
+        contentContainerStyle={[
+          styles.list,
+          { paddingTop: topHeaderOffset + spacing.xs, paddingBottom: bottom },
+        ]}
         scrollEventThrottle={16}
-        onScroll={(event) => {
-          const y = event.nativeEvent.contentOffset.y
-          const next = pinAt > 0 && y >= pinAt
-          setPinned((previous) => (previous === next ? previous : next))
-        }}
+        onScroll={onScroll}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
             <View style={styles.coverBlock}>
-              <View style={styles.discShadowWrapper}>
-                <VinylDisc genreId={id} coverId={firstTrackCoverId} size={200} variant="full" />
-              </View>
+              <Animated.View style={[styles.coverContainer, coverAnimatedStyle]}>
+                <View style={[styles.discShadowWrapper, { shadowColor: palette.primary }]}>
+                  <VinylDisc genreId={id} coverId={firstTrackCoverId} size={200} variant="full" />
+                </View>
+              </Animated.View>
 
               <Text style={styles.name} numberOfLines={2}>
                 {displayName}
@@ -235,7 +362,11 @@ export function GenreDetailScreen() {
         }
       />
 
-      {pinned && total > 0 ? <View style={styles.pinnedBar}>{toolbar}</View> : null}
+      {pinned && total > 0 ? (
+        <View style={[styles.pinnedBar, { top: topHeaderOffset }]}>
+          {toolbar}
+        </View>
+      ) : null}
 
       <TrackSelectionModal
         visible={selecting}
@@ -280,12 +411,15 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  coverContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   discShadowWrapper: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 10,
     marginBottom: spacing.xs,
   },
   name: {
@@ -294,8 +428,9 @@ const useStyles = createThemedStyles((colors) => ({
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     textAlign: 'center',
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     paddingHorizontal: spacing.lg,
+    lineHeight: 30,
   },
   actions: {
     flexDirection: 'row',
@@ -356,9 +491,9 @@ const useStyles = createThemedStyles((colors) => ({
   },
   pinnedBar: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
+    zIndex: 40,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
     paddingBottom: spacing.xs,
@@ -370,5 +505,36 @@ const useStyles = createThemedStyles((colors) => ({
     height: 1,
     marginLeft: 60,
     backgroundColor: colors.borderSubtle,
+  },
+  navBottomBorder: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+  },
+  navTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    maxWidth: 220,
+  },
+  navTitleText: {
+    ...typography.headline,
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  navRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  navPlayButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
   },
 }))
