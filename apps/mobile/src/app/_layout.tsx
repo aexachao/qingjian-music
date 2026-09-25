@@ -37,7 +37,7 @@ function useFatalError() {
   return useSyncExternalStore(subscribeFatalError, getFatalError, getFatalError)
 }
 
-// Montserrat 由 expo-font 配置插件在构建期嵌入（见 app.json），启动即可用，无需运行时加载
+// 采用原生系统字体（iOS: San Francisco / PingFang SC；Android: Roboto / Noto Sans），启动即可用，无需加载外部字体包
 export default function RootLayout() {
   const fatal = useFatalError()
   const [, forceRender] = useState(0)

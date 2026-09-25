@@ -428,6 +428,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.title,
     fontSize: 24,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textPrimary,
     textAlign: 'center',
     marginTop: spacing.md,
@@ -456,6 +457,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
   buttonPressed: {
@@ -502,6 +504,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   navRightRow: {

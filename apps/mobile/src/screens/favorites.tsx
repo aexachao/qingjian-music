@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   FlatList,
   Platform,
@@ -27,7 +27,13 @@ import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { useIsMenuOpen } from '@/lib/menu-guard'
-import { useLocalFavoritesStore } from '@/lib/local-favorites'
+import {
+  EMPTY_FAVORITE_ALBUMS,
+  EMPTY_FAVORITE_PLAYLISTS,
+  useLocalFavoritesStore,
+  type LocalFavoriteAlbum,
+  type LocalFavoritePlaylist,
+} from '@/lib/local-favorites'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
@@ -63,9 +69,13 @@ export function FavoritesScreen() {
 
   const [activeTab, setActiveTab] = useState<FavoriteTab>('tracks')
 
-  // 本地收藏的专辑与歌单
-  const favoriteAlbums = useLocalFavoritesStore((s) => (connection ? s.getFavoriteAlbums(connection.id) : []))
-  const favoritePlaylists = useLocalFavoritesStore((s) => (connection ? s.getFavoritePlaylists(connection.id) : []))
+  // 本地收藏的专辑与歌单（使用单例静态空数组，防止 selector 每次返回新数组引发死循环）
+  const favoriteAlbums = useLocalFavoritesStore((s) =>
+    connection?.id ? (s.albumsByServer[connection.id] ?? (EMPTY_FAVORITE_ALBUMS as LocalFavoriteAlbum[])) : (EMPTY_FAVORITE_ALBUMS as LocalFavoriteAlbum[])
+  )
+  const favoritePlaylists = useLocalFavoritesStore((s) =>
+    connection?.id ? (s.playlistsByServer[connection.id] ?? (EMPTY_FAVORITE_PLAYLISTS as LocalFavoritePlaylist[])) : (EMPTY_FAVORITE_PLAYLISTS as LocalFavoritePlaylist[])
+  )
 
   // 网格列宽
   const columns = width >= 700 ? 3 : 2
@@ -94,7 +104,7 @@ export function FavoritesScreen() {
   }
 
   // 菜单动作：追加到当前播放队列
-  const handleAppendToQueue = async () => {
+  const handleAppendToQueue = useCallback(async () => {
     if (!provider || !connection || items.length === 0) {
       toast('还没有收藏的歌曲')
       return
@@ -105,7 +115,7 @@ export function FavoritesScreen() {
     } catch (e) {
       toast(e instanceof Error ? e.message : '添加失败')
     }
-  }
+  }, [provider, connection, items, toast])
 
   const menuActions: MenuAction[] = useMemo(() => [
     {
@@ -115,11 +125,11 @@ export function FavoritesScreen() {
     },
   ], [])
 
-  const handleMenuAction = ({ nativeEvent }: NativeActionEvent) => {
+  const handleMenuAction = useCallback(({ nativeEvent }: NativeActionEvent) => {
     if (nativeEvent.event === 'append-to-queue') {
       void handleAppendToQueue()
     }
-  }
+  }, [handleAppendToQueue])
 
   const isMenuOpen = useIsMenuOpen()
 
@@ -142,10 +152,6 @@ export function FavoritesScreen() {
     [firstTrackCoverId],
   )
 
-  if (provider && !provider.capabilities.favorites) {
-    return <EmptyState text="当前服务器不支持收藏" />
-  }
-
   const toolbar = (
     <ListToolbar
       kind="favorites"
@@ -157,59 +163,67 @@ export function FavoritesScreen() {
     />
   )
 
+  const screenOptions = useMemo(
+    () => ({
+      headerShown: true,
+      headerTransparent: true,
+      title: '',
+      headerLeft: () => <StackBackButton />,
+      headerBackground: () => (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <BlurView
+            tint={mode === 'dark' ? 'dark' : 'light'}
+            intensity={100}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
+          <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
+        </View>
+      ),
+      headerTitle: () => (
+        <View style={styles.navTitleRow}>
+          <View style={styles.navHeartBadge}>
+            <Icon name="heart" size={14} color={colors.like} filled />
+          </View>
+          <Text style={styles.navTitleText} numberOfLines={1}>
+            我喜欢的音乐
+          </Text>
+        </View>
+      ),
+      headerRight: () => (
+        <View style={styles.navRightRow}>
+          <MenuView
+            title="我喜欢的音乐"
+            themeVariant={mode === 'dark' ? 'dark' : 'light'}
+            shouldOpenOnLongPress={false}
+            isAnchoredToRight={true}
+            actions={menuActions}
+            onPressAction={handleMenuAction}
+          >
+            <Pressable
+              style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="收藏菜单"
+            >
+              <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
+            </Pressable>
+          </MenuView>
+        </View>
+      ),
+    }),
+    [colors, mode, styles, menuActions, handleMenuAction],
+  )
+
+  // 早退放到所有 hook 之后（rules-of-hooks：不能在 hook 之前条件 return）
+  if (provider && !provider.capabilities.favorites) {
+    return <EmptyState text="当前服务器不支持收藏" />
+  }
+
   return (
     <View style={styles.root}>
       {/* 顶部自适应毛玻璃导航栏 */}
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTransparent: true,
-          title: '',
-          headerLeft: () => <StackBackButton />,
-          headerBackground: () => (
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-              <BlurView
-                tint={mode === 'dark' ? 'dark' : 'light'}
-                intensity={100}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
-              <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
-            </View>
-          ),
-          headerTitle: () => (
-            <View style={styles.navTitleRow}>
-              <View style={styles.navHeartBadge}>
-                <Icon name="heart" size={14} color={colors.like} filled />
-              </View>
-              <Text style={styles.navTitleText} numberOfLines={1}>
-                我喜欢的音乐
-              </Text>
-            </View>
-          ),
-          headerRight: () => (
-            <View style={styles.navRightRow}>
-              <MenuView
-                title="我喜欢的音乐"
-                themeVariant={mode === 'dark' ? 'dark' : 'light'}
-                shouldOpenOnLongPress={false}
-                isAnchoredToRight={true}
-                actions={menuActions}
-                onPressAction={handleMenuAction}
-              >
-                <Pressable
-                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
-                  accessible
-                  accessibilityRole="button"
-                  accessibilityLabel="收藏菜单"
-                >
-                  <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
-                </Pressable>
-              </MenuView>
-            </View>
-          ),
-        }}
-      />
+      <Stack.Screen options={screenOptions} />
 
       {/* 导航栏下方悬浮固定三 Tab 分类切换器 */}
       <View style={[styles.tabBarContainer, { top: topHeaderOffset }]}>
@@ -450,6 +464,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
   buttonPressed: {
@@ -503,6 +518,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 16,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   navRightRow: {
@@ -514,12 +530,14 @@ const useStyles = createThemedStyles((colors) => ({
   cardName: {
     ...typography.subhead,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
     marginTop: spacing.xs,
   },
   cardSubtitle: {
     ...typography.caption,
     fontFamily: fonts.regular,
+    fontWeight: '400',
     color: colors.textSecondary,
     marginTop: 2,
   },

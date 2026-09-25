@@ -283,18 +283,15 @@ export function getThemeColors(theme: ResolvedTheme): ThemeColors {
 }
 
 /**
- * 字体：web 端 `--ds-font-family-base` 首选 Montserrat（NAS 自带同样 4 个字重）。
- * 中文字形 Montserrat 没有，iOS/Android 会自动回落到系统中文字体——
- * 和 web 端表现一致：拉丁字母与数字用 Montserrat，中文用系统字体。
- *
- * 字体由 `expo-font` 配置插件在构建期嵌入（见 app.json），族名就是 TTF 里的 PostScript 名，
- * 所以不需要运行时 loadAsync，也不用为字体卡启动图。
+ * 字体：系统原生字体（iOS: San Francisco + 苹方，Android: Roboto + 思源黑体）。
+ * 在 React Native 中，'System' 会触发 iOS 原生 UIFont systemFont 渲染体系，
+ * Android 会自动回落到系统默认无衬线字体。结合显式 fontWeight 实现精准排版。
  */
 export const fonts = {
-  regular: 'Montserrat-Regular',
-  medium: 'Montserrat-Medium',
-  semibold: 'Montserrat-SemiBold',
-  bold: 'Montserrat-Bold',
+  regular: 'System',
+  medium: 'System',
+  semibold: 'System',
+  bold: 'System',
 } as const
 
 export const spacing = {
@@ -322,15 +319,15 @@ export const radius = {
 } as const
 
 export const typography = {
-  largeTitle: { fontSize: 34, fontFamily: fonts.bold, letterSpacing: -0.5 },
-  title: { fontSize: 22, fontFamily: fonts.bold, letterSpacing: -0.3 },
-  sectionTitle: { fontSize: 18, fontFamily: fonts.bold, letterSpacing: -0.3 },
-  title3: { fontSize: 20, fontFamily: fonts.semibold, letterSpacing: -0.2 },
-  headline: { fontSize: 17, fontFamily: fonts.semibold, letterSpacing: -0.4 },
-  body: { fontSize: 17, fontFamily: fonts.regular, letterSpacing: -0.4 },
-  callout: { fontSize: 16, fontFamily: fonts.regular },
-  subhead: { fontSize: 15, fontFamily: fonts.regular, letterSpacing: -0.2 },
-  footnote: { fontSize: 13, fontFamily: fonts.medium, letterSpacing: 0 },
-  caption: { fontSize: 12, fontFamily: fonts.regular, letterSpacing: 0.2 },
-  badge: { fontSize: 10, fontFamily: fonts.bold, letterSpacing: 0.5 },
+  largeTitle: { fontSize: 34, fontFamily: fonts.bold, fontWeight: '700' as const, letterSpacing: -0.5 },
+  title: { fontSize: 22, fontFamily: fonts.bold, fontWeight: '700' as const, letterSpacing: -0.3 },
+  sectionTitle: { fontSize: 18, fontFamily: fonts.bold, fontWeight: '700' as const, letterSpacing: -0.3 },
+  title3: { fontSize: 20, fontFamily: fonts.semibold, fontWeight: '600' as const, letterSpacing: -0.2 },
+  headline: { fontSize: 17, fontFamily: fonts.semibold, fontWeight: '600' as const, letterSpacing: -0.4 },
+  body: { fontSize: 17, fontFamily: fonts.regular, fontWeight: '400' as const, letterSpacing: -0.4 },
+  callout: { fontSize: 16, fontFamily: fonts.regular, fontWeight: '400' as const },
+  subhead: { fontSize: 15, fontFamily: fonts.regular, fontWeight: '400' as const, letterSpacing: -0.2 },
+  footnote: { fontSize: 13, fontFamily: fonts.medium, fontWeight: '500' as const, letterSpacing: 0 },
+  caption: { fontSize: 12, fontFamily: fonts.regular, fontWeight: '400' as const, letterSpacing: 0.2 },
+  badge: { fontSize: 10, fontFamily: fonts.bold, fontWeight: '700' as const, letterSpacing: 0.5 },
 } as const

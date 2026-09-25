@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { FlatList, Pressable, Text, View } from 'react-native'
 import { Link, Stack } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
@@ -58,28 +59,31 @@ export function PlaylistsScreen() {
     })
   }
 
+  const screenOptions = useMemo(
+    () => ({
+      headerRight: canWrite
+        ? () => (
+            <Pressable
+              hitSlop={12}
+              onPress={handleCreate}
+              accessibilityRole="button"
+              accessibilityLabel="新建歌单"
+            >
+              <Icon name="add" size={iconSize.lg} color={colors.textPrimary} />
+            </Pressable>
+          )
+        : undefined,
+    }),
+    [canWrite, handleCreate, colors.textPrimary],
+  )
+
   if (query.isPending) return <TrackListSkeleton />
   if (query.isLoadingError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   return (
     <View style={styles.root}>
       {/* 新建入口放导航栏右侧；不能写（只读后端）时整颗按钮不出现 */}
-      <Stack.Screen
-        options={{
-          headerRight: canWrite
-            ? () => (
-                <Pressable
-                  hitSlop={12}
-                  onPress={handleCreate}
-                  accessibilityRole="button"
-                  accessibilityLabel="新建歌单"
-                >
-                  <Icon name="add" size={iconSize.lg} color={colors.textPrimary} />
-                </Pressable>
-              )
-            : undefined,
-        }}
-      />
+      <Stack.Screen options={screenOptions} />
 
       <ListToolbarBar kind="playlists" total={total} selection={selection} onSelect={setSelection} />
 

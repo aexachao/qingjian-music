@@ -38,6 +38,7 @@ const useStyles = createThemedStyles((colors) => ({
   text: {
     fontSize: 9,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textTertiary,
     letterSpacing: 0.3,
   },

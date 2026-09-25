@@ -533,6 +533,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.title,
     fontSize: 20,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textPrimary,
     lineHeight: 25,
     textAlign: 'right',
@@ -550,11 +551,13 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.subhead,
     fontSize: 14,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textSecondary,
   },
   yearText: {
     fontSize: 13,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textTertiary,
   },
   specBadge: {
@@ -569,6 +572,7 @@ const useStyles = createThemedStyles((colors) => ({
   specBadgeText: {
     fontSize: 10,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.badgeText,
     letterSpacing: 0.4,
   },
@@ -597,6 +601,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
   buttonPressed: {
@@ -643,6 +648,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   navRightRow: {

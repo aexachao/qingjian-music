@@ -11,12 +11,14 @@ import { BlurView } from 'expo-blur'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Link, Stack, useLocalSearchParams } from 'expo-router'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
 import type { Artist, Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
+import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { FormatBadge } from '@/components/format-badge'
 import { Icon, IconButton, iconSize } from '@/components/icon'
-import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
+import { ListToolbar, ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { SegmentedTabs } from '@/components/segmented-tabs'
@@ -74,6 +76,13 @@ export function ArtistDetailScreen() {
   const toast = useToast()
   const isFavorited = useLocalFavoritesStore((s) => (connection ? s.isArtistFavorited(connection.id, id) : false))
   const toggleArtistFavorite = useLocalFavoritesStore((s) => s.toggleArtist)
+
+  const insets = useSafeAreaInsets()
+  const topHeaderOffset = Math.max(insets.top, 20) + 44
+  const [tracksHeaderHeight, setTracksHeaderHeight] = useState(0)
+  const [toolbarHeight, setToolbarHeight] = useState(0)
+  const [isToolbarPinned, setIsToolbarPinned] = useState(false)
+  const pinAt = Math.max(0, tracksHeaderHeight - toolbarHeight - topHeaderOffset)
 
   const [tab, setTab] = useState<ArtistTab>('overview')
   const [pinned, setPinned] = useState(false)
@@ -246,10 +255,25 @@ export function ArtistDetailScreen() {
   const portraitUrl = portraitQuery.data
   const heroImageUri = portraitUrl ?? backdropResource?.url
 
-  // 滚动监听：触碰阈值折叠吸顶（滚动越过宽幅巨幕 220pt 时平滑过渡为吸顶栏）
-  const handleScroll = useCallback((eventY: number) => {
-    const isPast = eventY > 220
-    setPinned((prev) => (prev === isPast ? prev : isPast))
+  // 滚动监听：触碰阈值折叠吸顶（滚动越过宽幅巨幕 220pt 时平滑过渡为吸顶栏，全部歌曲 tab 下越过 pinAt 时固定工具条）
+  const handleScroll = useCallback(
+    (eventY: number) => {
+      const isPast = eventY > 220
+      setPinned((prev) => (prev === isPast ? prev : isPast))
+
+      if (tab === 'tracks' && pinAt > 0) {
+        const isToolbarPast = eventY >= pinAt
+        setIsToolbarPinned((prev) => (prev === isToolbarPast ? prev : isToolbarPast))
+      } else if (tab !== 'tracks') {
+        setIsToolbarPinned((prev) => (prev ? false : prev))
+      }
+    },
+    [tab, pinAt],
+  )
+
+  const handleTabChange = useCallback((nextTab: ArtistTab) => {
+    setTab(nextTab)
+    setIsToolbarPinned(false)
   }, [])
 
   const handleToggleFavorite = () => {
@@ -264,35 +288,53 @@ export function ArtistDetailScreen() {
     toast(added ? '已添加到喜欢' : '已取消喜欢')
   }
 
-  // 导航栏必须显式声明 headerLeft: () => <StackBackButton /> 满足架构契约
-  const titleScreen = (
-    <Stack.Screen
-      options={{
-        headerShown: true,
-        headerTransparent: true,
-        title: pinned ? (artistName ?? '艺术家') : '',
-        headerLeft: () => <StackBackButton />,
-        headerRight: () =>
-          pinned ? (
-            <IconButton
-              name="play"
-              size={iconSize.md}
-              color={colors.textPrimary}
-              onPress={() => void playArtistTracks(0)}
-              accessibilityLabel="播放全部"
-            />
-          ) : null,
-        headerBackground: () =>
-          pinned ? (
-            <BlurView
-              tint={mode === 'dark' ? 'dark' : 'light'}
-              intensity={95}
-              style={StyleSheet.absoluteFill}
-            />
-          ) : null,
-      }}
+  // 播放总时长统计（毫秒）
+  const totalDurationMs = useMemo(
+    () => allTracks.items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
+    [allTracks.items],
+  )
+
+  const toolbar = (
+    <ListToolbar
+      kind="artistTracks"
+      total={allTracks.total}
+      totalDurationMs={totalDurationMs}
+      selection={selection}
+      onSelect={setSelection}
+      onStartSelection={() => setSelecting(true)}
     />
   )
+
+  // 导航栏必须显式声明 headerLeft: () => <StackBackButton /> 满足架构契约，使用 useMemo 保持 options 引用稳定
+  const screenOptions = useMemo(
+    () => ({
+      headerShown: true,
+      headerTransparent: true,
+      title: pinned ? (artistName ?? '艺术家') : '',
+      headerLeft: () => <StackBackButton />,
+      headerRight: () =>
+        pinned ? (
+          <IconButton
+            name="play"
+            size={iconSize.md}
+            color={colors.textPrimary}
+            onPress={() => void playArtistTracks(0)}
+            accessibilityLabel="播放全部"
+          />
+        ) : null,
+      headerBackground: () =>
+        pinned ? (
+          <BlurView
+            tint={mode === 'dark' ? 'dark' : 'light'}
+            intensity={95}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null,
+    }),
+    [pinned, artistName, colors.textPrimary, mode, playArtistTracks],
+  )
+
+  const titleScreen = <Stack.Screen options={screenOptions} />
 
   if (albums.query.isPending && topTracksQuery.isPending) {
     return (
@@ -431,7 +473,7 @@ export function ArtistDetailScreen() {
 
       {/* 3. 随页面自然滚动的分类页签（精选 | 专辑 | 全部歌曲） */}
       <View style={styles.tabsWrapper}>
-        <SegmentedTabs items={TABS} value={tab} onChange={setTab} accessibilityLabel="音乐人内容分类" />
+        <SegmentedTabs items={TABS} value={tab} onChange={handleTabChange} accessibilityLabel="音乐人内容分类" />
       </View>
     </View>
   )
@@ -706,16 +748,13 @@ export function ArtistDetailScreen() {
           scrollEventThrottle={16}
           onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
           ListHeaderComponent={
-            <View>
+            <View onLayout={(e) => setTracksHeaderHeight(e.nativeEvent.layout.height)}>
               {headerComponent}
-              <View style={styles.toolbarSlot}>
-                <ListToolbarBar
-                  kind="artistTracks"
-                  total={allTracks.total}
-                  selection={selection}
-                  onSelect={setSelection}
-                  onStartSelection={() => setSelecting(true)}
-                />
+              <View
+                style={styles.toolbarSlot}
+                onLayout={(e) => setToolbarHeight(e.nativeEvent.layout.height)}
+              >
+                {toolbar}
               </View>
             </View>
           }
@@ -740,6 +779,7 @@ export function ArtistDetailScreen() {
               />
             </View>
           )}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
           onEndReached={allTracks.loadMore}
           ListFooterComponent={
             <PaginationFooter
@@ -750,6 +790,13 @@ export function ArtistDetailScreen() {
           }
         />
       )}
+
+      {/* 滚动过头部后吸附顶部的精简工具条 */}
+      {tab === 'tracks' && isToolbarPinned && allTracks.total > 0 ? (
+        <DetailPinnedToolbar top={topHeaderOffset}>
+          {toolbar}
+        </DetailPinnedToolbar>
+      ) : null}
 
       {/* 批量多选模态窗 */}
       <TrackSelectionModal
@@ -827,6 +874,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   kickerText: {
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     fontSize: 11,
     letterSpacing: 1.2,
     color: colors.textPrimary,
@@ -939,6 +987,7 @@ const useStyles = createThemedStyles((colors) => ({
   rankNumber: {
     ...typography.callout,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textTertiary,
   },
   rankFirst: {
@@ -962,6 +1011,7 @@ const useStyles = createThemedStyles((colors) => ({
   trackTitle: {
     ...typography.callout,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
     flex: 1,
   },
@@ -1085,8 +1135,18 @@ const useStyles = createThemedStyles((colors) => ({
   // 全部歌曲样式
   toolbarSlot: {
     paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
   },
   trackRowWrapper: {
     paddingHorizontal: spacing.lg,
+  },
+  separator: {
+    height: 1,
+    marginLeft: spacing.lg + 60,
+    marginRight: spacing.lg,
+    backgroundColor: colors.borderSubtle,
   },
 }))

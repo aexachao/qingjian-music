@@ -10,7 +10,7 @@
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
-      "buildNumber": "32",
+      "buildNumber": "33",
       "supportsTablet": false,
       "infoPlist": {
         "CFBundleDisplayName": "轻简音乐",
@@ -39,18 +39,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-font",
-        {
-          "fonts": [
-            "./assets/fonts/MaterialIcons.ttf",
-            "./assets/fonts/Montserrat-Regular.ttf",
-            "./assets/fonts/Montserrat-Medium.ttf",
-            "./assets/fonts/Montserrat-SemiBold.ttf",
-            "./assets/fonts/Montserrat-Bold.ttf"
-          ]
-        }
-      ],
       [
         "./plugins/with-ios-signing",
         {

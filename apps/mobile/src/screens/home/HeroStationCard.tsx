@@ -89,6 +89,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.badge,
     fontSize: 11,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textSecondary,
   },
   title: {

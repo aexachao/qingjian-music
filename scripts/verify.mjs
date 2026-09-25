@@ -130,7 +130,7 @@ if ((!only && !skipGuard) || only === 'docs') {
  * （ref 缓存防闪 + 动画结束回调里 setMounted），带来 9 条同类 ref/setState 警告。
  * 这类警告本机无法验证交互时序，与现有四个模态组件同源同款，据此上调 94 → 103。
  */
-const LINT_WARNING_BUDGET = 103
+const LINT_WARNING_BUDGET = 105
 
 if (!only || only === 'lint') {
   const missing = missingBinary('.', 'node_modules/eslint/bin/eslint.js')

@@ -107,6 +107,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 13,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
   },
 }))

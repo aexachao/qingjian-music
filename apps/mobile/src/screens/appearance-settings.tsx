@@ -277,6 +277,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   logoNameActive: {
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.stateSelected,
   },
 }))

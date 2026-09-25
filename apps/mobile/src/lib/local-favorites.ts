@@ -28,6 +28,10 @@ export interface LocalFavoriteArtist {
   savedAt: number
 }
 
+export const EMPTY_FAVORITE_ALBUMS: readonly LocalFavoriteAlbum[] = Object.freeze([])
+export const EMPTY_FAVORITE_PLAYLISTS: readonly LocalFavoritePlaylist[] = Object.freeze([])
+export const EMPTY_FAVORITE_ARTISTS: readonly LocalFavoriteArtist[] = Object.freeze([])
+
 interface LocalFavoritesPersistedData {
   albumsByServer: Record<string, LocalFavoriteAlbum[]>
   playlistsByServer: Record<string, LocalFavoritePlaylist[]>
@@ -85,7 +89,7 @@ export const useLocalFavoritesStore = create<LocalFavoritesStore>((set, get) => 
   },
 
   getFavoriteAlbums: (serverId) => {
-    return get().albumsByServer[serverId] ?? []
+    return get().albumsByServer[serverId] ?? (EMPTY_FAVORITE_ALBUMS as LocalFavoriteAlbum[])
   },
 
   togglePlaylist: (serverId, playlist) => {
@@ -112,7 +116,7 @@ export const useLocalFavoritesStore = create<LocalFavoritesStore>((set, get) => 
   },
 
   getFavoritePlaylists: (serverId) => {
-    return get().playlistsByServer[serverId] ?? []
+    return get().playlistsByServer[serverId] ?? (EMPTY_FAVORITE_PLAYLISTS as LocalFavoritePlaylist[])
   },
 
   toggleArtist: (serverId, artist) => {
@@ -139,7 +143,7 @@ export const useLocalFavoritesStore = create<LocalFavoritesStore>((set, get) => 
   },
 
   getFavoriteArtists: (serverId) => {
-    return get().artistsByServer[serverId] ?? []
+    return get().artistsByServer[serverId] ?? (EMPTY_FAVORITE_ARTISTS as LocalFavoriteArtist[])
   },
 }))
 

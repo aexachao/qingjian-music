@@ -1258,11 +1258,13 @@ const useStyles = createThemedStyles((colors) => ({
   queueTabText: {
     fontSize: 16,
     fontFamily: fonts.regular,
+    fontWeight: '400',
     color: colors.textSecondary,
     letterSpacing: -0.2,
   },
   queueTabTextActive: {
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textPrimary,
   },
   queueTabIndicator: {
@@ -1290,6 +1292,7 @@ const useStyles = createThemedStyles((colors) => ({
   emptyStateTitle: {
     ...typography.subhead,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textSecondary,
     textAlign: 'center',
   },
@@ -1314,6 +1317,7 @@ const useStyles = createThemedStyles((colors) => ({
   emptyStateButtonText: {
     fontSize: 13,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
 

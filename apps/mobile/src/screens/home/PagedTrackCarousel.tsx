@@ -184,6 +184,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.headline,
     fontSize: 15,
     fontFamily: fonts.semibold,
+    fontWeight: '600',
     color: colors.textPrimary,
     flexShrink: 1,
   },

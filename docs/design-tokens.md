@@ -108,10 +108,9 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 > 背景：2026-09-15 之前 `accent` 同时表示「选中 / 正在播放 / 收藏 / 可点动作 / 导航高亮」，
 > 而 `accent`、`danger`、`like`、`playing` 是同一个值 —— 一屏出现三四处红就吵，
 > 且「改品牌色」在结构上做不到（会连累危险色与收藏色）。
-- `fonts`：Montserrat 四个字重，文件在 `apps/mobile/assets/fonts/`（OFL 授权，许可证同目录 `OFL.txt`），
-  由 `expo-font` 配置插件在构建期嵌入，族名用 TTF 的 PostScript 名（`Montserrat-Regular` 等）。
-  **改了字体配置必须重新 `npx expo prebuild --platform ios`**，直接 `expo run:ios` 不会重跑配置插件。
-  中文字形 Montserrat 没有，系统会自动回落到 PingFang / Noto Sans CJK —— 与 web 端表现一致。
+- `fonts`：全面采用平台原生系统字体（iOS: San Francisco + PingFang SC；Android: Roboto + Noto Sans SC），
+  无需打包外部 TTF 字体，节省包体积 1.3MB+，冷启动无字体加载延迟，字重渲染与系统动效完美贴合 Apple 原生规范。
+  在 `tokens.ts` 中通过 `Platform.select({ ios: 'System', default: '...' })` 结合显式 `fontWeight`（`400` / `500` / `600` / `700`）实现精准排版。
 - 图标：`apps/mobile/src/components/icon.tsx` 用 **Material Icons 面性版**（`@expo/vector-icons/MaterialIcons`，
   字体文件也随 `expo-font` 构建期嵌入）。web 端用的是线性的 lucide，App 这边**故意不跟**：
   移动端播放控制、页签、列表行摆在一起，线性图标会显得一半线一半面、轻重不一；

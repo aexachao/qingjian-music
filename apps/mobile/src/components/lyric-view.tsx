@@ -850,6 +850,7 @@ const useStyles = createThemedStyles((colors) => ({
     fontSize: 28,
     lineHeight: 40,
     fontFamily: fonts.bold,
+    fontWeight: '700',
     color: colors.textPrimary,
   },
   // 正在唱的整行：纯白高亮，拉开视觉对比

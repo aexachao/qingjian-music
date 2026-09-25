@@ -96,6 +96,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.subhead,
     fontSize: 14,
     fontFamily: fonts.medium,
+    fontWeight: '500',
     color: colors.textPrimary,
     marginTop: 4,
   },
@@ -103,6 +104,7 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.caption,
     fontSize: 12,
     fontFamily: fonts.regular,
+    fontWeight: '400',
     color: colors.textSecondary,
   },
 }))
