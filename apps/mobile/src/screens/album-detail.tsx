@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
 import { AmbientHeaderBackground } from '@/components/ambient-header-background'
+import { CDSleeveCover } from '@/components/cd-sleeve-cover'
 import { CoverImage } from '@/components/cover-image'
 import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { Icon, iconSize } from '@/components/icon'
@@ -31,7 +32,7 @@ import { useLocalFavoritesStore } from '@/lib/local-favorites'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { tap } from '@/lib/haptics'
-import { formatAlbumReleaseDate, getAlbumAudioSpecBadge, getAlbumType } from '@/lib/album-meta'
+import { formatAlbumYear, getAlbumAudioSpecBadge } from '@/lib/album-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { resolveAmbientPalette } from '@/theme/ambient-palette'
@@ -225,8 +226,7 @@ export function AlbumDetailScreen() {
 
   // 规格与数据统计
   const specBadge = useMemo(() => getAlbumAudioSpecBadge(items), [items])
-  const releaseDateText = useMemo(() => formatAlbumReleaseDate(album?.releaseDate), [album?.releaseDate])
-  const albumType = useMemo(() => getAlbumType(album, items), [album, items])
+  const formattedYear = useMemo(() => formatAlbumYear(album?.releaseDate), [album?.releaseDate])
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
@@ -345,16 +345,16 @@ export function AlbumDetailScreen() {
         onScroll={onScroll}
         ListHeaderComponent={
           <View style={styles.headerRoot} onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}>
-            {/* 上下居中排版：从上到下为专辑图、专辑名称、艺人、发行日期·类型·音质 */}
+            {/* 上下居中排版：从上到下为 CD 盒大封套、专辑大标题、艺人、年份 · 音质规格 */}
             <View style={styles.coverBlock}>
-              {/* 1. 专辑图：悬浮大封面 (210×210pt)，带环境光深邃投影与下拉阻尼弹性放大 */}
+              {/* 1. CD 实体大封套，带微透高光与环境光深邃投影 */}
               <Animated.View style={[styles.coverContainer, coverAnimatedStyle]}>
-                <View style={[styles.coverShadowWrapper, { shadowColor: palette.primary }]}>
-                  <CoverImage coverId={album.coverId} size={210} borderRadius={16} />
+                <View style={[styles.coverGlow, { shadowColor: palette.primary }]}>
+                  <CDSleeveCover coverId={album.coverId} width={260} />
                 </View>
               </Animated.View>
 
-              {/* 2. 专辑名称（居中纯白加粗大标题） */}
+              {/* 2. 专辑大标题（居中纯白加粗） */}
               <Text style={styles.name} numberOfLines={2}>
                 {album.name}
               </Text>
@@ -379,18 +379,18 @@ export function AlbumDetailScreen() {
                 </Text>
               )}
 
-              {/* 4. 发行日期 · 类型 · 音质 */}
-              <View style={styles.metaRow}>
-                {releaseDateText ? <Text style={styles.metaText}>{releaseDateText}</Text> : null}
-                {releaseDateText && albumType ? <Text style={styles.metaDot}>·</Text> : null}
-                {albumType ? <Text style={styles.metaText}>{albumType}</Text> : null}
-                {(releaseDateText || albumType) && specBadge ? <Text style={styles.metaDot}>·</Text> : null}
-                {specBadge ? (
-                  <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
-                    <Text style={styles.specBadgeText}>{specBadge}</Text>
-                  </View>
-                ) : null}
-              </View>
+              {/* 4. 精炼元数据：年份 · 音频规格微型药丸 */}
+              {formattedYear || specBadge ? (
+                <View style={styles.metaRow}>
+                  {formattedYear ? <Text style={styles.metaText}>{formattedYear}</Text> : null}
+                  {formattedYear && specBadge ? <Text style={styles.metaDot}>·</Text> : null}
+                  {specBadge ? (
+                    <View style={styles.specBadge} accessible accessibilityLabel={`音频规格 ${specBadge}`}>
+                      <Text style={styles.specBadgeText}>{specBadge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
               <View style={styles.actions}>
@@ -513,12 +513,11 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coverShadowWrapper: {
+  coverGlow: {
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.36,
-    shadowRadius: 22,
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
     elevation: 10,
-    borderRadius: 16,
   },
   name: {
     ...typography.title,
