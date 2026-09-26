@@ -10,23 +10,17 @@ describe('外观主题与 Logo 自定义选择规范', () => {
   const loginSource = readSource('app/login.tsx')
   const aboutSource = readSource('screens/about.tsx')
 
-  it('外观配置中心：默认主题为跟随系统，默认 Logo 为绯红声谱', () => {
+  it('外观配置中心：默认主题为跟随系统，默认 Logo 为轻简音符', () => {
     expect(appearancePrefsSource).toContain("themeMode: 'system'")
     expect(appearancePrefsSource).toContain("activeLogoId: DEFAULT_LOGO_ID")
-    expect(appearancePrefsSource).toContain("export const DEFAULT_LOGO_ID = 'crimson-bars'")
+    expect(appearancePrefsSource).toContain("export const DEFAULT_LOGO_ID = 'crimson-note'")
     expect(appearancePrefsSource).toContain("KEY_APPEARANCE_PREFS = 'qj.prefs.appearance'")
   })
 
-  it('官方提供 3 款高质量 Logo 选项，绯红声谱标为 isDefault', () => {
-    expect(appearancePrefsSource).toContain("id: 'dark-bars'")
-    expect(appearancePrefsSource).toContain("name: '暗夜声律'")
-    expect(appearancePrefsSource).not.toContain("id: 'crimson-glass'")
-    expect(appearancePrefsSource).not.toContain("name: '经典绯红'")
+  it('官方提供高质量 Logo 选项，轻简音符标为 isDefault 并支持后续扩展', () => {
+    expect(appearancePrefsSource).toContain("id: 'crimson-note'")
+    expect(appearancePrefsSource).toContain("name: '轻简音符'")
     expect(appearancePrefsSource).toContain('isDefault: true')
-    expect(appearancePrefsSource).toContain("id: 'gold-glow'")
-    expect(appearancePrefsSource).toContain("name: '流光金弦'")
-    expect(appearancePrefsSource).toContain("id: 'crimson-bars'")
-    expect(appearancePrefsSource).toContain("name: '绯红声谱'")
   })
 
   it('应用主题支持亮色、暗色、跟随系统 3 种模式定义与规范 Hook', () => {
@@ -89,20 +83,17 @@ describe('应用图标矩阵的排布契约', () => {
   /** 图标在 APP_LOGOS 里的声明顺序，也就是界面顺序 */
   const logoOrder = [...prefsSource.matchAll(/id: '([a-z-]+)'/g)].map((match) => match[1])
 
-  it('顺序：默认（绯红声谱）第一，暗夜声律第二，流光金弦第三', () => {
-    expect(logoOrder).toEqual(['crimson-bars', 'dark-bars', 'gold-glow'])
-  })
-
   it('默认图标必须排在第一位 —— 界面就是按数组顺序渲染的', () => {
     const defaultId = /export const DEFAULT_LOGO_ID = '([a-z-]+)'/.exec(prefsSource)?.[1]
-    expect(defaultId).toBe('crimson-bars')
+    expect(defaultId).toBe('crimson-note')
     expect(logoOrder[0]).toBe(defaultId)
   })
 
-  it('三款图标的名字都在', () => {
-    for (const name of ['绯红声谱', '暗夜声律', '流光金弦']) {
-      expect(prefsSource).toContain(name)
-    }
+  it('官方图标的名字在配置中声明', () => {
+    expect(prefsSource).toContain('轻简音符')
+    expect(prefsSource).toContain('纯白绯音')
+    expect(prefsSource).toContain('暗夜流光')
+    expect(prefsSource).toContain('黑曜赤弦')
   })
 
   it('一行固定 4 格：只有 3 款时第 4 格留白，不能把 3 款拉伸铺满整行', () => {

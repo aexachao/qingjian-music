@@ -67,7 +67,7 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 | `danger` | 破坏性动作（删除 / 清空）。**独立色值**（`#ff3b30`），改品牌色不会连累它 |
 | `actionText` / `actionTextMuted` / `disabledText` | 普通可点动作 / 次要动作 / 不可点 |
 | `brandTint` | 品牌色的**装饰**用法：全局微型加载指示器等（严格限制使用范围，禁止滥用至通用列表行图标） |
-| `coverPlaceholder` / `coverPlaceholderMark` | 无封面时的占位**底**与**记号**：浅灰底 + 比底更有存在感的灰记号（不用品牌红）。记号形状取自默认应用图标「绯红声谱」的 15 根竖条，画成矢量（`components/brand-mark.tsx`），且**不跟随设置里切换的启动图标** |
+| `coverPlaceholder` / `coverPlaceholderMark` | 无封面时的占位**底**与**记号**：浅灰底 + 比底更有存在感的灰记号（不用品牌红）。记号形状取自官方应用图标「轻简音符」的灵动音符，画成矢量（`components/brand-mark.tsx`），且**不跟随设置里切换的启动图标** |
 | `accent` | 品牌色本身，**只用于品牌标识**（应用图标预览、关于页）。组件里直接用会被架构守卫拦下 |
 
 ### 核心设计纪律与品牌色收敛原则（2026-09-24 校准）

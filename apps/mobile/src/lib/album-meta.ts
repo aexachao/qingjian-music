@@ -55,3 +55,53 @@ export function formatAlbumYear(releaseDate?: string): string | undefined {
   }
   return undefined
 }
+
+/**
+ * 格式化专辑发行日期：
+ * - 完整年月日（如「2024-03-15」）：保留「2024-03-15」
+ * - 年月（如「2024-03」）：保留「2024-03」
+ * - 仅年份（如「2024」）：返回「2024 年」
+ * - 其余或空：undefined
+ */
+export function formatAlbumReleaseDate(releaseDate?: string): string | undefined {
+  if (!releaseDate || typeof releaseDate !== 'string') return undefined
+  const trimmed = releaseDate.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 10)
+  }
+  if (/^\d{4}-\d{2}$/.test(trimmed)) {
+    return trimmed
+  }
+  if (/^\d{4}$/.test(trimmed)) {
+    return `${trimmed} 年`
+  }
+  return undefined
+}
+
+/**
+ * 识别专辑类型（单曲 / EP / 专辑）：
+ * - 单曲：trackCount 为 1，或名称包含 Single / 单曲
+ * - EP：trackCount 为 2~6 首，或名称显式标注 EP
+ * - 专辑：默认 7 首及以上或通用大碟
+ */
+export function getAlbumType(
+  album?: { name?: string; trackCount?: number } | null,
+  tracks?: readonly Track[],
+): string {
+  const name = album?.name?.toLowerCase() ?? ''
+  if (name.includes('single') || name.includes('单曲')) {
+    return '单曲'
+  }
+  if (/\bep\b/i.test(name) || name.includes('(ep)') || name.includes('（ep）')) {
+    return 'EP'
+  }
+
+  const count = album?.trackCount ?? tracks?.length
+  if (typeof count === 'number' && count > 0) {
+    if (count === 1) return '单曲'
+    if (count <= 6) return 'EP'
+    return '专辑'
+  }
+
+  return '专辑'
+}

@@ -9,9 +9,10 @@ const {
 } = require('expo/config-plugins')
 
 const ICONS = [
-  { id: 'dark-bars', nativeName: 'AppIconDarkBars', resource: 'app_icon_dark_bars' },
-  { id: 'gold-glow', nativeName: 'AppIconGoldGlow', resource: 'app_icon_gold_glow' },
-  { id: 'crimson-bars', nativeName: 'AppIconCrimsonBars', resource: 'app_icon_crimson_bars', default: true },
+  { id: 'crimson-note', nativeName: 'AppIconCrimsonNote', resource: 'app_icon_crimson_note', default: true },
+  { id: 'white-note', nativeName: 'AppIconWhiteNote', resource: 'app_icon_white_note' },
+  { id: 'dark-note', nativeName: 'AppIconDarkNote', resource: 'app_icon_dark_note' },
+  { id: 'dark-crimson', nativeName: 'AppIconDarkCrimson', resource: 'app_icon_dark_crimson' },
 ]
 
 const launcherIntentFilter = {
@@ -57,9 +58,11 @@ function withIosAlternateIcons(config) {
   }])
 }
 
-/** 图标背景色：绯红系用品牌色，其余用纯黑 */
+/** 图标背景色：绯红系用品牌色，白底用纯白，其余用纯黑 */
 function iconBackgroundColor(icon) {
-  return icon.id.startsWith('crimson') ? '#F62C55' : '#000000'
+  if (icon.id === 'white-note') return '#FFFFFF'
+  if (icon.id.startsWith('crimson')) return '#F62C55'
+  return '#000000'
 }
 
 /** 背景色的资源名。见 buildAdaptiveIconXml 的说明：必须走 `@color/...` */

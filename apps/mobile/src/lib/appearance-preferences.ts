@@ -40,34 +40,40 @@ export interface AppLogoOption {
 }
 
 /**
- * 3 款官方精心设计的应用图标，**顺序即界面顺序**：
- * 默认的「绯红声谱」排第一，其后是暗夜声律、流光金弦。
+ * 官方精心设计的应用图标列表（保留多 Logo 切换架构，便于后续持续扩展）：
+ * 默认使用「轻简音符」。
  *
- * 界面按一行 4 个的网格渲染，所以这里的顺序直接决定用户看到的第一屏。
+ * 界面按一行 4 个的网格渲染，图标顺序即界面呈现顺序。
  */
 export const APP_LOGOS: readonly AppLogoOption[] = [
   {
-    id: 'crimson-bars',
-    name: '绯红声谱',
-    description: '品牌绯红 · 动感声浪',
-    source: require('../../assets/images/logos/logo-crimson-bars.png'),
+    id: 'crimson-note',
+    name: '轻简音符',
+    description: '经典绯红 · 灵动音符',
+    source: require('../../assets/images/logos/logo-crimson-note.png'),
     isDefault: true,
   },
   {
-    id: 'dark-bars',
-    name: '暗夜声律',
-    description: '深邃暗调 · 律动声谱',
-    source: require('../../assets/images/logos/logo-dark-bars.png'),
+    id: 'white-note',
+    name: '纯白绯音',
+    description: '纯白底色 · 绯红音符',
+    source: require('../../assets/images/logos/logo-white-note.png'),
   },
   {
-    id: 'gold-glow',
-    name: '流光金弦',
-    description: '黑金流光 · 温暖透亮',
-    source: require('../../assets/images/logos/logo-gold-glow.png'),
+    id: 'dark-note',
+    name: '暗夜流光',
+    description: '深邃黑调 · 纯白音符',
+    source: require('../../assets/images/logos/logo-dark-note.png'),
+  },
+  {
+    id: 'dark-crimson',
+    name: '黑曜赤弦',
+    description: '深黑背景 · 灵动赤红',
+    source: require('../../assets/images/logos/logo-dark-crimson.png'),
   },
 ] as const
 
-export const DEFAULT_LOGO_ID = 'crimson-bars'
+export const DEFAULT_LOGO_ID = 'crimson-note'
 
 export interface AppearancePreferencesData {
   themeMode: ThemeMode

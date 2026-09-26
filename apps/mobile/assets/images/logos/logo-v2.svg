@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 背景品牌渐变 (Brand Crimson Gradient) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fb3f58"/>
+      <stop offset="100%" stop-color="#e10b55"/>
+    </linearGradient>
+
+    <!-- 音符轻微质感渐变 (Subtle Note Gradient) -->
+    <linearGradient id="noteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fcedf0"/>
+    </linearGradient>
+
+    <!-- 柔和立体环境光投影 (Soft Ambient Drop Shadow) -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#8a0026" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- iOS App Icon 圆角背景 (Squircle Background) -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bgGrad)"/>
+
+  <!-- 音乐音符主体 (Music Note Vector) -->
+  <g filter="url(#softShadow)">
+    <path d="
+      M 510 215
+      C 506 195, 518 177, 536 173
+      C 588 199, 631 247, 686 265
+      C 744 291, 795 346, 796 412
+      C 796 460, 794 510, 752 537
+      C 768 518, 774 485, 759 462
+      C 713 396, 618 422, 572 356
+      L 572 710
+      C 572 785, 492 843, 422 843
+      C 358 843, 282 816, 282 741
+      C 282 685, 311 636, 361 609
+      C 403 578, 460 591, 510 575
+      L 510 215 Z
+    " fill="url(#noteGrad)" fill-rule="evenodd" />
+  </g>
+</svg>

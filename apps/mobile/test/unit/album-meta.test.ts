@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Track } from '@qj/core-domain'
-import { formatAlbumYear, getAlbumAudioSpecBadge } from '@/lib/album-meta'
+import {
+  formatAlbumReleaseDate,
+  formatAlbumYear,
+  getAlbumAudioSpecBadge,
+  getAlbumType,
+} from '@/lib/album-meta'
 
 const makeTrack = (audio?: Track['audio']): Track => ({
   id: 't-1',
@@ -58,5 +63,44 @@ describe('formatAlbumYear', () => {
     expect(formatAlbumYear(undefined)).toBeUndefined()
     expect(formatAlbumYear('')).toBeUndefined()
     expect(formatAlbumYear('unknown')).toBeUndefined()
+  })
+})
+
+describe('formatAlbumReleaseDate', () => {
+  it('正确格式化年月日', () => {
+    expect(formatAlbumReleaseDate('2024-03-15')).toBe('2024-03-15')
+    expect(formatAlbumReleaseDate('2004-04-26T00:00:00Z')).toBe('2004-04-26')
+  })
+
+  it('年月返回 YYYY-MM，年份返回 YYYY 年', () => {
+    expect(formatAlbumReleaseDate('2024-03')).toBe('2024-03')
+    expect(formatAlbumReleaseDate('2024')).toBe('2024 年')
+  })
+
+  it('空值或非法返回 undefined', () => {
+    expect(formatAlbumReleaseDate(undefined)).toBeUndefined()
+    expect(formatAlbumReleaseDate('')).toBeUndefined()
+    expect(formatAlbumReleaseDate('invalid')).toBeUndefined()
+  })
+})
+
+describe('getAlbumType', () => {
+  it('显式标注 Single / 单曲 返回 单曲', () => {
+    expect(getAlbumType({ name: '晴天 (Single)' })).toBe('单曲')
+    expect(getAlbumType({ name: '七里香 - 单曲' })).toBe('单曲')
+  })
+
+  it('显式标注 EP 返回 EP', () => {
+    expect(getAlbumType({ name: 'Fantasy Plus (EP)' })).toBe('EP')
+    expect(getAlbumType({ name: 'My New EP' })).toBe('EP')
+  })
+
+  it('按曲目数判定：1 首单曲，2~6 首 EP，7 首及以上专辑', () => {
+    expect(getAlbumType({ trackCount: 1 })).toBe('单曲')
+    expect(getAlbumType({ trackCount: 4 })).toBe('EP')
+    expect(getAlbumType({ trackCount: 10 })).toBe('专辑')
+    expect(getAlbumType(null, [makeTrack()])).toBe('单曲')
+    expect(getAlbumType(null, [makeTrack(), makeTrack(), makeTrack()])).toBe('EP')
+    expect(getAlbumType(null, Array.from({ length: 8 }, () => makeTrack()))).toBe('专辑')
   })
 })

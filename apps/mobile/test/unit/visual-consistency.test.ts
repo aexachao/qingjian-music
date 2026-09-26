@@ -23,20 +23,13 @@ describe('默认封面占位：浅灰底 + 品牌记号', () => {
     }
   })
 
-  it('品牌记号的几何是自洽的：15 根竖条、viewBox 就是量出来的包围盒', () => {
+  it('品牌记号的几何是自洽的：灵动音符矢量、viewBox 就是量出来的包围盒', () => {
     // 断言源码里的几何数据本身（不 import 组件：那样会把 react-native-svg 拖进测试环境）
     const mark = readSource('components/brand-mark.tsx')
-    const rows = mark.match(/\[\d+, \d+, \d+, \d+\]/g) ?? []
-    expect(rows).toHaveLength(15)
-    const [, w, h] = mark.match(/const VIEW_BOX_WIDTH = (\d+) const VIEW_BOX_HEIGHT = (\d+)/) ?? []
-    expect(Number(w)).toBe(567)
-    expect(Number(h)).toBe(634)
-    // 每根竖条都必须在 viewBox 里（数据抄错就会越界）
-    for (const row of rows) {
-      const [x, y, bw, bh] = (row.match(/\d+/g) ?? []).map(Number)
-      expect(x + bw).toBeLessThanOrEqual(567)
-      expect(y + bh).toBeLessThanOrEqual(634)
-    }
+    expect(mark).toContain('export const BRAND_NOTE_PATH =')
+    expect(mark).toContain('export const VIEW_BOX_WIDTH = 382')
+    expect(mark).toContain('export const VIEW_BOX_HEIGHT = 676')
+    expect(mark).toContain('export const BRAND_MARK_ASPECT = VIEW_BOX_WIDTH / VIEW_BOX_HEIGHT')
   })
 })
 

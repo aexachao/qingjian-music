@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 背景鲜活绯红渐变 (Hot Pink / Crimson Squircle) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff2c55"/>
+      <stop offset="100%" stop-color="#dc104e"/>
+    </linearGradient>
+
+    <!-- 3D 粘土材质基底渐变 (Clay Soft Volume) -->
+    <linearGradient id="clayBase" x1="20%" y1="10%" x2="80%" y2="90%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#fef8fa"/>
+      <stop offset="75%" stop-color="#f2e1e7"/>
+      <stop offset="100%" stop-color="#dfcad3"/>
+    </linearGradient>
+
+    <!-- 柔和粘土环境遮挡与投影 (Soft Clay Ambient Shadow) -->
+    <filter id="clayShadow" x="-30%" y="-30%" width="160%" height="160%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="6" dy="28" stdDeviation="28" flood-color="#800020" flood-opacity="0.38"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#660018" flood-opacity="0.22"/>
+    </filter>
+
+    <!-- 符头球体高光 (Spherical Bulb Highlight) -->
+    <radialGradient id="bulbHighlight" cx="38%" cy="36%" r="55%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="45%" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="80%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 横梁圆柱脊线高光 (Beam Ridge Highlight) -->
+    <linearGradient id="beamHighlight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- iOS App Icon 圆角背景 (Squircle) -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bgGrad)"/>
+
+  <!-- 3D 粘土音符主体 (3D Clay Note Vector) -->
+  <g filter="url(#clayShadow)">
+    <!-- 主体外形 -->
+    <path d="
+      M 515 230
+      C 529 209, 561 209, 576 227
+      C 623 272, 688 279, 735 322
+      C 760 353, 770 456, 711 447
+      C 676 423, 638 406, 601 385
+      C 567 358, 579 415, 577 436
+      L 577 680
+      C 583 731, 525 797, 452 800
+      C 387 804, 327 753, 321 689
+      C 322 584, 395 546, 515 535
+      L 515 230 Z
+    " fill="url(#clayBase)" fill-rule="evenodd"/>
+
+    <!-- 符头球体柔光叠层 -->
+    <circle cx="446" cy="678" r="122" fill="url(#bulbHighlight)" style="mix-blend-mode: overlay;"/>
+
+    <!-- 横梁上边缘柔光条 -->
+    <path d="
+      M 546 220
+      C 600 250, 660 280, 725 325
+      C 745 340, 748 370, 735 385
+      C 720 370, 650 310, 565 240 Z
+    " fill="url(#beamHighlight)" opacity="0.6" filter="blur(4px)"/>
+  </g>
+</svg>
