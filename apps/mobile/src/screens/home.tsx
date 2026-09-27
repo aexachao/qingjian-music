@@ -10,6 +10,7 @@ import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { isGlobalMenuInteracting, useIsMenuOpen } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
+import { playLocalRadio } from '@/lib/local-radio'
 import { playTrackList, startRadio } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { useThemeColors } from '@/theme/theme-provider'
@@ -134,16 +135,23 @@ export function HomeScreen() {
   const allFailed = enabledQueries.length > 0 && enabledQueries.every((query) => query.isError)
   const firstError = enabledQueries.find((query) => query.isError)?.error
 
-  /** 随心漫游：一键随机漫步全库无限流 */
+  /** 随心漫游：优先用本地口味画像漫游（更懂你），失败/为空再退回服务端漫游 */
   const onRadio = useCallback(async () => {
     if (isGlobalMenuInteracting()) return
     if (!provider || !connection || startingRadio) return
     setStartingRadio(true)
     try {
-      await startRadio(provider, connection.id)
+      const started = await playLocalRadio(provider, connection.id)
+      if (!started) await startRadio(provider, connection.id)
       toast('漫游已开始，随时切歌')
     } catch {
-      toast('漫游启动失败，请稍后再试')
+      // 本地漫游异常时兜底到服务端漫游
+      try {
+        await startRadio(provider, connection.id)
+        toast('漫游已开始，随时切歌')
+      } catch {
+        toast('漫游启动失败，请稍后再试')
+      }
     } finally {
       setStartingRadio(false)
     }

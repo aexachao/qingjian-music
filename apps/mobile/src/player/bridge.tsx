@@ -5,6 +5,8 @@ import { useToast } from '@/components/toast'
 import { useToggleFavorite } from '@/lib/favorites'
 import { reconcileDownloads } from '@/player/downloads'
 import { useServerSession } from '@/lib/server-session'
+import { recordTasteSignal } from '@/lib/taste-profile-store'
+import { classifyPlaybackOutcome } from '@qj/core-domain'
 import {
   clearForcedTranscode,
   cycleCurrentToQueueEnd,
@@ -152,12 +154,26 @@ export function PlayerBridge() {
       if (currentItem && playMode.repeat === 'off') {
         usePlayerStore.getState().setPlaybackEnded(true)
         usePlayerStore.getState().appendHistoryItem(currentItem)
+        // 整个队列放完：最后这首听到尾 → 强正信号喂给画像
+        if (currentItem.track && connection && !isRestoringSession()) {
+          recordTasteSignal(connection.id, currentItem.track, 'completed')
+        }
       }
       return
     }
     if (event.type === Event.PlaybackActiveTrackChanged) {
       const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
       const { queue, index: previousIndex, playMode } = usePlayerStore.getState()
+      // 离开「正在播放」的那首：用 lastTrack + lastPosition 分类结果，喂给口味画像。
+      // 恢复会话期间不记（重建队列会触发换歌事件，用户还没真听）。
+      const lastQid = typeof event.lastTrack?.id === 'string' ? event.lastTrack.id : undefined
+      const leaving = lastQid ? queue.find((item) => item.qid === lastQid) : undefined
+      if (leaving?.track && connection && !isRestoringSession()) {
+        const lastPositionMs =
+          typeof event.lastPosition === 'number' ? event.lastPosition * 1000 : undefined
+        const outcome = classifyPlaybackOutcome(lastPositionMs, leaving.durationMs)
+        if (outcome) recordTasteSignal(connection.id, leaving.track, outcome)
+      }
       // 优先用曲目 id 反查下标：RNTP 换队列时下标会短暂漂移，光看 index 会跟错曲目
       const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
       const index = byId >= 0 ? byId : (event.index ?? -1)

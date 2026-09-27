@@ -3,6 +3,7 @@ import {
   applyEvent,
   blendWithPrior,
   buildRoamingQueue,
+  classifyPlaybackOutcome,
   emptyProfile,
   eraOf,
   extractTrackFeatures,
@@ -142,6 +143,24 @@ describe('冷启动：库先验与融合', () => {
     expect(comp.artistCounts).toEqual({ A: 2, B: 1 })
     expect(comp.genreCounts).toEqual({ rock: 2, pop: 1 })
     expect(comp.eraCounts).toEqual({ '1990s': 2, '2000s': 1 })
+  })
+})
+
+describe('播放结果分类', () => {
+  it('听到尾 = completed', () => {
+    expect(classifyPlaybackOutcome(200_000, 200_000)).toBe('completed')
+    expect(classifyPlaybackOutcome(196_000, 200_000)).toBe('completed') // 距末尾 5s 内
+  })
+  it('开头就跳 = skippedEarly', () => {
+    expect(classifyPlaybackOutcome(3_000, 200_000)).toBe('skippedEarly')
+    expect(classifyPlaybackOutcome(0, 200_000)).toBe('skippedEarly')
+  })
+  it('中间跳 = skippedLate', () => {
+    expect(classifyPlaybackOutcome(90_000, 200_000)).toBe('skippedLate')
+  })
+  it('时长未知返回 null', () => {
+    expect(classifyPlaybackOutcome(1000, 0)).toBeNull()
+    expect(classifyPlaybackOutcome(1000, undefined)).toBeNull()
   })
 })
 

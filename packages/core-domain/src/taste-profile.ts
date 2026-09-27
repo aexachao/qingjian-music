@@ -277,3 +277,27 @@ function averageAffinity(keys: string[], map: AffinityMap): number {
   for (const key of keys) sum += map[key] ?? 0
   return sum / keys.length
 }
+
+// ── 播放结果分类（从一首歌离开「正在播放」时的位置推断信号）──
+
+/** 开头多少毫秒内跳过算「开头就跳」（强负信号）。默认 20 秒。 */
+export const SKIP_EARLY_MS = 20_000
+
+/**
+ * 根据「离开时的播放位置」分类一次播放的结果：
+ * - 听到尾（≥ 时长的 90% 或距末尾 5 秒内）→ completed
+ * - 开头 SKIP_EARLY_MS 内就跳 → skippedEarly
+ * - 中间跳 → skippedLate
+ * 位置/时长不可用时返回 null（不记信号）。纯函数。
+ */
+export function classifyPlaybackOutcome(
+  lastPositionMs: number | undefined,
+  durationMs: number | undefined,
+  skipEarlyMs = SKIP_EARLY_MS,
+): 'completed' | 'skippedEarly' | 'skippedLate' | null {
+  if (!durationMs || durationMs <= 0) return null
+  const pos = lastPositionMs ?? 0
+  if (pos >= durationMs * 0.9 || pos >= durationMs - 5000) return 'completed'
+  if (pos < skipEarlyMs) return 'skippedEarly'
+  return 'skippedLate'
+}

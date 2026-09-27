@@ -206,11 +206,14 @@ score(track) = 画像亲和度(track)
 
 ## 7. 落地顺序（Roadmap）
 
-- [ ] **① 本地画像 + 漫游引擎**（纯逻辑 + 单测，先不碰 UI）← **当前进行中**
-  - [ ] `taste-profile.ts`：模型 + 事件更新 + 衰减 + 库先验 + `scoreTrack`
-  - [ ] `roaming.ts`：`buildRoamingQueue`（亲和×新鲜×多样 + 探索，可注入 RNG）
-  - [ ] 单测覆盖
-  - [ ] 接入：事件采集 + 画像持久化 + 「本地电台」播放源 + UI 入口
+- [ ] **① 本地画像 + 漫游引擎**（纯逻辑 + 单测，先不碰 UI）← **进行中**
+  - [x] `taste-profile.ts`：模型 + 事件更新 + 衰减 + 库先验 + `scoreTrack` + `libraryCompositionOf` + `classifyPlaybackOutcome`
+  - [x] `roaming.ts`：`buildRoamingQueue`（亲和×新鲜×多样 + 探索，可注入 RNG）
+  - [x] 单测覆盖
+  - [x] 接入：事件采集（收藏/取消 + 听完/开头跳/中途跳，在 bridge 的换歌/队列结束事件）
+  - [x] 画像持久化（`taste-profile-store`，按 serverId，SecureStore）
+  - [x] 「本地电台/猜你喜欢」播放源（`local-radio.ts`）+ 首页「随心漫游」改走本地引擎（失败退回飞牛 roam）
+  - [ ] 调优：探索 ε / 衰减半衰期 / 跳过判定阀值（上线后按体感）；独立「猜你喜欢」入口与可视化
 - [ ] **② 完整度视图 + 元数据匹配**（MusicBrainz 接入 + 本地匹配 + 完整度/缺口展示）
   - [ ] 先做**只读**完整度/缺口展示（不改库）
   - [ ] `MetadataWriteback` port + `capabilities.metadataWrite`（飞牛 no-op，未来后端接实现）
