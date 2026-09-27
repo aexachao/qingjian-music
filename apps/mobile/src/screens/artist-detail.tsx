@@ -32,14 +32,7 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { tap } from '@/lib/haptics'
 import { useLocalFavoritesStore } from '@/lib/local-favorites'
-import {
-  cleanSongTitle,
-  fetchArtistInfo,
-  fetchArtistPortrait,
-  fetchArtistTopTracks,
-  fetchSimilarArtists,
-  matchLocalTracks,
-} from '@/lib/lastfm'
+import { pickFeaturedTracks } from '@/lib/track-select'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
@@ -92,7 +85,6 @@ export function ArtistDetailScreen() {
   const tracksListRef = useRef<FlatList>(null)
   const scrollYRef = useRef(0)
   const [pinned, setPinned] = useState(false)
-  const [expandedBio, setExpandedBio] = useState(false)
 
   // 1. 本地专辑分页查询
   const albums = usePagedQuery({
@@ -136,49 +128,14 @@ export function ArtistDetailScreen() {
   const albumTotal = detailQuery.data?.albumCount ?? albums.total
   const trackTotal = detailQuery.data?.trackCount ?? trackTotalRaw
 
-  // 4. Last.fm 全网大数据：热门歌曲
-  const lastfmTopQuery = useQuery({
-    queryKey: ['lastfm-top', artistName],
-    enabled: Boolean(artistName),
-    staleTime: 1000 * 60 * 60 * 24 * 7,
-    queryFn: () => fetchArtistTopTracks(artistName!),
-  })
+  // Last.fm / Deezer / 维基百科等外部源已按「默认只用飞牛、不接外部源」的决定移除。
+  // 艺人写真改用飞牛自带的艺人封面（artist coverId）；简介/标签/听众数/相似艺人
+  // 飞牛不提供，待“用户填写国内源”后再显示（现阶段隐藏）。
 
-  // 5. Last.fm 全网大数据：艺人生平档案
-  const lastfmInfoQuery = useQuery({
-    queryKey: ['lastfm-info', artistName],
-    enabled: Boolean(artistName),
-    staleTime: 1000 * 60 * 60 * 24 * 7,
-    queryFn: () => fetchArtistInfo(artistName!),
-  })
-
-  // 6. Last.fm 全网大数据：相似艺人
-  const lastfmSimilarQuery = useQuery({
-    queryKey: ['lastfm-similar', artistName],
-    enabled: Boolean(artistName),
-    staleTime: 1000 * 60 * 60 * 24 * 7,
-    queryFn: () => fetchSimilarArtists(artistName!),
-  })
-
-  // 7. 本地所有艺人库（用于比对相似艺人中是否有本地已存的）
-  const allArtistsQuery = useQuery({
-    queryKey: ['artists-all-overview', connection?.id],
-    enabled: Boolean(provider && lastfmSimilarQuery.data && lastfmSimilarQuery.data.length > 0),
-    queryFn: () => provider!.artists({ page: 1, size: 100 }),
-  })
-
-  // 8. 全网开放高清写真：通过开放维基百科 REST 肖像引擎并发加载官方写真
-  const portraitQuery = useQuery({
-    queryKey: ['artist-portrait', artistName],
-    enabled: Boolean(artistName),
-    staleTime: 1000 * 60 * 60 * 24 * 7,
-    queryFn: () => fetchArtistPortrait(artistName!),
-  })
-
-  // 9. 智能模糊对齐：全网热榜歌曲对齐到 NAS 本地拥有的文件
+  // 本地精选：收藏优先 + 原顺序补齐
   const popularTracks = useMemo(() => {
-    return matchLocalTracks(localTracks, lastfmTopQuery.data ?? [], 5)
-  }, [localTracks, lastfmTopQuery.data])
+    return pickFeaturedTracks(localTracks, 5)
+  }, [localTracks])
 
   // 10. 最新发布唱片（若仅有 1 张专辑则不展示独立卡片，避免重复）
   const latestAlbum = useMemo(() => {
@@ -193,38 +150,7 @@ export function ArtistDetailScreen() {
   }, [albums.items])
 
   // 11. 命中本地曲库的相似艺人
-  const matchedSimilarArtists = useMemo(() => {
-    const rawSim = lastfmSimilarQuery.data ?? []
-    const libraryArtists = allArtistsQuery.data?.items ?? []
-    if (rawSim.length === 0 || libraryArtists.length === 0) return []
-
-    const results: Artist[] = []
-    for (const sim of rawSim) {
-      const cleanSim = cleanSongTitle(sim.name)
-      const found = libraryArtists.find(
-        (la) =>
-          la.id !== id &&
-          (cleanSongTitle(la.name) === cleanSim ||
-            la.name.includes(sim.name) ||
-            sim.name.includes(la.name)),
-      )
-      if (found && !results.some((r) => r.id === found.id)) {
-        results.push(found)
-      }
-    }
-    return results
-  }, [lastfmSimilarQuery.data, allArtistsQuery.data?.items, id])
-
-  // 12. 听众数量格式化（例如 2,410,230 -> 241万+ 或 2.4M）
-  const formattedListeners = useMemo(() => {
-    const raw = lastfmInfoQuery.data?.listeners
-    if (!raw) return undefined
-    const num = Number.parseInt(raw, 10)
-    if (Number.isNaN(num) || num <= 0) return undefined
-    if (num >= 100000000) return `${(num / 100000000).toFixed(1)}亿`
-    if (num >= 10000) return `${Math.round(num / 10000)}万+`
-    return `${num}`
-  }, [lastfmInfoQuery.data?.listeners])
+  // 相似艺人 / 听众数等靠外部源的数据已移除（默认只用飞牛）。
 
   // 播放整套艺人队列
   const playArtistTracks = useCallback(
@@ -256,10 +182,9 @@ export function ArtistDetailScreen() {
     })
     return sorted[0]?.coverId
   }, [albums.items])
-  const backdropCoverId = latestAlbumCoverId ?? localTracks[0]?.coverId
+  const backdropCoverId = detailQuery.data?.coverId ?? latestAlbumCoverId ?? localTracks[0]?.coverId
   const backdropResource = backdropCoverId && provider ? provider.image(backdropCoverId, 800) : null
-  const portraitUrl = portraitQuery.data
-  const heroImageUri = portraitUrl ?? backdropResource?.url
+  const heroImageUri = backdropResource?.url
 
   // 滚动监听：触碰阈值折叠吸顶（滚动越过宽幅巨幕 220pt 时平滑过渡为吸顶栏，全部歌曲 tab 下越过 pinAt 时固定工具条）
   const handleScroll = useCallback(
@@ -377,11 +302,8 @@ export function ArtistDetailScreen() {
   const gap = spacing.md
   const albumItemWidth = (width - spacing.lg * 2 - gap * (columns - 1)) / columns
 
-  const primaryTag = lastfmInfoQuery.data?.tags[0]
-
-  // 元数据标签文本
+  // 元数据标签文本（只用飞牛自有的专辑/曲目计数）
   const metaParts = [
-    formattedListeners ? `Last.fm ${formattedListeners} 听众` : undefined,
     albumTotal ? `${albumTotal} 张专辑` : undefined,
     trackTotal ? `${trackTotal} 首歌曲` : undefined,
   ].filter(Boolean)
@@ -394,7 +316,7 @@ export function ArtistDetailScreen() {
       <View style={styles.billboardContainer}>
         {heroImageUri ? (
           <Image
-            source={{ uri: heroImageUri, headers: portraitUrl ? undefined : backdropResource?.headers }}
+            source={{ uri: heroImageUri, headers: backdropResource?.headers }}
             style={styles.billboardImage}
             contentFit="cover"
             transition={250}
@@ -434,7 +356,7 @@ export function ArtistDetailScreen() {
           {/* 流派 / 身份微标 */}
           <View style={styles.kickerBadge}>
             <Text style={styles.kickerText}>
-              {(primaryTag ? `ARTIST · ${primaryTag}` : 'ARTIST · 艺术家').toUpperCase()}
+              {'ARTIST · 艺术家'.toUpperCase()}
             </Text>
           </View>
 
@@ -654,66 +576,8 @@ export function ArtistDetailScreen() {
                   </View>
                 ) : null}
 
-                {/* 分区 4：相似音乐人（若本地库有匹配） */}
-                {matchedSimilarArtists.length > 0 ? (
-                  <View style={styles.shelfSection}>
-                    <View style={styles.sectionHeaderRow}>
-                      <Text style={styles.sectionTitle}>相似音乐人</Text>
-                    </View>
-                    <FlatList
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      data={matchedSimilarArtists}
-                      keyExtractor={(item) => `sim-${item.id}`}
-                      contentContainerStyle={styles.shelfScrollContent}
-                      renderItem={({ item }) => (
-                        <Link href={href.artist(item.id)} asChild>
-                          <Pressable style={styles.similarTile}>
-                            <CoverImage coverId={item.coverId} size={72} borderRadius={36} />
-                            <Text numberOfLines={1} style={styles.similarName}>
-                              {item.name}
-                            </Text>
-                          </Pressable>
-                        </Link>
-                      )}
-                    />
-                  </View>
-                ) : null}
-
-                {/* 分区 5：关于音乐人（Last.fm 生平介绍） */}
-                {lastfmInfoQuery.data?.bioSummary ? (
-                  <View style={styles.shelfSection}>
-                    <View style={styles.sectionHeaderRow}>
-                      <Text style={styles.sectionTitle}>关于音乐人</Text>
-                    </View>
-                    <Pressable
-                      style={styles.bioCard}
-                      onPress={() => setExpandedBio((prev) => !prev)}
-                      accessibilityRole="button"
-                      accessibilityLabel="生平简介"
-                    >
-                      <Text
-                        numberOfLines={expandedBio ? undefined : 4}
-                        style={styles.bioText}
-                      >
-                        {lastfmInfoQuery.data.bioSummary}
-                      </Text>
-                      <Text style={styles.bioExpandHint}>
-                        {expandedBio ? '收起 ‹' : '展开全文 ›'}
-                      </Text>
-
-                      {lastfmInfoQuery.data.tags.length > 0 ? (
-                        <View style={styles.tagsRow}>
-                          {lastfmInfoQuery.data.tags.slice(0, 4).map((t) => (
-                            <View key={t} style={styles.tagPill}>
-                              <Text style={styles.tagText}>{t.toUpperCase()}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  </View>
-                ) : null}
+                {/* 相似音乐人、关于音乐人（简介/标签）靠外部源，已按「默认只用飞牛」移除；
+                    待“用户填写国内源”后再回来。 */}
               </View>
             }
           />
