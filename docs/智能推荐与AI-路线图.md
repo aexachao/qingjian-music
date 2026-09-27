@@ -29,27 +29,42 @@
 | 触发扫描 | `POST /shared-library/scan`（admin） | ✅ 可用 |
 | 播放上报 | `POST /event/report` (`track_play`) | ✅ 可用 |
 
-### 1.2 待重新采集（旧清单已过时，不可信）
+### 1.2 已重新采集（当前 NAS：fnOS 1.0.10 / mediasrv 0.8.42）
 
-⚠️ **更正**：仓库里 `docs/fnos-music-api.md` 的端点清单是从**旧版** web 产物提取的，已过时。
-用户明确指出：飞牛音乐 web **可以编辑曲目信息**、可以对**音乐库进行编辑/删除/扫描**等。
-所以「飞牛不支持曲目元数据写回」的结论是**错误的**，作废。
+用 `scripts/spike/extract-endpoints.mjs` 抓当前音乐 web bundle（`/music/`，90 个 chunk）得到现行完整端点。
 
-正确做法：从**当前 NAS 上的 web bundle** 重新扒出完整端点清单（bundle 里以字符串写死了所有 API 路径）。
+**已确认的写操作（音乐 API）**：
+- `shared-library`: `create` / `edit` / `delete` / `scan` / `scan-all` / `reconnect` / `reconnect/check`（← 库的增删改扫描，用户说的都在）
+- `playlist`: `create` / `edit` / `delete` / `add-track` / `remove-track` / `purge-track`
+- `favorite-track`: `create` / `delete` / `purge-track`
+- `artist`: `create`；`genre`: `create`
+- `play-history`: `delete`；`search`: `index/rebuild`
+- `task`: `retry` / `cancel` / `delete`；`user`: `create` / `edit` / `delete` 等
 
-- [ ] **待用户执行**：`node scripts/spike/extract-endpoints.mjs`（只需 `FNOS_BASE`，`FNOS_TOKEN` 可选）
-  - 抓 SPA 的 JS chunk，正则提取全部端点，按域分组、标注疑似写操作。
-  - 重点确认：`track` 域的 `edit/update/metadata/tag`、`album/artist/genre` 的 `edit/update`、
-    `shared-library` 的 `edit/delete/scan`、以及 `rating` 相关。
-  - 输出回填本节，并据此重写 `packages/provider-fnos/src/endpoints.ts` + provider + `capabilities`。
-- [ ] **再执行**：`node scripts/spike/probe-writeback.mjs` 对扒出的写端点做非破坏性存在性/参数确认。
+**关键发现：音乐 API 的 `track` 域没有字面量的 `edit/update/tag/rating`**。
+但 bundle 里出现了单独的域名 `tag` / `rating` / `metadata` / `media` / `library` / `file` / `folder`——
+它们的完整路径是**动态拼接**的（代码里不是完整字面量），静态提取拿不到。
+「编辑音乐信息」很可能就落在这些域上——**需抓包确认确切端点 + body**。
 
-### 1.3 设计决策（采集完成前的占位）
+### 1.3 现在的阻塞：登录方式变了
 
-- 元数据整理**优先走真写回**（既然 web 支持）：`MetadataWriteback` port + `capabilities.metadataWrite`。
-  - 飞牛：采集确认端点后实现**真写回** adapter（曲目/专辑/艺人/库级）。
-  - 同时保留**本地叠加层**作为兜底：写回失败或后端不支持时，修正存本地、展示时叠加。
-  - 未来 Emby/Jellyfin/Navidrome 各自实现 adapter。
+- `POST /music/api/v1/user/password-login` 对**所有**输入（正确密码 / 错密码 / 不存在用户）都返回 `code=120001 unauthorized`——说明这个端点已**停用**。
+- `GET /music/api/v1/sys/config` 公开可读，里面有 `nasOAuth.clientId`，加上 bundle 里的 `/oauth/result`：
+  **音乐端现在走 NAS OAuth SSO 登录**（先登主系统 → OAuth 授权 → 拿音乐 token），不再接受独立密码登录。
+- 后果：目前拿不到 token，**无法现场探测写端点**。RN App 侧的 `login` 也需同步改成 OAuth（待办）。
+
+### 1.4 待用户提供（二选一，拿到任一即可定稿）
+
+- [ ] **抓包（最精准）**：飞牛音乐 web 里对一首歌点「编辑」并保存，DevTools → Network 拿那个请求的 URL+method+payload。
+- [ ] **给 token（能现场探测）**：从已登录的浏览器任一音乐请求的 `authorization` 头拷一个 token 回来，
+  我用 `probe-writeback.mjs` + 实测把 tag/rating/metadata 写端点和 body 结构摸清。
+
+### 1.5 设计决策
+
+- 已知能写的（库扫描/编辑、歌单、收藏）直接用。
+- 曲目/专辑/艺人元数据写回：等抓包/token 确认端点后，实现 `MetadataWriteback` 的**真写回** adapter；
+  同时保留**本地叠加层**兜底（写回失败/无端点时展示时叠加）。
+- App 登录流程需从 password-login 迁到 **NAS OAuth**（独立任务，影响面大，得先跟用户确认再动）。
 
 ---
 

@@ -31,14 +31,19 @@ if (!BASE) {
 const authHeaders = TOKEN ? { authorization: TOKEN } : {}
 
 async function fetchText(url) {
-  try {
-    const res = await fetch(url, { headers: authHeaders })
-    const ctype = res.headers.get('content-type') ?? ''
-    const text = await res.text()
-    return { ok: res.ok, status: res.status, ctype, text }
-  } catch (error) {
-    return { ok: false, status: 0, ctype: '', text: '', error: String(error?.message ?? error) }
+  // NAS 偶发丢请求，带几次重试更稳
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const res = await fetch(url, { headers: authHeaders })
+      const ctype = res.headers.get('content-type') ?? ''
+      const text = await res.text()
+      if (text) return { ok: res.ok, status: res.status, ctype, text }
+    } catch (error) {
+      if (attempt === 3) return { ok: false, status: 0, ctype: '', text: '', error: String(error?.message ?? error) }
+    }
+    await new Promise((r) => setTimeout(r, 150))
   }
+  return { ok: false, status: 0, ctype: '', text: '' }
 }
 
 function resolveUrl(ref, baseUrl) {
@@ -140,21 +145,37 @@ while (frontier.length > 0 && level < 3) {
 
 console.log(`\n共抓取 ${visited.size} 个 JS chunk，提取到 ${allEndpoints.size} 个端点。\n`)
 
-// 3) 按域分组打印
+// 3) 按域分组打印，区分「多段（路径可靠）」与「单段域名（可能是动态拼接/客户端常量，不可靠）」
 const groups = new Map()
 for (const ep of allEndpoints) {
   const domain = ep.split('/')[1] ?? '(root)'
   if (!groups.has(domain)) groups.set(domain, [])
   groups.get(domain).push(ep)
 }
-const WRITE_HINT = /(create|edit|update|delete|set|add|remove|scan|tag|rating|rate|purge|move|reorder|sort|import|upload|patch|save|modify)/i
+const WRITE_HINT = /(create|edit|update|delete|set|add|remove|scan|tag|rating|rate|purge|move|reorder|sort|import|upload|patch|save|modify|rebuild|reconnect|retry|cancel)/i
+const multiSeg = []
+const bareOnly = []
 for (const domain of [...groups.keys()].sort()) {
+  const eps = groups.get(domain).sort()
+  const hasMulti = eps.some((e) => e.split('/').length > 2)
+  if (hasMulti) multiSeg.push([domain, eps])
+  else bareOnly.push(domain)
+}
+console.log('==== 多段端点（路径可靠）====\n')
+for (const [domain, eps] of multiSeg) {
   console.log(`## ${domain}`)
-  for (const ep of groups.get(domain).sort()) {
+  for (const ep of eps) {
     const write = WRITE_HINT.test(ep) ? '  ⟵ 写操作?' : ''
     console.log(`  ${ep}${write}`)
   }
   console.log('')
 }
-
-console.log('提示：把以上整段发回。标了「写操作?」的重点关注（尤其 track/album/artist 的 edit/update/metadata/tag/rating）。')
+console.log('==== 单段域名（仅出现域名、无完整路径）====')
+console.log('这些域的具体端点是**动态拼接**的（代码里不是完整字面量），静态提取拿不到完整路径。')
+console.log('若里面有 tag/rating/metadata/media/library，很可能就是「编辑音乐信息」的写入口，需抓包确认：')
+console.log('  ' + bareOnly.join('  '))
+console.log('')
+console.log('—— 提示 ——')
+console.log('1) 标了「写操作?」的重点看。')
+console.log('2) 要确认「编辑曲目/专辑元数据」的确切端点：在飞牛音乐 web 里打开浏览器 DevTools → Network，')
+console.log('   对一首歌点「编辑」并保存，把那个请求的 URL + method + payload 发回来。')
