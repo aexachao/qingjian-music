@@ -29,25 +29,27 @@
 | 触发扫描 | `POST /shared-library/scan`（admin） | ✅ 可用 |
 | 播放上报 | `POST /event/report` (`track_play`) | ✅ 可用 |
 
-### 1.2 疑似不可写（需 `scripts/spike/probe-writeback.mjs` 确认）
+### 1.2 待重新采集（旧清单已过时，不可信）
 
-飞牛 web 端 `track` 域**只有读接口**，没有 edit/update/tag/rating（见 `docs/fnos-music-api.md` L154）。
-`capabilities.ratings = false`。**强烈推断：曲目标签/评分编辑飞牛官方不支持**，web 端自己也做不到。
+⚠️ **更正**：仓库里 `docs/fnos-music-api.md` 的端点清单是从**旧版** web 产物提取的，已过时。
+用户明确指出：飞牛音乐 web **可以编辑曲目信息**、可以对**音乐库进行编辑/删除/扫描**等。
+所以「飞牛不支持曲目元数据写回」的结论是**错误的**，作废。
 
-- [ ] **待用户执行探测**：`node scripts/spike/probe-writeback.mjs`（需 `FNOS_BASE` + `FNOS_TOKEN`）
-  - 非破坏性：空 body POST，靠「JSON code vs SPA HTML」判断端点是否存在。
-  - 关注：`/track/edit`、`/track/metadata/*`、`/track/rating`、`/album/edit`、`/artist/edit`、
-    `/shared-library/edit`（库上有 `metadataPreference` 字段，可能是唯一的元数据写入口）。
-  - 探测出的结论回填到本节表格。
+正确做法：从**当前 NAS 上的 web bundle** 重新扒出完整端点清单（bundle 里以字符串写死了所有 API 路径）。
 
-### 1.3 设计决策（在确认前的默认）
+- [ ] **待用户执行**：`node scripts/spike/extract-endpoints.mjs`（只需 `FNOS_BASE`，`FNOS_TOKEN` 可选）
+  - 抓 SPA 的 JS chunk，正则提取全部端点，按域分组、标注疑似写操作。
+  - 重点确认：`track` 域的 `edit/update/metadata/tag`、`album/artist/genre` 的 `edit/update`、
+    `shared-library` 的 `edit/delete/scan`、以及 `rating` 相关。
+  - 输出回填本节，并据此重写 `packages/provider-fnos/src/endpoints.ts` + provider + `capabilities`。
+- [ ] **再执行**：`node scripts/spike/probe-writeback.mjs` 对扒出的写端点做非破坏性存在性/参数确认。
 
-- 元数据整理 **默认走「本地叠加层」**：修正存在设备本地（后续可选同步到我们自己的云），
-  **展示时叠加**在服务端原始数据之上，不依赖飞牛可写。
-- **预留写回端口（port/adapter）**：`MetadataWriteback` 接口 + 能力位 `capabilities.metadataWrite`。
-  - 飞牛：`metadataWrite = false`，adapter 为 no-op（只写本地叠加层）。
-  - 未来 Emby/Jellyfin/Navidrome（**这些原生支持标签编辑**）：实现真正的写回 adapter。
-  - 若探测发现飞牛 `shared-library/edit` 能改库级偏好，则做一个「库级」而非「曲目级」的有限写回。
+### 1.3 设计决策（采集完成前的占位）
+
+- 元数据整理**优先走真写回**（既然 web 支持）：`MetadataWriteback` port + `capabilities.metadataWrite`。
+  - 飞牛：采集确认端点后实现**真写回** adapter（曲目/专辑/艺人/库级）。
+  - 同时保留**本地叠加层**作为兜底：写回失败或后端不支持时，修正存本地、展示时叠加。
+  - 未来 Emby/Jellyfin/Navidrome 各自实现 adapter。
 
 ---
 
