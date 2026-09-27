@@ -32,6 +32,7 @@ import type {
   RadioSlice,
   SearchSuggestion,
   ServerConnection,
+  TrackMetadataUpdate,
 } from '@qj/provider-api'
 import { z } from 'zod'
 import { FnosClient } from './client'
@@ -105,6 +106,9 @@ export const FNOS_CAPABILITIES: Capabilities = {
   // 实测确认：转码恒输出无损 FLAC，服务端**忽略** output.bitrate（128 与 320 的分片字节数完全一致），
   // 即飞牛只有一档输出。所以「标准音质省流量」在这里不成立，UI 不该提供该选项。
   qualityTiers: false,
+  // 实测确认（2026-09-27）：POST /track/metadata（与读取 audioSpec 同路径、方法区分）写曲目元数据；
+  // 只需 authorization 裸 token，不强制 authx 签名。body 为全量替换（漏字段会被置空）。
+  metadataWrite: true,
 }
 
 /** 心跳间隔：web 端写死 10 秒，服务端按这个节奏判活 */
@@ -573,6 +577,30 @@ export class FnosProvider implements MusicProvider {
             },
           },
         ],
+      },
+      z.unknown(),
+    )
+  }
+
+  // ---- 元数据写回 ----
+  // 实测确认（2026-09-27 真机抓包）：POST /track/metadata 写曲目元数据（与 GET 读 audioSpec 同路径）。
+  // body 为全量替换：album 是名字串，artists/genres 是 GUID 数组，coverGUID = coverId 去掉 track_/album_ 前缀。
+  // 只需 authorization 裸 token，不强制 authx。
+  async updateTrackMetadata(update: TrackMetadataUpdate): Promise<void> {
+    const coverGUID = update.coverId ? update.coverId.replace(/^[a-z]+_/, '') : null
+    await this.client.post(
+      FNOS_ENDPOINTS.track.metadata,
+      {
+        guid: update.trackId,
+        title: update.title,
+        album: update.albumName ?? null,
+        artistGUIDs: update.artistIds,
+        genreGUIDs: update.genreIds,
+        coverGUID,
+        coverId: update.coverId ?? null,
+        discNo: update.discNo ?? null,
+        trackNo: update.trackNo ?? null,
+        year: update.year ?? null,
       },
       z.unknown(),
     )

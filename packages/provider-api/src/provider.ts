@@ -64,6 +64,27 @@ export interface LyricOffsetUpdate {
 }
 
 /**
+ * 曲目元数据写回（capabilities.metadataWrite 为 true 时才存在）。
+ *
+ * 语义是**全量替换**：服务端会用这些字段整体覆盖曲目元数据，
+ * 所以调用方必须传**完整的目标状态**（先读当前值、叠上修改再传），
+ * 否则缺的字段会被服务端置空。artistIds/genreIds 是实体 id，albumName 是名字串。
+ */
+export interface TrackMetadataUpdate {
+  trackId: string
+  title: string
+  /** 专辑名（按名字归属，非 id） */
+  albumName?: string | null
+  artistIds: string[]
+  genreIds: string[]
+  /** 封面领域 id（如 track_<hex>）；不改封面时传当前值以保留 */
+  coverId?: string | null
+  discNo?: number | null
+  trackNo?: number | null
+  year?: number | null
+}
+
+/**
  * 所有后端都要实现的统一契约。
  * 带 `?` 的方法由 capabilities 决定是否存在，UI 必须先查能力再调用。
  */
@@ -139,6 +160,10 @@ export interface MusicProvider {
   reportPlayback?(report: PlaybackReport): Promise<void>
   /** 歌词时间偏移写回服务端，capabilities.lyricOffsetWriteback 为 true 时才存在 */
   setLyricOffset?(update: LyricOffsetUpdate): Promise<void>
+
+  // ---- 元数据写回（capabilities.metadataWrite 为 true 时才存在）----
+  /** 把曲目元数据全量写回服务端 */
+  updateTrackMetadata?(update: TrackMetadataUpdate): Promise<void>
 
   // ---- 曲库扫描（capabilities.libraryScan 为 true 时才存在）----
   // 触发扫描需 admin（非 admin 会得到 forbidden 错误）；读任务进度所有账号都可。

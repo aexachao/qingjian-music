@@ -281,6 +281,48 @@ describe('上报', () => {
     expect(body.events[0].eventType).toBe('lyric_offset_change')
     expect(body.events[0].payload).toEqual({ trackGUID: 'track-9', lyricGUID: 'ly-2', offset: 500 })
   })
+
+  it('updateTrackMetadata 发 POST /track/metadata，body 与真机抓包一致', async () => {
+    let url: string | undefined
+    let method: string | undefined
+    let body: any
+    const provider = makeProvider(
+      fakeFetch((u, init) => {
+        url = u
+        method = init?.method
+        body = JSON.parse(String(init?.body))
+        return { code: 0, msg: '', data: null }
+      }),
+    )
+
+    // 复刻 2026-09-27 抓到的编辑「新叶子」请求
+    await provider.updateTrackMetadata({
+      trackId: 'f64771fb13b64e1dbe1c374a5851c9eb',
+      title: '新叶子',
+      albumName: '玻璃温室',
+      artistIds: ['4ecd219fc5ab43d1bdeb2f6316ffb8b8'],
+      genreIds: ['dbcab530d9b446fd8f38efab096a5797'],
+      coverId: 'track_9a0b0209227543dc8d0a3ad1724e168c',
+      discNo: null,
+      trackNo: null,
+      year: null,
+    })
+
+    expect(url).toBe('http://192.168.2.100:5666/music/api/v1/track/metadata')
+    expect(method).toBe('POST')
+    expect(body).toEqual({
+      guid: 'f64771fb13b64e1dbe1c374a5851c9eb',
+      title: '新叶子',
+      album: '玻璃温室',
+      artistGUIDs: ['4ecd219fc5ab43d1bdeb2f6316ffb8b8'],
+      genreGUIDs: ['dbcab530d9b446fd8f38efab096a5797'],
+      coverGUID: '9a0b0209227543dc8d0a3ad1724e168c',
+      coverId: 'track_9a0b0209227543dc8d0a3ad1724e168c',
+      discNo: null,
+      trackNo: null,
+      year: null,
+    })
+  })
 })
 
 describe('转码与 HLS 会话', () => {

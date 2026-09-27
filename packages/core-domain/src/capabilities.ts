@@ -32,6 +32,8 @@ export interface Capabilities {
    * 已知：飞牛为 false（转码恒输出无损 FLAC，服务端忽略 bitrate，见 docs/fnos-transcode.md）。
    */
   qualityTiers: boolean
+  /** 能否把曲目元数据（标题/专辑/艺人/流派/年份/封面）写回服务端 */
+  metadataWrite: boolean
 }
 
 export const NO_CAPABILITIES: Capabilities = {
@@ -49,4 +51,5 @@ export const NO_CAPABILITIES: Capabilities = {
   libraryScan: false,
   audioSpec: false,
   qualityTiers: false,
+  metadataWrite: false,
 }

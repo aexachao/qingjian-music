@@ -34,37 +34,34 @@
 用 `scripts/spike/extract-endpoints.mjs` 抓当前音乐 web bundle（`/music/`，90 个 chunk）得到现行完整端点。
 
 **已确认的写操作（音乐 API）**：
-- `shared-library`: `create` / `edit` / `delete` / `scan` / `scan-all` / `reconnect` / `reconnect/check`（← 库的增删改扫描，用户说的都在）
+- ✅ **曲目元数据写回**：`POST /track/metadata`（与 GET 读 audioSpec 同路径，方法区分）。
+  - 真机抓包确认（2026-09-27），body 为**全量替换**：
+    `{guid, title, album(名字串), artistGUIDs[], genreGUIDs[], coverGUID, coverId, discNo, trackNo, year}`
+  - `coverGUID` = `coverId` 去掉 `track_`/`album_` 前缀；漏传的字段会被服务端置空。
+  - **只需 `authorization` 裸 token，不强制 authx**（空 body 带/不带 authx 都返 `100001`，非 HTML）。
+- `shared-library`: `create` / `edit` / `delete` / `scan` / `scan-all` / `reconnect` / `reconnect/check`
 - `playlist`: `create` / `edit` / `delete` / `add-track` / `remove-track` / `purge-track`
-- `favorite-track`: `create` / `delete` / `purge-track`
-- `artist`: `create`；`genre`: `create`
-- `play-history`: `delete`；`search`: `index/rebuild`
-- `task`: `retry` / `cancel` / `delete`；`user`: `create` / `edit` / `delete` 等
+- `favorite-track`: `create` / `delete` / `purge-track`；`artist`/`genre`: `create`（需 admin）
+- `play-history`: `delete`；`search`: `index/rebuild`；`task`: `retry`/`cancel`/`delete`；`user`: CRUD
 
-**关键发现：音乐 API 的 `track` 域没有字面量的 `edit/update/tag/rating`**。
-但 bundle 里出现了单独的域名 `tag` / `rating` / `metadata` / `media` / `library` / `file` / `folder`——
-它们的完整路径是**动态拼接**的（代码里不是完整字面量），静态提取拿不到。
-「编辑音乐信息」很可能就落在这些域上——**需抓包确认确切端点 + body**。
+### 1.3 登录：账号密码仍有效（之前结论作废）
 
-### 1.3 现在的阻塞：登录方式变了
+- 音乐同时支持 **OAuth 与账号密码**两种。App 现行的 `password-login` 一直正常（TestFlight 实证），
+  **不迁 OAuth**（OAuth 要跳转飞牛授权页/App，体验更差）。
+- （之前 curl `password-login` 得 120001 是我少带了某个头，非端点停用。）
+- token 获取：从已登录浏览器任一音乐请求的 `authorization` 头拿（或 cookie `music-token`）。
 
-- `POST /music/api/v1/user/password-login` 对**所有**输入（正确密码 / 错密码 / 不存在用户）都返回 `code=120001 unauthorized`——说明这个端点已**停用**。
-- `GET /music/api/v1/sys/config` 公开可读，里面有 `nasOAuth.clientId`，加上 bundle 里的 `/oauth/result`：
-  **音乐端现在走 NAS OAuth SSO 登录**（先登主系统 → OAuth 授权 → 拿音乐 token），不再接受独立密码登录。
-- 后果：目前拿不到 token，**无法现场探测写端点**。RN App 侧的 `login` 也需同步改成 OAuth（待办）。
+### 1.4 已落地（数据层）
 
-### 1.4 待用户提供（二选一，拿到任一即可定稿）
+- ✅ `capabilities.metadataWrite`（core-domain）；飞牛 = `true`。
+- ✅ `MusicProvider.updateTrackMetadata?(TrackMetadataUpdate)`（provider-api 契约）。
+- ✅ provider-fnos 实现 + 单测（body 对齐真机抓包，未做现场 mutation 以免改真实数据）。
 
-- [ ] **抓包（最精准）**：飞牛音乐 web 里对一首歌点「编辑」并保存，DevTools → Network 拿那个请求的 URL+method+payload。
-- [ ] **给 token（能现场探测）**：从已登录的浏览器任一音乐请求的 `authorization` 头拷一个 token 回来，
-  我用 `probe-writeback.mjs` + 实测把 tag/rating/metadata 写端点和 body 结构摸清。
+### 1.5 待办（写回后续）
 
-### 1.5 设计决策
-
-- 已知能写的（库扫描/编辑、歌单、收藏）直接用。
-- 曲目/专辑/艺人元数据写回：等抓包/token 确认端点后，实现 `MetadataWriteback` 的**真写回** adapter；
-  同时保留**本地叠加层**兜底（写回失败/无端点时展示时叠加）。
-- App 登录流程需从 password-login 迁到 **NAS OAuth**（独立任务，影响面大，得先跟用户确认再动）。
+- [ ] 专辑/艺人级元数据写回（如 web 有对应端点，同法抓包确认）。
+- [ ] 完整度视图的「修正建议 → 确认 → updateTrackMetadata 写回」闭环（UI，第②步）。
+- [ ] 本地叠加层兜底（写回失败时）；其他后端（Emby/Jellyfin/Navidrome）各自 adapter。
 
 ---
 

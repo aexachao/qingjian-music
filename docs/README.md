@@ -11,6 +11,7 @@
 | [`fnos-transcode.md`](./fnos-transcode.md) | 飞牛转码 HLS 机制：会话、播放列表、分片命名、已知行为 |
 | [`design-tokens.md`](./design-tokens.md) | 设计令牌：颜色、排版、间距 |
 | [`licensing.md`](./licensing.md) | 双轨许可（社区版 GPL-3.0 / 商店版商业许可）的推导：为什么不选 AGPL、为什么 App Store 与 GPL 冲突 |
+| [`智能推荐与AI-路线图.md`](./智能推荐与AI-路线图.md) | 本地口味画像/漫游引擎、完整度视图与元数据写回、AI 隐形融合的设计与分期路线；含飞牛写回能力探测结论 |
 
 ## 阅读建议
 
