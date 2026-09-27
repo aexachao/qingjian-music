@@ -33,6 +33,8 @@ import { useDetailHref } from '@/lib/detail-href'
 import { tap } from '@/lib/haptics'
 import { useLocalFavoritesStore } from '@/lib/local-favorites'
 import { pickFeaturedTracks } from '@/lib/track-select'
+import { computeArtistCompleteness } from '@qj/core-domain'
+import { fetchCanonicalArtistAlbums, hasMusicInfoSource } from '@/lib/external-music-info'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { playTrackList, toggleShuffle } from '@/player/controller'
@@ -136,6 +138,19 @@ export function ArtistDetailScreen() {
   const popularTracks = useMemo(() => {
     return pickFeaturedTracks(localTracks, 5)
   }, [localTracks])
+
+  // 完整度：配了音乐信息源就拉规范作品集，标出未入库专辑
+  const canonicalAlbumsQuery = useQuery({
+    queryKey: ['canonical-artist-albums', artistName],
+    enabled: Boolean(hasMusicInfoSource() && artistName),
+    staleTime: 1000 * 60 * 60 * 24,
+    queryFn: () => fetchCanonicalArtistAlbums(artistName!),
+  })
+  const missingAlbums = useMemo(() => {
+    const canonical = canonicalAlbumsQuery.data
+    if (!canonical || canonical.length === 0) return []
+    return computeArtistCompleteness(albums.items, canonical).entries.filter((e) => e.status === 'missing')
+  }, [canonicalAlbumsQuery.data, albums.items])
 
   // 10. 最新发布唱片（若仅有 1 张专辑则不展示独立卡片，避免重复）
   const latestAlbum = useMemo(() => {
@@ -615,11 +630,24 @@ export function ArtistDetailScreen() {
             ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
             onEndReached={albums.loadMore}
             ListFooterComponent={
-              <PaginationFooter
-                loading={albums.query.isFetchingNextPage}
-                error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
-                onRetry={() => void albums.query.fetchNextPage()}
-              />
+              <>
+                {missingAlbums.length > 0 ? (
+                  <View style={styles.missingAlbumsBlock}>
+                    <Text style={styles.missingAlbumsTitle}>未入库作品 {missingAlbums.length}</Text>
+                    {missingAlbums.map((e, i) => (
+                      <View key={`ma-${i}-${e.canonical.name}`} style={styles.missingAlbumRow}>
+                        <Text style={styles.missingAlbumName} numberOfLines={1}>{e.canonical.name}</Text>
+                        {e.canonical.year ? <Text style={styles.missingAlbumYear}>{e.canonical.year}</Text> : null}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                <PaginationFooter
+                  loading={albums.query.isFetchingNextPage}
+                  error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
+                  onRetry={() => void albums.query.fetchNextPage()}
+                />
+              </>
             }
           />
         </View>
@@ -1021,6 +1049,33 @@ const useStyles = createThemedStyles((colors) => ({
   gridAlbumYear: {
     ...typography.caption,
     color: colors.textTertiary,
+  },
+  missingAlbumsBlock: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  missingAlbumsTitle: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  missingAlbumRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    opacity: 0.55,
+  },
+  missingAlbumName: {
+    ...typography.body,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  missingAlbumYear: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    marginLeft: spacing.sm,
   },
   // 全部歌曲样式
   toolbarSlot: {

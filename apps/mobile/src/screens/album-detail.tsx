@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
+import { computeAlbumCompleteness, inferTrackGaps } from '@qj/core-domain'
+import { fetchCanonicalAlbumTracks, hasMusicInfoSource } from '@/lib/external-music-info'
 import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { CDSleeveCover } from '@/components/cd-sleeve-cover'
 import { CoverImage } from '@/components/cover-image'
@@ -230,6 +232,25 @@ export function AlbumDetailScreen() {
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
+  )
+
+  // 完整度：配了音乐信息源就拉规范曲目表，与本地对齐标缺失；否则用曲目号推断缺口
+  const [showMissing, setShowMissing] = useState(true)
+  const canonicalQuery = useQuery({
+    queryKey: ['canonical-album-tracks', album?.name, artistText],
+    enabled: Boolean(hasMusicInfoSource() && album?.name && items.length > 0),
+    staleTime: 1000 * 60 * 60 * 24,
+    queryFn: () => fetchCanonicalAlbumTracks(artistText, album?.name ?? ''),
+  })
+  const completeness = useMemo(() => {
+    const canonical = canonicalQuery.data
+    if (!canonical || canonical.length === 0) return null
+    return computeAlbumCompleteness(items, canonical)
+  }, [canonicalQuery.data, items])
+  const gapHint = useMemo(() => (completeness ? [] : inferTrackGaps(items)), [completeness, items])
+  const missingEntries = useMemo(
+    () => (completeness ? completeness.entries.filter((e) => e.status === 'missing') : []),
+    [completeness],
   )
 
   const isMenuOpen = useIsMenuOpen()
@@ -449,11 +470,43 @@ export function AlbumDetailScreen() {
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={
-          <PaginationFooter
-            loading={query.isFetchingNextPage}
-            error={query.isFetchNextPageError ? query.error : undefined}
-            onRetry={() => void query.fetchNextPage()}
-          />
+          <>
+            {completeness && completeness.missing > 0 ? (
+              <View style={styles.completeBlock}>
+                <Pressable
+                  style={styles.completeHeader}
+                  onPress={() => setShowMissing((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showMissing ? '隐藏未入库' : '显示未入库'}
+                >
+                  <Text style={styles.completeSummary}>
+                    已入库 {completeness.owned} / 共 {completeness.total} · 缺 {completeness.missing} 首
+                  </Text>
+                  <Text style={styles.completeToggle}>{showMissing ? '隐藏' : '显示'}</Text>
+                </Pressable>
+                {showMissing
+                  ? missingEntries.map((e, i) => (
+                      <View key={`miss-${e.canonical.trackNo ?? i}-${e.canonical.title}`} style={styles.missingRow}>
+                        <Text style={styles.missingNo}>{e.canonical.trackNo ?? '·'}</Text>
+                        <Text style={styles.missingTitle} numberOfLines={1}>{e.canonical.title}</Text>
+                        <Text style={styles.missingTag}>缺失</Text>
+                      </View>
+                    ))
+                  : null}
+              </View>
+            ) : gapHint.length > 0 ? (
+              <View style={styles.completeBlock}>
+                <Text style={styles.gapHint}>
+                  可能缺 {gapHint.length} 首（曲目号 {gapHint.join('、')}）· 配置音乐信息源可看缺失曲名
+                </Text>
+              </View>
+            ) : null}
+            <PaginationFooter
+              loading={query.isFetchingNextPage}
+              error={query.isFetchNextPageError ? query.error : undefined}
+              onRetry={() => void query.fetchNextPage()}
+            />
+          </>
         }
       />
 
@@ -639,6 +692,29 @@ const useStyles = createThemedStyles((colors) => ({
     marginLeft: 48,
     backgroundColor: colors.borderSubtle,
   },
+  completeBlock: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  completeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  completeSummary: { ...typography.footnote, color: colors.textSecondary },
+  completeToggle: { ...typography.footnote, color: colors.actionText },
+  missingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    opacity: 0.55,
+  },
+  missingNo: { ...typography.footnote, color: colors.textTertiary, width: 28 },
+  missingTitle: { ...typography.body, color: colors.textSecondary, flex: 1 },
+  missingTag: { ...typography.caption, color: colors.textTertiary, marginLeft: spacing.sm },
+  gapHint: { ...typography.caption, color: colors.textTertiary, lineHeight: 18 },
   navBottomBorder: {
     position: 'absolute',
     left: 0,
