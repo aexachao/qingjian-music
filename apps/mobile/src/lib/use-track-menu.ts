@@ -18,6 +18,7 @@ import {
 import { downloadKey } from '@/lib/download-policy'
 import { useIsDownloaded } from '@/lib/use-downloads'
 import { useServerSession } from '@/lib/server-session'
+import { recordTasteSignal } from '@/lib/taste-profile-store'
 import { downloadTrack, removeDownload } from '@/player/downloads'
 import { setGlobalMenuOpen } from '@/lib/menu-guard'
 import {
@@ -269,7 +270,13 @@ export function useTrackMenu({
 
         case 'toggle-favorite':
           void toggleFavorite(subject.trackId, !subject.isFavorite)
-            .then(() => toast(subject.isFavorite ? '已取消喜欢' : '已加入我喜欢'))
+            .then(() => {
+              toast(subject.isFavorite ? '已取消喜欢' : '已加入我喜欢')
+              // 收藏/取消收藏是强口味信号，喂给本地画像（需完整曲目拿 artists/genres）
+              if (connection && subject.track) {
+                recordTasteSignal(connection.id, subject.track, subject.isFavorite ? 'unfavorited' : 'favorited')
+              }
+            })
             .catch(() => toast('操作失败，请稍后再试'))
           break
 

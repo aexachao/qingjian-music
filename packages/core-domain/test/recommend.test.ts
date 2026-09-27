@@ -6,6 +6,7 @@ import {
   emptyProfile,
   eraOf,
   extractTrackFeatures,
+  libraryCompositionOf,
   profileFromLibrary,
   scoreTrack,
   SIGNAL_WEIGHTS,
@@ -130,6 +131,17 @@ describe('冷启动：库先验与融合', () => {
     const popTrack = track('p', { genre: 'pop' })
     const jazzTrack = track('j', { genre: 'jazz' })
     expect(scoreTrack(jazzTrack, blended)).toBeGreaterThan(scoreTrack(popTrack, blended))
+  })
+
+  it('libraryCompositionOf 统计艺人/流派/年代出现次数', () => {
+    const comp = libraryCompositionOf([
+      track('a', { artist: 'A', genre: 'rock', year: 1995 }),
+      track('b', { artist: 'A', genre: 'pop', year: 2003 }),
+      track('c', { artist: 'B', genre: 'rock', year: 1998 }),
+    ])
+    expect(comp.artistCounts).toEqual({ A: 2, B: 1 })
+    expect(comp.genreCounts).toEqual({ rock: 2, pop: 1 })
+    expect(comp.eraCounts).toEqual({ '1990s': 2, '2000s': 1 })
   })
 })
 

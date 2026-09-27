@@ -175,6 +175,27 @@ export function profileFromLibrary(composition: LibraryComposition, now = 0): Ta
   }
 }
 
+/**
+ * 从一批曲目统计库成分（艺人/流派/年代的出现次数），用作冷启动先验。
+ * 传入的可以是整库或采样；采样足够大时分布就能代表库的口味倾向。
+ */
+export function libraryCompositionOf(tracks: Track[]): LibraryComposition {
+  const artistCounts: Record<string, number> = {}
+  const genreCounts: Record<string, number> = {}
+  const eraCounts: Record<string, number> = {}
+  for (const track of tracks) {
+    for (const artist of track.artists ?? []) {
+      if (artist.id) artistCounts[artist.id] = (artistCounts[artist.id] ?? 0) + 1
+    }
+    for (const genre of track.genres ?? []) {
+      if (genre.id) genreCounts[genre.id] = (genreCounts[genre.id] ?? 0) + 1
+    }
+    const era = eraOf(track.year)
+    eraCounts[era] = (eraCounts[era] ?? 0) + 1
+  }
+  return { artistCounts, genreCounts, eraCounts }
+}
+
 function normalizeCounts(counts: Record<string, number>): AffinityMap {
   const total = Object.values(counts).reduce((s, v) => s + Math.max(0, v), 0)
   if (total <= 0) return {}
