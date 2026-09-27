@@ -17,6 +17,7 @@ import Animated, {
   cancelAnimation,
   Easing,
   interpolate,
+  interpolateColor,
   runOnJS,
   scrollTo,
   useAnimatedReaction,
@@ -96,10 +97,10 @@ function isKaraokeLine(line: LyricLine): boolean {
  * 当前唱到第几个字。逐词推进：
  * 每个词里的字均分「这个词到下一个词」的时间，唱到哪个字的开始时间就亮到哪。
  */
-function countLitChars(line: LyricLine, atMs: number, nextLineAtMs: number): number {
+function litProgressChars(line: LyricLine, atMs: number, nextLineAtMs: number): number {
   const words = line.words ?? []
   if (words.length === 0) return 0
-  let lit = 0
+  let progress = 0
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i]!
     const wordChars = Array.from(word.text)
@@ -107,11 +108,13 @@ function countLitChars(line: LyricLine, atMs: number, nextLineAtMs: number): num
     const spanEnd = words[i + 1]?.atMs ?? nextLineAtMs
     const span = Math.max(spanEnd - spanStart, 1)
     for (let c = 0; c < wordChars.length; c += 1) {
-      const charAt = spanStart + (span * c) / wordChars.length
-      if (charAt <= atMs) lit += 1
+      const charStart = spanStart + (span * c) / wordChars.length
+      const charEnd = spanStart + (span * (c + 1)) / wordChars.length
+      if (atMs >= charEnd) progress += 1
+      else if (atMs > charStart) progress += (atMs - charStart) / Math.max(charEnd - charStart, 1)
     }
   }
-  return lit
+  return progress
 }
 
 export function LyricView({
@@ -179,10 +182,10 @@ export function LyricView({
 
   // 当前行是卡拉OK行时，唱到第几个字（整行高亮的行用不上）
   const activeKaraoke = activeIndex >= 0 && synced && isKaraokeLine(lines[activeIndex]!)
-  const litCount = useMemo(() => {
+  const litProgress = useMemo(() => {
     if (!activeKaraoke || activeIndex < 0) return undefined
     const nextAt = lines[activeIndex + 1]?.atMs ?? (lines[activeIndex]?.atMs ?? 0) + FALLBACK_LINE_MS
-    return countLitChars(lines[activeIndex]!, atMs, nextAt)
+    return litProgressChars(lines[activeIndex]!, atMs, nextAt)
   }, [activeKaraoke, activeIndex, atMs, lines])
 
   // —— 手势防冲突与视口跟随 ——
@@ -251,8 +254,8 @@ export function LyricView({
         animScrollY.value = withTiming(
           targetScroll,
           {
-            duration: 560,
-            easing: Easing.bezier(0.25, 1, 0.5, 1),
+            duration: 520,
+            easing: Easing.bezier(0.22, 1, 0.36, 1),
           },
           (finished) => {
             if (finished) {
@@ -559,7 +562,7 @@ export function LyricView({
               line={line}
               active={index === activeIndex}
               selected={index === pressingRowIndex}
-              litCount={index === activeIndex ? litCount : undefined}
+              litProgress={index === activeIndex ? litProgress : undefined}
               synced={synced}
               onTap={() => handleRowTap(index, line.atMs)}
               onLongPress={() => handleRowLongPress(index)}
@@ -590,11 +593,11 @@ interface LyricRowProps {
   /** 正在被点击/选中的这一句 */
   selected?: boolean
   /**
-   * 当前唱到第几个字：
-   * 卡拉OK行（文件带逐词时间）给数字 → 逐字点亮；
+   * 当前唱到的连续字数（浮点）：
+   * 卡拉OK行（文件带逐词时间）给数字 → 逐字平滑扫亮；
    * 其余给 undefined → 整行高亮（信息行 / 没有逐词数据的普通 LRC）。
    */
-  litCount?: number
+  litProgress?: number
   synced: boolean
   onTap: () => void
   onLongPress: () => void
@@ -603,11 +606,34 @@ interface LyricRowProps {
   onLayout: (y: number) => void
 }
 
+/**
+ * 卡拉OK单字：颜色按「已唱字数 lit」与自身字序的距离在 UI 线程平滑插值（pending→sung）。
+ * 嵌在父 Text 里保证排版与换行正常。
+ */
+const KaraokeChar = memo(function KaraokeChar({
+  char,
+  index,
+  lit,
+  sungColor,
+  pendingColor,
+}: {
+  char: string
+  index: number
+  lit: SharedValue<number>
+  sungColor: string
+  pendingColor: string
+}) {
+  const animStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(lit.value, [index, index + 1], [pendingColor, sungColor]),
+  }))
+  return <Animated.Text style={animStyle}>{char}</Animated.Text>
+})
+
 const LyricRow = memo(function LyricRow({
   line,
   active,
   selected = false,
-  litCount,
+  litProgress,
   synced,
   onTap,
   onLongPress,
@@ -617,9 +643,17 @@ const LyricRow = memo(function LyricRow({
 }: LyricRowProps) {
   const colors = useThemeColors()
   const styles = useStyles()
-  const karaoke = active && litCount !== undefined
+  const karaoke = active && litProgress !== undefined
   const chars = karaoke && line.text ? Array.from(line.text) : []
-  const sung = Math.min(Math.max(litCount ?? 0, 0), chars.length)
+
+  // 卡拉OK平滑扫过：把「已唱字数(浮点)」放进 UI 线程 SharedValue，
+  // 每次位置 tick(≈200ms) 来时用 withTiming 线性推到新值，两帧之间自然连续，
+  // 每个字的颜色按 lit 与字序的距离平滑插值（带 1 个字的柔边）。
+  const lit = useSharedValue(litProgress ?? 0)
+  useEffect(() => {
+    if (litProgress === undefined) return
+    lit.value = withTiming(litProgress, { duration: 220, easing: Easing.linear })
+  }, [litProgress, lit])
 
   const activeAnim = useSharedValue(active ? 1 : 0)
 
@@ -676,9 +710,14 @@ const LyricRow = memo(function LyricRow({
           >
             {karaoke
               ? chars.map((char, index) => (
-                  <Text key={index} style={index < sung ? styles.charSung : styles.charPending}>
-                    {char}
-                  </Text>
+                  <KaraokeChar
+                    key={index}
+                    char={char}
+                    index={index}
+                    lit={lit}
+                    sungColor={colors.textPrimary}
+                    pendingColor={colors.textTertiary}
+                  />
                 ))
               : line.text}
           </Text>
