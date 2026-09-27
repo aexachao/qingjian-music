@@ -51,17 +51,22 @@
 - （之前 curl `password-login` 得 120001 是我少带了某个头，非端点停用。）
 - token 获取：从已登录浏览器任一音乐请求的 `authorization` 头拿（或 cookie `music-token`）。
 
-### 1.4 已落地（数据层）
+### 1.4 已落地（数据层 + 编辑页 v1）
 
 - ✅ `capabilities.metadataWrite`（core-domain）；飞牛 = `true`。
-- ✅ `MusicProvider.updateTrackMetadata?(TrackMetadataUpdate)`（provider-api 契约）。
-- ✅ provider-fnos 实现 + 单测（body 对齐真机抓包，未做现场 mutation 以免改真实数据）。
+- ✅ `MusicProvider.updateTrackMetadata?(TrackMetadataUpdate)`（provider-api 契约）+ 飞牛实现 + 单测（body 对齐真机抓包）。
+- ✅ 「歌曲信息」页（`app/track-info.tsx`）改为可编辑：名称/专辑/年份/曲目序号/光盘序号，
+  保存走 `updateTrackMetadata`（由 `capabilities.metadataWrite` + 完整曲目门控，否则只读）。
+  歌手/风格/封面暂保留原值原样写回。
 
-### 1.5 待办（写回后续）
+### 1.5 待办（编辑页 v2 + 其他）
 
-- [ ] 专辑/艺人级元数据写回（如 web 有对应端点，同法抓包确认）。
-- [ ] 完整度视图的「修正建议 → 确认 → updateTrackMetadata 写回」闭环（UI，第②步）。
-- [ ] 本地叠加层兜底（写回失败时）；其他后端（Emby/Jellyfin/Navidrome）各自 adapter。
+- [ ] 歌手 **多选选择器**（`/artist/list-all` 为源，artistGUIDs[]）+ 风格多选（`/genre/list`）。
+- [ ] 新增歌手/风格：`POST /artist/create`、`POST /genre/create`（admin；需抓包确认 body）。
+- [ ] 换封面：`POST /static/cover/track` 上传（multipart，类似 `/static/cover/playlist`）→ coverId。
+- [ ] 专辑/艺人级元数据写回；本地叠加层兜底；其他后端（Emby/Jellyfin/Navidrome）adapter。
+
+权限：新增歌手/风格、换封面需 **admin**（member 只能从现有里选）。当前测试账号 aexachao = admin。
 
 ---
 

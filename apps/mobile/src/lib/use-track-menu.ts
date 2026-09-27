@@ -352,6 +352,8 @@ export function useTrackMenu({
               album: subject.albumText || '',
               duration: String(subject.durationMs || ''),
               coverId: subject.coverId || subject.track?.coverId || subject.track?.album?.coverId || '',
+              // 带上完整曲目，编辑页靠它拿到当前 artists/genres/year/trackNo/discNo（开启内联编辑）
+              trackJson: subject.track ? JSON.stringify(subject.track) : '',
             },
           })
           break
