@@ -214,6 +214,18 @@ score(track) = 画像亲和度(track)
   - [x] 画像持久化（`taste-profile-store`，按 serverId，SecureStore）
   - [x] 「本地电台/猜你喜欢」播放源（`local-radio.ts`）+ 首页「随心漫游」改走本地引擎（失败退回飞牛 roam）
   - [ ] 调优：探索 ε / 衰减半衰期 / 跳过判定阀值（上线后按体感）；独立「猜你喜欢」入口与可视化
+
+#### 超参调优（已建立离线验证）
+
+真正调优需线上行为数据；当前用**合成场景**（`recommend-simulation.test.ts`）验证默认超参产生预期动态：
+- 收敛：训练后偏好类占前 10 的 > 80%
+- 探索：默认 ε=0.15 下，>40% 的队列仍露出反感类（能改口味/收负反馈）
+- 多样：同歌手平均每条队列连续 < 1 次
+- 冷启动：零训练时 like/dislike 大致各半
+
+旋钮集中处：`ROAMING_DEFAULTS`（ε/温度/新鲜/多样惩罚）、`SIGNAL_WEIGHTS`、`DIMENSION_WEIGHTS`、
+`DEFAULT_HALF_LIFE_MS`、`BLEND_PRIOR_K`、`SKIP_EARLY_MS`。结论：默认值已通过验证，不盲改；
+任何调整都要先跟仿真护栏跑绿，再等真实数据微调。
 - [ ] **② 完整度视图 + 元数据匹配**（MusicBrainz 接入 + 本地匹配 + 完整度/缺口展示）
   - [ ] 先做**只读**完整度/缺口展示（不改库）
   - [ ] `MetadataWriteback` port + `capabilities.metadataWrite`（飞牛 no-op，未来后端接实现）

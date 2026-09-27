@@ -41,12 +41,23 @@ interface Weighted {
   recent: boolean
 }
 
-const DEFAULTS = {
+/**
+ * 漫游默认超参（集中在此，便于调优）。
+ * - explorationRate：探索概率 ε。太高显得吵，太低口味固化、收不到新负反馈。
+ * - recentPenalty：近期放过的降权乘子（越小越易避开刚听过的）。
+ * - diversityPenalty：同歌手/同专辑降权乘子（越小越不容易连播撞车）。
+ * - temperature：亲和度→权重的温度，越小越贪心（拉开好坏差距）。
+ * 这些默认值经 `recommend-simulation.test.ts` 的合成场景验证（收敛性 + 探索性 + 多样性），
+ * 上线拿到真实使用数据后再按体感微调。
+ */
+export const ROAMING_DEFAULTS = {
   explorationRate: 0.15,
   recentPenalty: 0.15,
   diversityPenalty: 0.25,
   temperature: 0.5,
-}
+} as const
+
+const DEFAULTS = ROAMING_DEFAULTS
 
 /**
  * 生成漫游队列。纯函数：相同入参 + 相同 rng ⇒ 相同结果。
