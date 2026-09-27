@@ -1,27 +1,20 @@
 import { Stack } from 'expo-router'
 import { useState } from 'react'
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native'
 import { useToast } from '@/components/toast'
 import {
   useExternalSourcesStore,
   normalizeBaseUrl,
-  type LyricSourceType,
-  type MusicInfoSourceType,
+  SOURCE_CAPS,
+  type SourceService,
+  type SourceType,
 } from '@/lib/external-source'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
 
-const LYRIC_TYPES: { value: LyricSourceType; label: string }[] = [
-  { value: 'none', label: '关闭' },
-  { value: 'netease', label: '网易云(逐字)' },
-  { value: 'lrcapi', label: 'LrcAPI' },
-]
+const ADDABLE: SourceType[] = ['netease', 'lrcapi', 'qq']
 
-const INFO_TYPES: { value: MusicInfoSourceType; label: string }[] = [
-  { value: 'none', label: '关闭' },
-  { value: 'netease', label: '网易云' },
-  { value: 'qq', label: 'QQ音乐' },
-]
+type TestState = 'unknown' | 'testing' | 'ok' | 'fail'
 
 async function testConnection(baseUrl: string, token: string | undefined): Promise<boolean> {
   const base = normalizeBaseUrl(baseUrl)
@@ -29,11 +22,7 @@ async function testConnection(baseUrl: string, token: string | undefined): Promi
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   try {
-    // 探活：命中任一 200 即认为地址可达（不同实现根路径不同，容错处理）
-    const res = await fetch(base, {
-      signal: controller.signal,
-      headers: token ? { Authorization: token } : {},
-    })
+    const res = await fetch(base, { signal: controller.signal, headers: token ? { Authorization: token } : {} })
     return res.status > 0 && res.status < 500
   } catch {
     return false
@@ -44,139 +33,125 @@ async function testConnection(baseUrl: string, token: string | undefined): Promi
 
 export function ExternalSourcesScreen() {
   const styles = useStyles()
-  const lyrics = useExternalSourcesStore((s) => s.lyrics)
-  const musicInfo = useExternalSourcesStore((s) => s.musicInfo)
-  const setLyrics = useExternalSourcesStore((s) => s.setLyrics)
-  const setMusicInfo = useExternalSourcesStore((s) => s.setMusicInfo)
+  const colors = useThemeColors()
+  const services = useExternalSourcesStore((s) => s.services)
+  const addService = useExternalSourcesStore((s) => s.addService)
 
   return (
     <>
       <Stack.Screen options={{ title: '外部数据源' }} />
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={styles.intro}>
-          默认只用飞牛音乐的数据。填入你自建的国内服务地址后，歌词可显示逐字高亮、艺人/专辑可显示完整度。
-          App 不内置任何外部源，仅访问你填写的地址。
+          默认只用飞牛音乐的数据。添加你自建的国内服务后，歌词可显示逐字高亮、艺人/专辑可显示完整度。
+          一个网易云实例即可同时供歌词与信息，无需重复填写。App 不内置任何源，仅访问你填写的地址。
         </Text>
 
-        {/* 歌词源 */}
-        <SourceCard<LyricSourceType>
-          title="歌词源"
-          hint="优先逐字(网易云 yrc)，其次行级；飞牛已有歌词时作补充。"
-          types={LYRIC_TYPES}
-          value={lyrics.type}
-          baseUrl={lyrics.baseUrl}
-          token={lyrics.token ?? ''}
-          onType={(type) => setLyrics({ type })}
-          onBaseUrl={(baseUrl) => setLyrics({ baseUrl })}
-          onToken={(token) => setLyrics({ token })}
-        />
+        {services.length === 0 ? (
+          <Text style={styles.empty}>还没有添加任何服务。点下方按钮添加。</Text>
+        ) : (
+          services.map((svc) => <ServiceCard key={svc.id} service={svc} />)
+        )}
 
-        {/* 音乐信息源 */}
-        <SourceCard<MusicInfoSourceType>
-          title="音乐信息源"
-          hint="用于专辑完整曲目、艺人全部作品(完整度)。"
-          types={INFO_TYPES}
-          value={musicInfo.type}
-          baseUrl={musicInfo.baseUrl}
-          token={musicInfo.token ?? ''}
-          onType={(type) => setMusicInfo({ type })}
-          onBaseUrl={(baseUrl) => setMusicInfo({ baseUrl })}
-          onToken={(token) => setMusicInfo({ token })}
-        />
+        <Text style={styles.addTitle}>添加服务</Text>
+        <View style={styles.addRow}>
+          {ADDABLE.map((type) => (
+            <Pressable
+              key={type}
+              onPress={() => addService(type)}
+              style={styles.addChip}
+              accessibilityRole="button"
+              accessibilityLabel={`添加 ${SOURCE_CAPS[type].label}`}
+            >
+              <Text style={[styles.addChipText, { color: colors.actionText }]}>+ {SOURCE_CAPS[type].label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </ScrollView>
     </>
   )
 }
 
-function SourceCard<T extends string>({
-  title,
-  hint,
-  types,
-  value,
-  baseUrl,
-  token,
-  onType,
-  onBaseUrl,
-  onToken,
-}: {
-  title: string
-  hint: string
-  types: { value: T; label: string }[]
-  value: T
-  baseUrl: string
-  token: string
-  onType: (t: T) => void
-  onBaseUrl: (s: string) => void
-  onToken: (s: string) => void
-}) {
+function ServiceCard({ service }: { service: SourceService }) {
   const styles = useStyles()
   const colors = useThemeColors()
   const toast = useToast()
-  const [testing, setTesting] = useState(false)
-  const enabled = value !== 'none'
+  const update = useExternalSourcesStore((s) => s.updateService)
+  const remove = useExternalSourcesStore((s) => s.removeService)
+  const [test, setTest] = useState<TestState>('unknown')
+
+  const caps = SOURCE_CAPS[service.type]
+  const statusText =
+    test === 'ok' ? '已连接' : test === 'fail' ? '连接失败' : test === 'testing' ? '测试中…' : '未测试'
+  const statusColor =
+    test === 'ok' ? colors.actionText : test === 'fail' ? colors.danger : colors.textTertiary
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>{title}</Text>
-      <Text style={styles.cardHint}>{hint}</Text>
-
-      <View style={styles.chipsRow}>
-        {types.map((t) => {
-          const active = t.value === value
-          return (
-            <Pressable
-              key={t.value}
-              onPress={() => onType(t.value)}
-              style={[styles.chip, active && { backgroundColor: colors.stateSelected }]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-            >
-              <Text style={[styles.chipText, active && { color: colors.actionText }]}>{t.label}</Text>
-            </Pressable>
-          )
-        })}
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>{caps.label}</Text>
+        <Text style={[styles.status, { color: statusColor }]}>{statusText}</Text>
+        <Pressable onPress={() => remove(service.id)} hitSlop={8} accessibilityRole="button" accessibilityLabel="删除服务">
+          <Text style={[styles.delete, { color: colors.danger }]}>删除</Text>
+        </Pressable>
       </View>
+      <Text style={styles.cardHint}>{caps.hint}</Text>
 
-      {enabled ? (
-        <>
-          <Text style={styles.fieldLabel}>服务地址</Text>
-          <TextInput
-            style={styles.input}
-            value={baseUrl}
-            onChangeText={onBaseUrl}
-            placeholder="http://192.168.x.x:端口"
-            placeholderTextColor={colors.textTertiary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
-          <Text style={styles.fieldLabel}>鉴权 Token（可选）</Text>
-          <TextInput
-            style={styles.input}
-            value={token}
-            onChangeText={onToken}
-            placeholder="留空表示无鉴权"
-            placeholderTextColor={colors.textTertiary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-          />
-          <Pressable
-            disabled={testing || !baseUrl.trim()}
-            onPress={async () => {
-              setTesting(true)
-              const ok = await testConnection(baseUrl, token || undefined)
-              setTesting(false)
-              toast(ok ? '连接成功' : '连接失败，请检查地址')
-            }}
-            style={[styles.testButton, (!baseUrl.trim() || testing) && { opacity: 0.5 }]}
-            accessibilityRole="button"
-            accessibilityLabel="测试连接"
-          >
-            <Text style={styles.testButtonText}>{testing ? '测试中…' : '测试连接'}</Text>
-          </Pressable>
-        </>
+      <Text style={styles.fieldLabel}>服务地址</Text>
+      <TextInput
+        style={styles.input}
+        value={service.baseUrl}
+        onChangeText={(baseUrl) => {
+          update(service.id, { baseUrl })
+          setTest('unknown')
+        }}
+        placeholder="http://192.168.x.x:端口"
+        placeholderTextColor={colors.textTertiary}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+      />
+      <Text style={styles.fieldLabel}>鉴权 Token（可选）</Text>
+      <TextInput
+        style={styles.input}
+        value={service.token ?? ''}
+        onChangeText={(token) => update(service.id, { token })}
+        placeholder="留空表示无鉴权"
+        placeholderTextColor={colors.textTertiary}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+
+      {/* 能力开关：只显示该类型支持的 */}
+      {caps.lyrics ? (
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>用于逐字歌词</Text>
+          <Switch value={service.useLyrics} onValueChange={(v) => update(service.id, { useLyrics: v })} />
+        </View>
       ) : null}
+      {caps.musicInfo ? (
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>用于完整度信息</Text>
+          <Switch value={service.useMusicInfo} onValueChange={(v) => update(service.id, { useMusicInfo: v })} />
+        </View>
+      ) : null}
+
+      <Pressable
+        disabled={test === 'testing' || !service.baseUrl.trim()}
+        onPress={async () => {
+          setTest('testing')
+          const ok = await testConnection(service.baseUrl, service.token || undefined)
+          setTest(ok ? 'ok' : 'fail')
+          toast(ok ? '连接成功' : '连接失败，请检查地址')
+        }}
+        style={[styles.testButton, (!service.baseUrl.trim() || test === 'testing') && { opacity: 0.5 }]}
+        accessibilityRole="button"
+        accessibilityLabel="测试连接"
+      >
+        <Text style={[styles.testButtonText, { color: colors.actionText }]}>
+          {test === 'testing' ? '测试中…' : '测试连接'}
+        </Text>
+      </Pressable>
     </View>
   )
 }
@@ -184,22 +159,18 @@ function SourceCard<T extends string>({
 const useStyles = createThemedStyles((colors) => ({
   container: { padding: spacing.lg, paddingBottom: 40, gap: spacing.md },
   intro: { ...typography.footnote, color: colors.textSecondary, lineHeight: 20 },
+  empty: { ...typography.body, color: colors.textTertiary, textAlign: 'center', paddingVertical: spacing.lg },
   card: {
     backgroundColor: colors.bgListItem,
     borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.sm,
   },
-  cardTitle: { ...typography.callout, fontWeight: '600', color: colors.textPrimary },
-  cardHint: { ...typography.caption, color: colors.textTertiary, lineHeight: 18 },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: 4 },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bgListItemSoft,
-  },
-  chipText: { ...typography.subhead, color: colors.textSecondary },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cardTitle: { ...typography.callout, fontWeight: '600', color: colors.textPrimary, flex: 1 },
+  status: { ...typography.footnote },
+  delete: { ...typography.footnote },
+  cardHint: { ...typography.caption, color: colors.textTertiary },
   fieldLabel: { ...typography.footnote, color: colors.textSecondary, marginTop: 4 },
   input: {
     ...typography.body,
@@ -209,6 +180,14 @@ const useStyles = createThemedStyles((colors) => ({
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
   },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  toggleLabel: { ...typography.body, color: colors.textPrimary },
   testButton: {
     marginTop: spacing.sm,
     alignSelf: 'flex-start',
@@ -217,5 +196,14 @@ const useStyles = createThemedStyles((colors) => ({
     borderRadius: radius.sm,
     backgroundColor: colors.bgListItemSoft,
   },
-  testButtonText: { ...typography.subhead, fontWeight: '600', color: colors.actionText },
+  testButtonText: { ...typography.subhead, fontWeight: '600' },
+  addTitle: { ...typography.footnote, color: colors.textSecondary, marginTop: spacing.sm },
+  addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  addChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bgListItemSoft,
+  },
+  addChipText: { ...typography.subhead, fontWeight: '600' },
 }))

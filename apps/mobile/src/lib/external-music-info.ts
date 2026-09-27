@@ -1,6 +1,8 @@
 import type { CanonicalAlbum, CanonicalTrack } from '@qj/core-domain'
 import { normalizeName } from '@qj/core-domain'
-import { useExternalSourcesStore, normalizeBaseUrl } from '@/lib/external-source'
+import { getMusicInfoSource, hasMusicInfoSource, normalizeBaseUrl } from '@/lib/external-source'
+
+export { hasMusicInfoSource }
 
 /**
  * 音乐信息源适配器：从用户自填的国内服务取「规范专辑曲目 / 艺人作品集」，供完整度计算。
@@ -29,17 +31,7 @@ async function getJson(url: string, token?: string): Promise<any | null> {
   }
 }
 
-function getMusicInfoSource() {
-  return useExternalSourcesStore.getState().musicInfo
-}
-
-/** 是否已配置可用的音乐信息源 */
-export function hasMusicInfoSource(): boolean {
-  const s = useExternalSourcesStore.getState().musicInfo
-  return s.type !== 'none' && normalizeBaseUrl(s.baseUrl).length > 0
-}
-
-// ── 网易云 ────────────────────────────────────────────────────────────────
+// ── 网易云 ──────────────────────────────────────────────────────────────────────────────────────────
 async function neteaseAlbumTracks(
   base: string,
   token: string | undefined,
