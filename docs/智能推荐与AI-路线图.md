@@ -16,6 +16,17 @@
 国内源（网易云/QQ/豆瓣/百度百科）都无官方开放 API、只能逆向或爬，故不内置、由用户自填域名
 （与 AI 供应商同一套“用户自带”哲学）。
 
+### 0.0.1 已落地：外部数据源设置 + 逐字歌词（2026-09-27）
+
+- 设置 → **外部数据源**（`screens/external-sources.tsx`）：按功能分两项，默认都关。
+  - 歌词源：关闭 / 网易云(逐字) / LrcAPI；音乐信息源：关闭 / 网易云 / QQ。各项 = 类型 + 地址 + token + 测试连接。
+  - 配置存 `external-source.ts`（SecureStore）。
+- **逐字歌词**：`lyrics-parse.ts`（core-domain）解析网易云 yrc→words[] / 标准 LRC→行；
+  `external-lyrics.ts` 适配器（网易云 search+lyric/new、LrcAPI /lyrics）；
+  `loadLyricSheet` 接入：本地缓存 > 飞牛 > 外部，按 LyricTier（逐字>行>纯文）择优。
+  App 早已内置逐字渲染，有 yrc 就卡拉OK、没就整行高亮。
+- 待办：音乐信息源适配器（专辑曲目/艺人作品）+ 完整度视图 UI；QQ qrc（加密）暂未做。
+
 ## 0.1 一句话目标
 
 把这个 App 从「播放器」升级成「**能养干净、养完整、懂你口味的本地曲库管家**」——

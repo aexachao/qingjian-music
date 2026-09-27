@@ -10,6 +10,7 @@ export default function StackLayout() {
       <Stack.Screen name="cache" options={{ title: '缓存' }} />
       <Stack.Screen name="library" options={{ title: '曲库管理' }} />
       <Stack.Screen name="appearance" options={{ title: '外观主题' }} />
+      <Stack.Screen name="external-sources" options={{ title: '外部数据源' }} />
       <Stack.Screen name="about" options={{ title: '关于' }} />
       <Stack.Screen name="support" options={{ title: '支持作者' }} />
     </Stack>

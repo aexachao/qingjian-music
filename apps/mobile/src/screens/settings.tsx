@@ -167,6 +167,12 @@ export function SettingsScreen() {
               />
             </>
           ) : null}
+          <View style={styles.divider} />
+          <SettingsRow
+            icon="server"
+            label="外部数据源"
+            onPress={() => router.push('/(tabs)/settings/external-sources')}
+          />
         </View>
 
         {/* 卡片 2：帮助与关于 */}

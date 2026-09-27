@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { LyricSheet } from '@qj/core-domain'
+import { LYRIC_TIER_RANK } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { useServerSession } from '@/lib/server-session'
 import { readCachedLyric, writeCachedLyric } from '@/lib/lyric-cache'
-import { usePlayerStore } from '@/player/store'
+import { fetchExternalLyricSheet, type LyricQueryMeta } from '@/lib/external-lyrics'
+import { selectCurrent, usePlayerStore } from '@/player/store'
 
 /** 每次调整多少毫秒 */
 export const OFFSET_STEP_MS = 500
@@ -35,31 +37,45 @@ export function fetchLyricSheet(
 }
 
 /**
- * 取歌词：**本地优先**。
- * 本地命中（按「逐字 > 整行 > 纯文本」取最好的一份）就直接返回，不发请求；
- * 未命中才打服务端，并把选中的那份写回本地。
+ * 取歌词：**本地优先**，其次飞牛，最后外部源。
+ * 本地命中（按「逐字 > 整行 > 纯文本」取最好的一份）就直接返回；
+ * 未命中才打飞牛；若飞牛不是逐字且用户配了外部源，再试外部源拿逐字，按档位择优。
  */
 export async function loadLyricSheet(
   provider: Pick<MusicProvider, 'lyrics'> | null | undefined,
   serverId: string | undefined,
   trackId: string,
+  meta?: LyricQueryMeta,
 ): Promise<LyricSheet | null> {
   if (serverId) {
     const cached = readCachedLyric(serverId, trackId)
     if (cached) return cached
   }
-  const sheet = await fetchLyricSheet(provider, trackId)
-  if (sheet && serverId) writeCachedLyric(serverId, trackId, sheet)
-  return sheet
+  let best = await fetchLyricSheet(provider, trackId)
+  // 飞牛 非逐字（或无）+ 用户配了外部源 → 试拿更好的（尤其逐字）
+  if ((!best || best.tier !== 'word') && meta?.title) {
+    const external = await fetchExternalLyricSheet(meta)
+    if (external && (!best || LYRIC_TIER_RANK[external.tier] < LYRIC_TIER_RANK[best.tier])) {
+      best = external
+    }
+  }
+  if (best && serverId) writeCachedLyric(serverId, trackId, best)
+  return best
 }
 
 /** 当前曲目的歌词。歌词页、播放页「···」菜单、分享歌词共用同一份缓存 */
 export function useLyricSheet(trackId: string) {
   const { provider, connection } = useServerSession()
+  // 外部歌词源（网易云/LrcAPI）靠歌名+艺人搜索，从当前队列项拿元数据
+  const current = usePlayerStore(selectCurrent)
+  const meta: LyricQueryMeta | undefined =
+    current && current.trackId === trackId
+      ? { title: current.title, artist: current.artistText, album: current.albumText }
+      : undefined
   return useQuery<LyricSheet | null>({
     queryKey: lyricQueryKey(connection?.id, trackId),
     enabled: Boolean(provider && trackId),
-    queryFn: () => loadLyricSheet(provider, connection?.id, trackId),
+    queryFn: () => loadLyricSheet(provider, connection?.id, trackId, meta),
     staleTime: LYRIC_STALE_MS,
   })
 }
