@@ -16,6 +16,7 @@ import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import { EmptyState } from '@/components/list-states'
 import { SearchFieldShell } from '@/components/search-field'
 import { SegmentedTabs } from '@/components/segmented-tabs'
+import { TabPager } from '@/components/tab-pager'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { clearRecentSearches, listRecentSearches, pushRecentSearch, removeRecentSearch } from '@/lib/recent-search'
 import { buildSuggestionRows, SUGGEST_KIND_LABEL, type SuggestKind } from '@/lib/search-suggestions'
@@ -69,6 +70,7 @@ export function SearchQueryScreen() {
   const canSearchPlaylists = Boolean(provider?.searchPlaylists && provider.capabilities.playlists !== 'none')
   const tabs = useMemo(() => searchTabs({ canSearchPlaylists }), [canSearchPlaylists])
   const activeTab = clampSearchTabKey(tabs, tab)
+  const activeTabIndex = Math.max(0, tabs.findIndex((t) => t.key === activeTab))
 
   const suggestEnabled =
     editing && debounced.length > 0 && Boolean(provider?.capabilities.searchSuggest && provider?.suggest)
@@ -181,7 +183,11 @@ export function SearchQueryScreen() {
               accessibilityLabel="搜索结果分类"
             />
           </View>
-          <SearchResultList type={activeTab} keyword={committed} />
+          <TabPager activeIndex={activeTabIndex} style={styles.flex}>
+            {tabs.map((tabItem) => (
+              <SearchResultList key={tabItem.key} type={tabItem.key} keyword={committed} />
+            ))}
+          </TabPager>
         </>
       ) : showSuggestions ? (
         <FlatList

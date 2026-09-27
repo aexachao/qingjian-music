@@ -1,14 +1,21 @@
+import { useEffect, useRef } from 'react'
 import { ScrollView, Pressable, StyleSheet, Text, View } from 'react-native'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated'
 import { createThemedStyles } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
 
 /**
- * 通用分段控件（搜索结果页签用的就是它）。
+ * 通用分段控件（搜索结果、音乐人详情、收藏分类等页签均使用）。
  *
- * 仓库里此前没有这种东西 —— `(tabs)/_layout.tsx` 那个是路由级 tabBar，不是一个能放在
- * 页面里的组件。样式走 design token：未选中是次要文字，选中是强调色 + 下方一条强调色指示条。
- * 页签多到放不下时可以横向滚动（所以我们不用 iOS 的 UISegmentedControl，
- * 那个会把标题挤成省略号）。
+ * 采用与播放列表 (待播/历史) 一致的平滑滑动指示条：
+ * - 贝塞尔曲线 Easing.bezier(0.25, 0.1, 0.25, 1) 平滑过渡
+ * - 动态测量各 Tab 的 x 坐标与宽度，指示条单实例流畅位移
+ * - 支持居中 (center) 与超长横向平滑跟滚 (scrollTo)
  */
 export interface SegmentedTabItem<T extends string = string> {
   key: T
@@ -33,9 +40,60 @@ export function SegmentedTabs<T extends string = string>({
   center,
 }: SegmentedTabsProps<T>) {
   const styles = useStyles()
+  const scrollViewRef = useRef<ScrollView>(null)
+  const tabLayouts = useRef<Record<string, { x: number; width: number }>>({})
+  const isInitialRef = useRef(true)
+
+  const indicatorX = useSharedValue(0)
+  const indicatorWidth = useSharedValue(0)
+  const indicatorOpacity = useSharedValue(0)
+
+  const onTabLayout = (key: T, layout: { x: number; width: number }) => {
+    tabLayouts.current[key] = layout
+    if (key === value && isInitialRef.current) {
+      isInitialRef.current = false
+      indicatorX.value = layout.x
+      indicatorWidth.value = layout.width
+      indicatorOpacity.value = 1
+    }
+  }
+
+  useEffect(() => {
+    const layout = tabLayouts.current[value]
+    if (!layout) return
+    const targetX = layout.x
+    const targetWidth = layout.width
+
+    if (!isInitialRef.current) {
+      indicatorX.value = withTiming(targetX, {
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      })
+      indicatorWidth.value = withTiming(targetWidth, {
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      })
+    } else {
+      indicatorX.value = targetX
+      indicatorWidth.value = targetWidth
+    }
+    indicatorOpacity.value = 1
+
+    scrollViewRef.current?.scrollTo({
+      x: Math.max(0, targetX - 32),
+      animated: true,
+    })
+  }, [indicatorOpacity, indicatorWidth, indicatorX, value])
+
+  const indicatorAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+    width: indicatorWidth.value,
+    opacity: indicatorOpacity.value,
+  }))
 
   return (
     <ScrollView
+      ref={scrollViewRef}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={[styles.row, center && styles.rowCenter]}
@@ -49,15 +107,19 @@ export function SegmentedTabs<T extends string = string>({
             key={item.key}
             style={styles.item}
             onPress={() => onChange(item.key)}
+            onLayout={(e) => onTabLayout(item.key, e.nativeEvent.layout)}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             accessibilityLabel={item.label}
           >
             <Text style={[styles.label, selected && styles.labelSelected]}>{item.label}</Text>
-            <View style={[styles.indicator, selected && styles.indicatorSelected]} />
+            {/* 占位以维持间距与高度 */}
+            <View style={styles.indicatorPlaceholder} />
           </Pressable>
         )
       })}
+      {/* 平滑滑动的指示条（单实例流体过渡） */}
+      <Animated.View style={[styles.slidingIndicator, indicatorAnimatedStyle]} pointerEvents="none" />
     </ScrollView>
   )
 }
@@ -68,6 +130,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     gap: spacing.xl,
     paddingHorizontal: spacing.lg,
+    position: 'relative',
   },
   rowCenter: {
     flexGrow: 1,
@@ -87,13 +150,15 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
     fontWeight: '600',
   },
-  indicator: {
+  indicatorPlaceholder: {
     height: 2,
-    alignSelf: 'stretch',
-    borderRadius: radius.pill,
-    backgroundColor: 'transparent',
   },
-  indicatorSelected: {
+  slidingIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    height: 2,
+    borderRadius: radius.pill,
     backgroundColor: colors.textPrimary,
   },
   // 让指示条在未选中时也占位，避免整行高度抖动

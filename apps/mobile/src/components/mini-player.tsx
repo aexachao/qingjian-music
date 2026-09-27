@@ -13,21 +13,21 @@ import { useIsAudioLoading } from '@/player/use-audio-loading'
 import { radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 
-const ARTWORK_SIZE = 40
+const ARTWORK_SIZE = 44
 const FRAME_SIZE = 48
 const STROKE_WIDTH = 2
-const ARTWORK_RADIUS = 5
+const ARTWORK_RADIUS = 6
 /**
- * 48×48 外部描边路径（从 12 点钟方向顺时针）：
+ * 48×48 紧密贴合描边路径（从 12 点钟方向顺时针）：
  * 画布 48×48，线宽 2pt，中心线内缩 1pt。
- * 中心线矩形范围：x: 1~47 (宽 46), y: 1~47 (高 46), 内圆角 r = 8。
- * 外轮廓曲率 8 + 1 = 9，内边缘曲率 8 - 1 = 7。
- * 内部居中放置 40×40 封面 (圆角 5)，四周留 2pt 悬浮微缝，同心圆角严格等距。
+ * 中心线矩形范围：x: 1~47 (宽 46), y: 1~47 (高 46), 中心圆角 r = 7。
+ * 外轮廓曲率 7 + 1 = 8，内边缘曲率 7 - 1 = 6。
+ * 内部居中放置 44×44 封面 (圆角 6)，与进度描边内缘间距严格为 0pt，紧密贴合外包围。
  */
 const STROKE_PATH =
-  'M 24 1 L 39 1 A 8 8 0 0 1 47 9 L 47 39 A 8 8 0 0 1 39 47 L 9 47 A 8 8 0 0 1 1 39 L 1 9 A 8 8 0 0 1 9 1 L 24 1 Z'
-/** 直线段 15 + 30 + 30 + 30 + 15 = 120，四角圆弧 2 * π * 8 ≈ 50.265，总周长 ≈ 170.265 */
-const STROKE_PERIMETER = 120 + 16 * Math.PI
+  'M 24 1 L 40 1 A 7 7 0 0 1 47 8 L 47 40 A 7 7 0 0 1 40 47 L 8 47 A 7 7 0 0 1 1 40 L 1 8 A 7 7 0 0 1 8 1 L 24 1 Z'
+/** 直线段 16 + 32 + 32 + 32 + 16 = 128，四角圆弧 2 * π * 7 ≈ 43.982，总周长 ≈ 171.982 */
+const STROKE_PERIMETER = 128 + 14 * Math.PI
 
 /** iOS 有真毛玻璃（UIVisualEffectView），Android 上 BlurView 不可靠 —— 所以两端一律用实心底，不引入 BlurView */
 
@@ -94,11 +94,11 @@ export function MiniPlayer() {
                 strokeWidth={STROKE_WIDTH}
                 fill="none"
               />
-              {/* 品牌色进度高亮描边：从 12 点钟方向顺时针推进 */}
+              {/* 进度高亮描边：深色模式纯白、浅色模式纯黑，秉持黑白灰为主原则 */}
               {ratio > 0.001 ? (
                 <Path
                   d={STROKE_PATH}
-                  stroke={colors.playing}
+                  stroke={colors.textPrimary}
                   strokeWidth={STROKE_WIDTH}
                   fill="none"
                   strokeLinecap="round"

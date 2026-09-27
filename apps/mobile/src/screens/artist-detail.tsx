@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   FlatList,
   Pressable,
@@ -18,11 +18,12 @@ import { CoverImage } from '@/components/cover-image'
 import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { FormatBadge } from '@/components/format-badge'
 import { Icon, IconButton, iconSize } from '@/components/icon'
-import { ListToolbar, ListToolbarBar, useListSort } from '@/components/list-toolbar'
+import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { LivePlayingBars } from '@/components/playing-bars'
 import { SegmentedTabs } from '@/components/segmented-tabs'
 import { StackBackButton } from '@/components/stack-back-button'
+import { TabPager } from '@/components/tab-pager'
 import { TrackMoreButton } from '@/components/track-more-button'
 import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
@@ -85,6 +86,11 @@ export function ArtistDetailScreen() {
   const pinAt = Math.max(0, tracksHeaderHeight - toolbarHeight - topHeaderOffset)
 
   const [tab, setTab] = useState<ArtistTab>('overview')
+  const activeTabIndex = Math.max(0, TABS.findIndex((t) => t.key === tab))
+  const overviewListRef = useRef<FlatList>(null)
+  const albumsListRef = useRef<FlatList>(null)
+  const tracksListRef = useRef<FlatList>(null)
+  const scrollYRef = useRef(0)
   const [pinned, setPinned] = useState(false)
   const [expandedBio, setExpandedBio] = useState(false)
 
@@ -258,6 +264,7 @@ export function ArtistDetailScreen() {
   // 滚动监听：触碰阈值折叠吸顶（滚动越过宽幅巨幕 220pt 时平滑过渡为吸顶栏，全部歌曲 tab 下越过 pinAt 时固定工具条）
   const handleScroll = useCallback(
     (eventY: number) => {
+      scrollYRef.current = eventY
       const isPast = eventY > 220
       setPinned((prev) => (prev === isPast ? prev : isPast))
 
@@ -272,6 +279,17 @@ export function ArtistDetailScreen() {
   )
 
   const handleTabChange = useCallback((nextTab: ArtistTab) => {
+    const currentY = scrollYRef.current
+    const targetY = Math.min(220, Math.max(0, currentY))
+
+    if (nextTab === 'overview') {
+      overviewListRef.current?.scrollToOffset({ offset: targetY, animated: false })
+    } else if (nextTab === 'albums') {
+      albumsListRef.current?.scrollToOffset({ offset: targetY, animated: false })
+    } else if (nextTab === 'tracks') {
+      tracksListRef.current?.scrollToOffset({ offset: targetY, animated: false })
+    }
+
     setTab(nextTab)
     setIsToolbarPinned(false)
   }, [])
@@ -482,314 +500,319 @@ export function ArtistDetailScreen() {
     <View style={styles.root}>
       {titleScreen}
 
-      {/* ========== TAB 1: 精选 (Overview) ========== */}
-      {tab === 'overview' && (
-        <FlatList
-          data={popularTracks}
-          keyExtractor={(item) => `pop-${item.id}`}
-          contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
-          scrollEventThrottle={16}
-          onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
-          ListHeaderComponent={
-            <View>
-              {headerComponent}
+      <TabPager activeIndex={activeTabIndex} lazy={false} style={styles.flex}>
+        {/* ========== TAB 1: 精选 (Overview) ========== */}
+        <View style={styles.flex}>
+          <FlatList
+            ref={overviewListRef}
+            data={popularTracks}
+            keyExtractor={(item) => `pop-${item.id}`}
+            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
+            scrollEventThrottle={16}
+            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
+            ListHeaderComponent={
+              <View>
+                {headerComponent}
 
-              {/* 分区 1：热门歌曲 Top 5 */}
-              <View style={styles.sectionHeaderWrap}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitle}>热门歌曲</Text>
-                  <Pressable
-                    onPress={() => setTab('tracks')}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.seeAllBtn, pressed && styles.seeAllPressed]}
-                    accessibilityRole="button"
-                    accessibilityLabel="查看全部歌曲"
-                  >
-                    <Text style={styles.seeAllText}>全部歌曲</Text>
-                    <Icon name="chevronRight" size={13} color={colors.textTertiary} />
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-          }
-          renderItem={({ item, index }) => {
-            const isPlaying = current?.serverId === connection?.id && current?.trackId === item.id
-            const albumName = item.album?.name || '单曲'
-
-            return (
-              <Pressable
-                style={({ pressed }) => [styles.popularRow, pressed && styles.rowPressed]}
-                onPress={() => {
-                  void playTrackList({
-                    provider: provider!,
-                    serverId: connection!.id,
-                    tracks: popularTracks,
-                    startIndex: index,
-                    source: { kind: 'artist', id, label: `热门 · ${artistName}` },
-                  })
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`${index + 1} ${item.title}`}
-              >
-                {/* 排行名次 */}
-                <View style={styles.rankCol}>
-                  <Text style={[styles.rankNumber, index === 0 && styles.rankFirst]}>
-                    {index + 1}
-                  </Text>
-                </View>
-
-                {/* 封面 */}
-                <CoverImage coverId={item.coverId ?? item.album?.coverId} size={42} borderRadius={radius.sm} />
-
-                {/* 歌名与元数据 */}
-                <View style={styles.trackInfoCol}>
-                  <View style={styles.trackTitleRow}>
-                    {isPlaying ? (
-                      <View style={styles.liveBarsSlot}>
-                        <LivePlayingBars size={11} />
-                      </View>
-                    ) : null}
-                    <Text numberOfLines={1} style={[styles.trackTitle, isPlaying && styles.trackTitlePlaying]}>
-                      {item.title}
-                    </Text>
-                  </View>
-
-                  <View style={styles.trackSubRow}>
-                    <FormatBadge track={item} />
-                    <Text numberOfLines={1} style={styles.trackAlbum}>
-                      {albumName}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* 独立操作 */}
-                <TrackMoreButton track={item} />
-              </Pressable>
-            )
-          }}
-          ListFooterComponent={
-            <View style={styles.overviewFooter}>
-              {/* 分区 2：最新发布（若存在且专辑数 > 1） */}
-              {latestAlbum ? (
-                <View style={styles.shelfSection}>
+                {/* 分区 1：热门歌曲 Top 5 */}
+                <View style={styles.sectionHeaderWrap}>
                   <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>最新发布</Text>
-                  </View>
-                  <Link href={href.album(latestAlbum.id)} asChild>
-                    <Pressable style={({ pressed }) => [styles.latestCard, pressed && styles.cardPressed]}>
-                      <CoverImage coverId={latestAlbum.coverId} size={72} borderRadius={radius.md} />
-                      <View style={styles.latestCardInfo}>
-                        <Text style={styles.latestBadge}>
-                          {latestAlbum.releaseDate ? `本地最新 · ${latestAlbum.releaseDate.slice(0, 4)} 年` : '本地最新专辑'}
-                        </Text>
-                        <Text numberOfLines={1} style={styles.latestTitle}>
-                          {latestAlbum.name}
-                        </Text>
-                        <Text style={styles.latestMeta}>
-                          {latestAlbum.trackCount ? `${latestAlbum.trackCount} 首歌曲` : '完整专辑'}
-                        </Text>
-                      </View>
-                      <Icon name="chevronRight" size={16} color={colors.textTertiary} />
-                    </Pressable>
-                  </Link>
-                </View>
-              ) : null}
-
-              {/* 分区 3：专辑横滑架 */}
-              {albums.items.length > 0 ? (
-                <View style={styles.shelfSection}>
-                  <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>专辑</Text>
+                    <Text style={styles.sectionTitle}>热门歌曲</Text>
                     <Pressable
-                      onPress={() => setTab('albums')}
+                      onPress={() => handleTabChange('tracks')}
                       hitSlop={8}
                       style={({ pressed }) => [styles.seeAllBtn, pressed && styles.seeAllPressed]}
                       accessibilityRole="button"
-                      accessibilityLabel="查看全部专辑"
+                      accessibilityLabel="查看全部歌曲"
                     >
-                      <Text style={styles.seeAllText}>全部专辑</Text>
+                      <Text style={styles.seeAllText}>全部歌曲</Text>
                       <Icon name="chevronRight" size={13} color={colors.textTertiary} />
                     </Pressable>
                   </View>
-                  <FlatList
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    data={albums.items}
-                    keyExtractor={(item) => `shelf-${item.id}`}
-                    contentContainerStyle={styles.shelfScrollContent}
-                    renderItem={({ item }) => (
-                      <Link href={href.album(item.id)} asChild>
-                        <Pressable style={styles.shelfTile}>
-                          <CoverImage coverId={item.coverId} size={132} borderRadius={radius.album} />
-                          <Text numberOfLines={1} style={styles.shelfAlbumTitle}>
-                            {item.name}
-                          </Text>
-                          {item.releaseDate ? (
-                            <Text style={styles.shelfAlbumYear}>{item.releaseDate.slice(0, 4)}</Text>
-                          ) : null}
-                        </Pressable>
-                      </Link>
-                    )}
-                  />
                 </View>
-              ) : null}
-
-              {/* 分区 4：相似音乐人（若本地库有匹配） */}
-              {matchedSimilarArtists.length > 0 ? (
-                <View style={styles.shelfSection}>
-                  <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>相似音乐人</Text>
-                  </View>
-                  <FlatList
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    data={matchedSimilarArtists}
-                    keyExtractor={(item) => `sim-${item.id}`}
-                    contentContainerStyle={styles.shelfScrollContent}
-                    renderItem={({ item }) => (
-                      <Link href={href.artist(item.id)} asChild>
-                        <Pressable style={styles.similarTile}>
-                          <CoverImage coverId={item.coverId} size={72} borderRadius={36} />
-                          <Text numberOfLines={1} style={styles.similarName}>
-                            {item.name}
-                          </Text>
-                        </Pressable>
-                      </Link>
-                    )}
-                  />
-                </View>
-              ) : null}
-
-              {/* 分区 5：关于音乐人（Last.fm 生平介绍） */}
-              {lastfmInfoQuery.data?.bioSummary ? (
-                <View style={styles.shelfSection}>
-                  <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>关于音乐人</Text>
-                  </View>
-                  <Pressable
-                    style={styles.bioCard}
-                    onPress={() => setExpandedBio((prev) => !prev)}
-                    accessibilityRole="button"
-                    accessibilityLabel="生平简介"
-                  >
-                    <Text
-                      numberOfLines={expandedBio ? undefined : 4}
-                      style={styles.bioText}
-                    >
-                      {lastfmInfoQuery.data.bioSummary}
-                    </Text>
-                    <Text style={styles.bioExpandHint}>
-                      {expandedBio ? '收起 ‹' : '展开全文 ›'}
-                    </Text>
-
-                    {lastfmInfoQuery.data.tags.length > 0 ? (
-                      <View style={styles.tagsRow}>
-                        {lastfmInfoQuery.data.tags.slice(0, 4).map((t) => (
-                          <View key={t} style={styles.tagPill}>
-                            <Text style={styles.tagText}>{t.toUpperCase()}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
-          }
-        />
-      )}
-
-      {/* ========== TAB 2: 专辑网格 (Albums Wall) ========== */}
-      {tab === 'albums' && (
-        <FlatList
-          data={albums.items}
-          key={columns}
-          numColumns={columns}
-          keyExtractor={(item) => `alb-${item.id}`}
-          contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
-          columnWrapperStyle={{ gap, paddingHorizontal: spacing.lg }}
-          scrollEventThrottle={16}
-          onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
-          ListHeaderComponent={headerComponent}
-          ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
-          renderItem={({ item }) => (
-            <Link href={href.album(item.id)} asChild>
-              <Pressable style={{ width: albumItemWidth }} accessibilityRole="button" accessibilityLabel={`专辑 ${item.name}`}>
-                <CoverImage coverId={item.coverId} size={albumItemWidth} borderRadius={radius.md} />
-                <Text numberOfLines={1} style={styles.gridAlbumName}>
-                  {item.name}
-                </Text>
-                {item.releaseDate ? (
-                  <Text numberOfLines={1} style={styles.gridAlbumYear}>
-                    {item.releaseDate.slice(0, 4)}
-                  </Text>
-                ) : null}
-              </Pressable>
-            </Link>
-          )}
-          ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
-          onEndReached={albums.loadMore}
-          ListFooterComponent={
-            <PaginationFooter
-              loading={albums.query.isFetchingNextPage}
-              error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
-              onRetry={() => void albums.query.fetchNextPage()}
-            />
-          }
-        />
-      )}
-
-      {/* ========== TAB 3: 全部歌曲 (All Tracks) ========== */}
-      {tab === 'tracks' && (
-        <FlatList
-          data={allTracks.items}
-          keyExtractor={(item) => `all-${item.id}`}
-          contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
-          scrollEventThrottle={16}
-          onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
-          ListHeaderComponent={
-            <View onLayout={(e) => setTracksHeaderHeight(e.nativeEvent.layout.height)}>
-              {headerComponent}
-              <View
-                style={styles.toolbarSlot}
-                onLayout={(e) => setToolbarHeight(e.nativeEvent.layout.height)}
-              >
-                {toolbar}
               </View>
-            </View>
-          }
-          ListEmptyComponent={<EmptyState text="这位艺术家还没有歌曲" />}
-          renderItem={({ item, index }) => (
-            <View style={styles.trackRowWrapper}>
-              <TrackRow
-                track={item}
-                index={index}
-                leading="cover"
-                playing={current?.serverId === connection?.id && current?.trackId === item.id}
-                onPress={() => {
-                  if (!provider || !connection) return
-                  void playTrackList({
-                    provider,
-                    serverId: connection.id,
-                    tracks: allTracks.items,
-                    startIndex: index,
-                    source: { kind: 'artist', id, label: `艺术家 · ${artistName}` },
-                  })
-                }}
+            }
+            renderItem={({ item, index }) => {
+              const isPlaying = current?.serverId === connection?.id && current?.trackId === item.id
+              const albumName = item.album?.name || '单曲'
+
+              return (
+                <Pressable
+                  style={({ pressed }) => [styles.popularRow, pressed && styles.rowPressed]}
+                  onPress={() => {
+                    void playTrackList({
+                      provider: provider!,
+                      serverId: connection!.id,
+                      tracks: popularTracks,
+                      startIndex: index,
+                      source: { kind: 'artist', id, label: `热门 · ${artistName}` },
+                    })
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${index + 1} ${item.title}`}
+                >
+                  {/* 排行名次 */}
+                  <View style={styles.rankCol}>
+                    <Text style={[styles.rankNumber, index === 0 && styles.rankFirst]}>
+                      {index + 1}
+                    </Text>
+                  </View>
+
+                  {/* 封面 */}
+                  <CoverImage coverId={item.coverId ?? item.album?.coverId} size={42} borderRadius={radius.sm} />
+
+                  {/* 歌名与元数据 */}
+                  <View style={styles.trackInfoCol}>
+                    <View style={styles.trackTitleRow}>
+                      {isPlaying ? (
+                        <View style={styles.liveBarsSlot}>
+                          <LivePlayingBars size={11} />
+                        </View>
+                      ) : null}
+                      <Text numberOfLines={1} style={[styles.trackTitle, isPlaying && styles.trackTitlePlaying]}>
+                        {item.title}
+                      </Text>
+                    </View>
+
+                    <View style={styles.trackSubRow}>
+                      <FormatBadge track={item} />
+                      <Text numberOfLines={1} style={styles.trackAlbum}>
+                        {albumName}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* 独立操作 */}
+                  <TrackMoreButton track={item} />
+                </Pressable>
+              )
+            }}
+            ListFooterComponent={
+              <View style={styles.overviewFooter}>
+                {/* 分区 2：最新发布（若存在且专辑数 > 1） */}
+                {latestAlbum ? (
+                  <View style={styles.shelfSection}>
+                    <View style={styles.sectionHeaderRow}>
+                      <Text style={styles.sectionTitle}>最新发布</Text>
+                    </View>
+                    <Link href={href.album(latestAlbum.id)} asChild>
+                      <Pressable style={({ pressed }) => [styles.latestCard, pressed && styles.cardPressed]}>
+                        <CoverImage coverId={latestAlbum.coverId} size={72} borderRadius={radius.md} />
+                        <View style={styles.latestCardInfo}>
+                          <Text style={styles.latestBadge}>
+                            {latestAlbum.releaseDate ? `本地最新 · ${latestAlbum.releaseDate.slice(0, 4)} 年` : '本地最新专辑'}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.latestTitle}>
+                            {latestAlbum.name}
+                          </Text>
+                          <Text style={styles.latestMeta}>
+                            {latestAlbum.trackCount ? `${latestAlbum.trackCount} 首歌曲` : '完整专辑'}
+                          </Text>
+                        </View>
+                        <Icon name="chevronRight" size={16} color={colors.textTertiary} />
+                      </Pressable>
+                    </Link>
+                  </View>
+                ) : null}
+
+                {/* 分区 3：专辑横滑架 */}
+                {albums.items.length > 0 ? (
+                  <View style={styles.shelfSection}>
+                    <View style={styles.sectionHeaderRow}>
+                      <Text style={styles.sectionTitle}>专辑</Text>
+                      <Pressable
+                        onPress={() => handleTabChange('albums')}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.seeAllBtn, pressed && styles.seeAllPressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel="查看全部专辑"
+                      >
+                        <Text style={styles.seeAllText}>全部专辑</Text>
+                        <Icon name="chevronRight" size={13} color={colors.textTertiary} />
+                      </Pressable>
+                    </View>
+                    <FlatList
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      data={albums.items}
+                      keyExtractor={(item) => `shelf-${item.id}`}
+                      contentContainerStyle={styles.shelfScrollContent}
+                      renderItem={({ item }) => (
+                        <Link href={href.album(item.id)} asChild>
+                          <Pressable style={styles.shelfTile}>
+                            <CoverImage coverId={item.coverId} size={132} borderRadius={radius.album} />
+                            <Text numberOfLines={1} style={styles.shelfAlbumTitle}>
+                              {item.name}
+                            </Text>
+                            {item.releaseDate ? (
+                              <Text style={styles.shelfAlbumYear}>{item.releaseDate.slice(0, 4)}</Text>
+                            ) : null}
+                          </Pressable>
+                        </Link>
+                      )}
+                    />
+                  </View>
+                ) : null}
+
+                {/* 分区 4：相似音乐人（若本地库有匹配） */}
+                {matchedSimilarArtists.length > 0 ? (
+                  <View style={styles.shelfSection}>
+                    <View style={styles.sectionHeaderRow}>
+                      <Text style={styles.sectionTitle}>相似音乐人</Text>
+                    </View>
+                    <FlatList
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      data={matchedSimilarArtists}
+                      keyExtractor={(item) => `sim-${item.id}`}
+                      contentContainerStyle={styles.shelfScrollContent}
+                      renderItem={({ item }) => (
+                        <Link href={href.artist(item.id)} asChild>
+                          <Pressable style={styles.similarTile}>
+                            <CoverImage coverId={item.coverId} size={72} borderRadius={36} />
+                            <Text numberOfLines={1} style={styles.similarName}>
+                              {item.name}
+                            </Text>
+                          </Pressable>
+                        </Link>
+                      )}
+                    />
+                  </View>
+                ) : null}
+
+                {/* 分区 5：关于音乐人（Last.fm 生平介绍） */}
+                {lastfmInfoQuery.data?.bioSummary ? (
+                  <View style={styles.shelfSection}>
+                    <View style={styles.sectionHeaderRow}>
+                      <Text style={styles.sectionTitle}>关于音乐人</Text>
+                    </View>
+                    <Pressable
+                      style={styles.bioCard}
+                      onPress={() => setExpandedBio((prev) => !prev)}
+                      accessibilityRole="button"
+                      accessibilityLabel="生平简介"
+                    >
+                      <Text
+                        numberOfLines={expandedBio ? undefined : 4}
+                        style={styles.bioText}
+                      >
+                        {lastfmInfoQuery.data.bioSummary}
+                      </Text>
+                      <Text style={styles.bioExpandHint}>
+                        {expandedBio ? '收起 ‹' : '展开全文 ›'}
+                      </Text>
+
+                      {lastfmInfoQuery.data.tags.length > 0 ? (
+                        <View style={styles.tagsRow}>
+                          {lastfmInfoQuery.data.tags.slice(0, 4).map((t) => (
+                            <View key={t} style={styles.tagPill}>
+                              <Text style={styles.tagText}>{t.toUpperCase()}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            }
+          />
+        </View>
+
+        {/* ========== TAB 2: 专辑网格 (Albums Wall) ========== */}
+        <View style={styles.flex}>
+          <FlatList
+            ref={albumsListRef}
+            data={albums.items}
+            key={columns}
+            numColumns={columns}
+            keyExtractor={(item) => `alb-${item.id}`}
+            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
+            columnWrapperStyle={{ gap, paddingHorizontal: spacing.lg }}
+            scrollEventThrottle={16}
+            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
+            ListHeaderComponent={headerComponent}
+            ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
+            renderItem={({ item }) => (
+              <Link href={href.album(item.id)} asChild>
+                <Pressable style={{ width: albumItemWidth }} accessibilityRole="button" accessibilityLabel={`专辑 ${item.name}`}>
+                  <CoverImage coverId={item.coverId} size={albumItemWidth} borderRadius={radius.md} />
+                  <Text numberOfLines={1} style={styles.gridAlbumName}>
+                    {item.name}
+                  </Text>
+                  {item.releaseDate ? (
+                    <Text numberOfLines={1} style={styles.gridAlbumYear}>
+                      {item.releaseDate.slice(0, 4)}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              </Link>
+            )}
+            ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+            onEndReached={albums.loadMore}
+            ListFooterComponent={
+              <PaginationFooter
+                loading={albums.query.isFetchingNextPage}
+                error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
+                onRetry={() => void albums.query.fetchNextPage()}
               />
-            </View>
-          )}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          onEndReached={allTracks.loadMore}
-          ListFooterComponent={
-            <PaginationFooter
-              loading={allTracks.query.isFetchingNextPage}
-              error={allTracks.query.isFetchNextPageError ? allTracks.query.error : undefined}
-              onRetry={() => void allTracks.query.fetchNextPage()}
-            />
-          }
-        />
-      )}
+            }
+          />
+        </View>
+
+        {/* ========== TAB 3: 全部歌曲 (All Tracks) ========== */}
+        <View style={styles.flex}>
+          <FlatList
+            ref={tracksListRef}
+            data={allTracks.items}
+            keyExtractor={(item) => `all-${item.id}`}
+            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
+            scrollEventThrottle={16}
+            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
+            ListHeaderComponent={
+              <View onLayout={(e) => setTracksHeaderHeight(e.nativeEvent.layout.height)}>
+                {headerComponent}
+                <View
+                  style={styles.toolbarSlot}
+                  onLayout={(e) => setToolbarHeight(e.nativeEvent.layout.height)}
+                >
+                  {toolbar}
+                </View>
+              </View>
+            }
+            ListEmptyComponent={<EmptyState text="这位艺术家还没有歌曲" />}
+            renderItem={({ item, index }) => (
+              <View style={styles.trackRowWrapper}>
+                <TrackRow
+                  track={item}
+                  index={index}
+                  leading="cover"
+                  playing={current?.serverId === connection?.id && current?.trackId === item.id}
+                  onPress={() => {
+                    if (!provider || !connection) return
+                    void playTrackList({
+                      provider,
+                      serverId: connection.id,
+                      tracks: allTracks.items,
+                      startIndex: index,
+                      source: { kind: 'artist', id, label: `艺术家 · ${artistName}` },
+                    })
+                  }}
+                />
+              </View>
+            )}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            onEndReached={allTracks.loadMore}
+            ListFooterComponent={
+              <PaginationFooter
+                loading={allTracks.query.isFetchingNextPage}
+                error={allTracks.query.isFetchNextPageError ? allTracks.query.error : undefined}
+                onRetry={() => void allTracks.query.fetchNextPage()}
+              />
+            }
+          />
+        </View>
+      </TabPager>
 
       {/* 滚动过头部后吸附顶部的精简工具条 */}
       {tab === 'tracks' && isToolbarPinned && allTracks.total > 0 ? (
@@ -823,6 +846,9 @@ const useStyles = createThemedStyles((colors) => ({
   root: {
     flex: 1,
     backgroundColor: colors.bgPrimary,
+  },
+  flex: {
+    flex: 1,
   },
   // 满足 visual-consistency.test.ts 的空状态居中契约
   contentGrow: {

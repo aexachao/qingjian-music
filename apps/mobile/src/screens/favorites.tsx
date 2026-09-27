@@ -20,6 +20,7 @@ import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
 import { TrackListSkeleton } from '@/components/skeleton'
 import { SegmentedTabs, type SegmentedTabItem } from '@/components/segmented-tabs'
+import { TabPager } from '@/components/tab-pager'
 import { StackBackButton } from '@/components/stack-back-button'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { TrackRow } from '@/components/track-row'
@@ -68,6 +69,7 @@ export function FavoritesScreen() {
   const { width } = useWindowDimensions()
 
   const [activeTab, setActiveTab] = useState<FavoriteTab>('tracks')
+  const activeTabIndex = Math.max(0, TABS.findIndex((t) => t.key === activeTab))
 
   // 本地收藏的专辑与歌单（使用单例静态空数组，防止 selector 每次返回新数组引发死循环）
   const favoriteAlbums = useLocalFavoritesStore((s) =>
@@ -245,149 +247,151 @@ export function FavoritesScreen() {
       {/* 顶部柔和流体弥散氛围光底色 */}
       <AmbientHeaderBackground palette={palette} />
 
-      {/* Tab 1: 歌曲列表 */}
-      {activeTab === 'tracks' ? (
-        query.isPending && items.length === 0 ? (
-          <View style={{ paddingTop: contentTopPadding }}>
-            <TrackListSkeleton />
-          </View>
-        ) : query.isLoadingError && items.length === 0 ? (
-          <View style={{ paddingTop: contentTopPadding }}>
-            <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-          </View>
-        ) : (
+      <TabPager activeIndex={activeTabIndex} style={styles.flex}>
+        {/* Tab 1: 歌曲列表 */}
+        <View style={styles.flex}>
+          {query.isPending && items.length === 0 ? (
+            <View style={{ paddingTop: contentTopPadding }}>
+              <TrackListSkeleton />
+            </View>
+          ) : query.isLoadingError && items.length === 0 ? (
+            <View style={{ paddingTop: contentTopPadding }}>
+              <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+            </View>
+          ) : (
+            <FlatList
+              data={items}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={[
+                styles.list,
+                { paddingTop: contentTopPadding, paddingBottom: bottom },
+              ]}
+              ListHeaderComponent={
+                <View style={styles.tracksHeader}>
+                  {/* 核心双主动作胶囊：同级等权「播放全部」与「添加到队列」 */}
+                  <View style={styles.actions}>
+                    <Pressable
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                      onPress={() => void play(0)}
+                      accessibilityRole="button"
+                      accessibilityLabel="播放全部我喜欢的音乐"
+                    >
+                      <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                      <Text style={styles.secondaryButtonLabel}>播放全部</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                      onPress={() => void handleAppendToQueue()}
+                      accessibilityRole="button"
+                      accessibilityLabel="添加到播放队列"
+                    >
+                      <Icon name="add" size={iconSize.sm} color={colors.textPrimary} />
+                      <Text style={styles.secondaryButtonLabel}>添加到队列</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.toolbarSlot}>
+                    {toolbar}
+                  </View>
+                </View>
+              }
+              renderItem={({ item, index }) => (
+                <TrackRow
+                  track={item}
+                  index={index}
+                  leading="cover"
+                  playing={current?.serverId === connection?.id && current?.trackId === item.id}
+                  onPress={() => void play(index)}
+                />
+              )}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.4}
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+              ListEmptyComponent={<EmptyState text="还没有收藏的歌曲" />}
+              ListFooterComponent={
+                total > 0 ? (
+                  <PaginationFooter
+                    loading={query.isFetchingNextPage}
+                    error={query.isFetchNextPageError ? query.error : undefined}
+                    onRetry={() => void query.fetchNextPage()}
+                  />
+                ) : null
+              }
+            />
+          )}
+        </View>
+
+        {/* Tab 2: 收藏的专辑网格 */}
+        <View style={styles.flex}>
           <FlatList
-            data={items}
+            data={favoriteAlbums}
+            key={`albums-${columns}`}
+            numColumns={columns}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[
-              styles.list,
+              styles.gridList,
               { paddingTop: contentTopPadding, paddingBottom: bottom },
             ]}
-            ListHeaderComponent={
-              <View style={styles.tracksHeader}>
-                {/* 核心双主动作胶囊：同级等权「播放全部」与「添加到队列」 */}
-                <View style={styles.actions}>
-                  <Pressable
-                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-                    onPress={() => void play(0)}
-                    accessibilityRole="button"
-                    accessibilityLabel="播放全部我喜欢的音乐"
-                  >
-                    <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
-                    <Text style={styles.secondaryButtonLabel}>播放全部</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-                    onPress={() => void handleAppendToQueue()}
-                    accessibilityRole="button"
-                    accessibilityLabel="添加到播放队列"
-                  >
-                    <Icon name="add" size={iconSize.sm} color={colors.textPrimary} />
-                    <Text style={styles.secondaryButtonLabel}>添加到队列</Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.toolbarSlot}>
-                  {toolbar}
-                </View>
-              </View>
+            columnWrapperStyle={{ gap }}
+            ListEmptyComponent={
+              <EmptyState text="还没有收藏的专辑&#10;在专辑详情页点击右上角爱心即可收藏" />
             }
-            renderItem={({ item, index }) => (
-              <TrackRow
-                track={item}
-                index={index}
-                leading="cover"
-                playing={current?.serverId === connection?.id && current?.trackId === item.id}
-                onPress={() => void play(index)}
-              />
+            renderItem={({ item }) => (
+              <Link href={href.album(item.id)} asChild>
+                <Pressable
+                  style={{ width: gridItemWidth, marginBottom: spacing.md }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`专辑 ${item.name}`}
+                >
+                  <CoverImage coverId={item.coverId ?? undefined} size={gridItemWidth} borderRadius={radius.album} />
+                  <Text numberOfLines={1} style={styles.cardName}>
+                    {item.name}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.cardSubtitle}>
+                    {item.artistName || '未知艺术家'}
+                  </Text>
+                </Pressable>
+              </Link>
             )}
-            onEndReached={loadMore}
-            onEndReachedThreshold={0.4}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListEmptyComponent={<EmptyState text="还没有收藏的歌曲" />}
-            ListFooterComponent={
-              total > 0 ? (
-                <PaginationFooter
-                  loading={query.isFetchingNextPage}
-                  error={query.isFetchNextPageError ? query.error : undefined}
-                  onRetry={() => void query.fetchNextPage()}
-                />
-              ) : null
-            }
           />
-        )
-      ) : null}
+        </View>
 
-      {/* Tab 2: 收藏的专辑网格 */}
-      {activeTab === 'albums' ? (
-        <FlatList
-          data={favoriteAlbums}
-          key={`albums-${columns}`}
-          numColumns={columns}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={[
-            styles.gridList,
-            { paddingTop: contentTopPadding, paddingBottom: bottom },
-          ]}
-          columnWrapperStyle={{ gap }}
-          ListEmptyComponent={
-            <EmptyState text="还没有收藏的专辑&#10;在专辑详情页点击右上角爱心即可收藏" />
-          }
-          renderItem={({ item }) => (
-            <Link href={href.album(item.id)} asChild>
-              <Pressable
-                style={{ width: gridItemWidth, marginBottom: spacing.md }}
-                accessibilityRole="button"
-                accessibilityLabel={`专辑 ${item.name}`}
-              >
-                <CoverImage coverId={item.coverId ?? undefined} size={gridItemWidth} borderRadius={radius.album} />
-                <Text numberOfLines={1} style={styles.cardName}>
-                  {item.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.cardSubtitle}>
-                  {item.artistName || '未知艺术家'}
-                </Text>
-              </Pressable>
-            </Link>
-          )}
-        />
-      ) : null}
-
-      {/* Tab 3: 收藏的歌单网格 */}
-      {activeTab === 'playlists' ? (
-        <FlatList
-          data={favoritePlaylists}
-          key={`playlists-${columns}`}
-          numColumns={columns}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={[
-            styles.gridList,
-            { paddingTop: contentTopPadding, paddingBottom: bottom },
-          ]}
-          columnWrapperStyle={{ gap }}
-          ListEmptyComponent={
-            <EmptyState text="还没有收藏的歌单&#10;在歌单详情页点击右上角爱心即可收藏" />
-          }
-          renderItem={({ item }) => (
-            <Link href={href.playlist(item.id)} asChild>
-              <Pressable
-                style={{ width: gridItemWidth, marginBottom: spacing.md }}
-                accessibilityRole="button"
-                accessibilityLabel={`歌单 ${item.name}`}
-              >
-                <CoverImage coverId={item.coverId ?? undefined} size={gridItemWidth} borderRadius={radius.album} />
-                <Text numberOfLines={1} style={styles.cardName}>
-                  {item.name}
-                </Text>
-                <Text numberOfLines={1} style={styles.cardSubtitle}>
-                  {typeof item.trackCount === 'number' ? `${item.trackCount} 首歌曲` : '歌单'}
-                </Text>
-              </Pressable>
-            </Link>
-          )}
-        />
-      ) : null}
+        {/* Tab 3: 收藏的歌单网格 */}
+        <View style={styles.flex}>
+          <FlatList
+            data={favoritePlaylists}
+            key={`playlists-${columns}`}
+            numColumns={columns}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[
+              styles.gridList,
+              { paddingTop: contentTopPadding, paddingBottom: bottom },
+            ]}
+            columnWrapperStyle={{ gap }}
+            ListEmptyComponent={
+              <EmptyState text="还没有收藏的歌单&#10;在歌单详情页点击右上角爱心即可收藏" />
+            }
+            renderItem={({ item }) => (
+              <Link href={href.playlist(item.id)} asChild>
+                <Pressable
+                  style={{ width: gridItemWidth, marginBottom: spacing.md }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`歌单 ${item.name}`}
+                >
+                  <CoverImage coverId={item.coverId ?? undefined} size={gridItemWidth} borderRadius={radius.album} />
+                  <Text numberOfLines={1} style={styles.cardName}>
+                    {item.name}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.cardSubtitle}>
+                    {typeof item.trackCount === 'number' ? `${item.trackCount} 首歌曲` : '歌单'}
+                  </Text>
+                </Pressable>
+              </Link>
+            )}
+          />
+        </View>
+      </TabPager>
 
       {/* 批量操作模态弹窗 */}
       <TrackSelectionModal
@@ -421,6 +425,9 @@ const useStyles = createThemedStyles((colors) => ({
   root: {
     flex: 1,
     backgroundColor: colors.bgPrimary,
+  },
+  flex: {
+    flex: 1,
   },
   tabBarContainer: {
     position: 'absolute',
