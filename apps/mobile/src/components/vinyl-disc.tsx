@@ -23,7 +23,9 @@ const CENTER_VARIANTS: ImageSourcePropType[] = [
 ]
 
 export function getCenterVariant(genreId: string): ImageSourcePropType {
-  const hash = genreId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  // genreId 理论上必填，但真机上路由参数或实体缺 id 时会是 undefined，
+  // 直接 .split 会崩，这里兜底成空串（仍返回一个稳定的默认变体）。
+  const hash = (genreId ?? '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
   return CENTER_VARIANTS[hash % CENTER_VARIANTS.length]
 }
 
