@@ -46,6 +46,7 @@
         }
       ],
       "./plugins/with-ios-ldflags-dedupe",
+      "./plugins/with-swift-audio-state",
       "./plugins/with-app-icons",
       "./plugins/with-android-cleartext",
       [
