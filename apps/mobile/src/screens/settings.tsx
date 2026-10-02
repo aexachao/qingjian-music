@@ -129,45 +129,44 @@ export function SettingsScreen() {
       >
         <LargeTitleHeader title="设置" scrollY={scrollY} />
 
-        {/* 顶部用户卡片 */}
-        <View style={styles.userCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{userName.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <View style={styles.userInfo}>
-            <View style={styles.userNameRow}>
-              <Text style={styles.userName}>
-                {userName}
-              </Text>
-              <View style={styles.adminBadge}>
-                <Text style={styles.adminBadgeText}>
-                  {me.data?.isAdmin ? '管理员' : '普通用户'}
+        <View style={styles.cardsContainer}>
+          {/* 顶部用户卡片 */}
+          <View style={styles.userCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{userName.slice(0, 1).toUpperCase()}</Text>
+            </View>
+            <View style={styles.userInfo}>
+              <View style={styles.userNameRow}>
+                <Text style={styles.userName}>
+                  {userName}
                 </Text>
+                <View style={styles.adminBadge}>
+                  <Text style={styles.adminBadgeText}>
+                    {me.data?.isAdmin ? '管理员' : '普通用户'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.userMetaRow}>
+                <Text numberOfLines={1} style={styles.userMeta}>
+                  {backendName} · {showUrl ? formatServerAddress(activeUrl) : '••••••'}
+                </Text>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => setShowUrl((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showUrl ? '隐藏服务器地址' : '显示服务器地址'}
+                  style={styles.eyeButton}
+                >
+                  <Icon
+                    name={showUrl ? 'eye' : 'eyeOff'}
+                    size={14}
+                    color={showUrl ? colors.stateSelected : colors.textTertiary}
+                  />
+                </Pressable>
               </View>
             </View>
-            <View style={styles.userMetaRow}>
-              <Text numberOfLines={1} style={styles.userMeta}>
-                {backendName} · {showUrl ? formatServerAddress(activeUrl) : '••••••'}
-              </Text>
-              <Pressable
-                hitSlop={8}
-                onPress={() => setShowUrl((v) => !v)}
-                accessibilityRole="button"
-                accessibilityLabel={showUrl ? '隐藏服务器地址' : '显示服务器地址'}
-                style={styles.eyeButton}
-              >
-                <Icon
-                  name={showUrl ? 'eye' : 'eyeOff'}
-                  size={14}
-                  color={showUrl ? colors.stateSelected : colors.textTertiary}
-                />
-              </Pressable>
-            </View>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text accessibilityRole="header" style={styles.sectionTitle}>体验</Text>
           <View style={styles.card}>
             <SettingsRow
               icon="appearance"
@@ -190,10 +189,7 @@ export function SettingsScreen() {
               onPress={() => router.push('/(tabs)/settings/cache')}
             />
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text accessibilityRole="header" style={styles.sectionTitle}>内容与服务</Text>
           <View style={styles.card}>
             <SettingsRow
               icon="server"
@@ -217,10 +213,7 @@ export function SettingsScreen() {
               </>
             ) : null}
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text accessibilityRole="header" style={styles.sectionTitle}>帮助与关于</Text>
           <View style={styles.card}>
             <SettingsRow icon="feedback" label="问题反馈" onPress={onFeedback} />
             <View style={styles.divider} />
@@ -234,18 +227,18 @@ export function SettingsScreen() {
               onPress={() => router.push('/(tabs)/settings/crash-log')}
             />
           </View>
-        </View>
 
-      <View style={styles.card}>
-          <SettingsRow
-            icon="signOut"
-            label="退出登录"
-            onPress={onSignOut}
-            showChevron={false}
-          />
-        </View>
+          <View style={styles.card}>
+            <SettingsRow
+              icon="signOut"
+              label="退出登录"
+              onPress={onSignOut}
+              showChevron={false}
+            />
+          </View>
 
-        <Text style={styles.footer}>轻简音乐 · 为飞牛音乐打造的移动客户端</Text>
+          <Text style={styles.footer}>轻简音乐 · 为飞牛音乐打造的移动客户端</Text>
+        </View>
       </Animated.ScrollView>
     </View>
   )
@@ -297,7 +290,10 @@ const useStyles = createThemedStyles((colors) => ({
   content: {
     paddingHorizontal: spacing.lg,
     paddingTop: 0,
-    gap: spacing.xl,
+  },
+  cardsContainer: {
+    marginTop: spacing.sm,
+    gap: spacing.lg,
   },
   userCard: {
     flexDirection: 'row',
@@ -367,15 +363,6 @@ const useStyles = createThemedStyles((colors) => ({
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     overflow: 'hidden',
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    ...typography.subhead,
-    fontWeight: '600',
-    color: colors.textTertiary,
-    paddingHorizontal: 4,
   },
   row: {
     flexDirection: 'row',
