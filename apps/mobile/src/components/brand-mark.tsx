@@ -11,26 +11,29 @@ import Svg, { Path } from 'react-native-svg'
  * 坐标系对应原 1024×1024 画布中音符的包围盒（437×651），viewBox 精确裁切。
  * ⚠️ 这个记号固定取官方音符样式，不跟随设置里切换的启动图标 —— 封面占位属于组件语言的一部分。
  */
-export const VIEW_BOX_MIN_X = 322
-export const VIEW_BOX_MIN_Y = 174
-export const VIEW_BOX_WIDTH = 382
-export const VIEW_BOX_HEIGHT = 676
+export const VIEW_BOX_MIN_X = 331
+export const VIEW_BOX_MIN_Y = 191
+export const VIEW_BOX_WIDTH = 398
+export const VIEW_BOX_HEIGHT = 648
 
 export const BRAND_MARK_ASPECT = VIEW_BOX_WIDTH / VIEW_BOX_HEIGHT
 
 export const BRAND_NOTE_PATH =
-  'M322,710.07C322,794.83,389.60,849.07,473,849.07C556.39,849.07,624,786.83,624,710.07C624,685.07,622.04,670.64,620,660Q610,607.93,549.55,340.17C547.57,331.75,552.63,323.29,560.98,321.05L632.71,301.19C673.81,289.82,702.47,252.70,703.09,210.07L703.34,192.64C705.22,181.41,695.08,171.87,683.98,174.42L482.29,220.75C447.88,228.66,426.37,262.95,434.23,297.38L497.14,572.85C489.16,571.66,481.09,571.07,473,571.07C389.60,571.07,322,625.30,322,710.07Z'
+  'M704.0,194.6C659.5,216.0,639.9,222.2,576.5,234.5C544.1,240.8,536.8,242.6,522.8,247.7C486.4,260.9,464.4,288.7,466.3,319.3C466.5,323.9,470.8,347.0,475.9,371.5C490.5,441.4,494.4,460.5,508.0,527.0C518.3,577.5,519.4,583.0,518.9,583.5C518.7,583.6,514.7,583.0,510.1,582.0C430.5,564.6,352.8,610.0,334.5,684.5C320.8,740.0,348.5,797.5,401.5,823.8C436.5,841.1,478.4,843.5,516.4,830.3C576.2,809.5,614.0,759.2,614.0,700.3C614.0,680.9,613.4,677.2,594.0,583.0C590.1,564.0,586.1,544.2,585.0,539.0C583.9,533.8,580.3,516.2,577.0,500.0C573.7,483.8,570.1,466.2,569.0,461.0C568.0,455.8,564.4,438.2,561.0,422.0C548.9,363.4,549.2,366.5,554.8,361.0C559.1,356.6,568.5,353.4,601.5,345.0C622.5,339.7,632.0,336.8,643.5,332.5C698.2,311.8,728.8,269.1,729.0,213.0C729.0,200.9,727.6,197.0,722.1,193.3C717.3,190.0,712.7,190.4,704.0,194.6Z'
 
 export interface BrandMarkProps {
-  /** 记号宽度（高度按比例算） */
-  width: number
+  /** 记号宽度（若只传宽度，高度按比例算） */
+  width?: number
+  /** 记号高度（若只传高度，宽度按比例算） */
+  height?: number
   color: string
 }
 
-export function BrandMark({ width, color }: BrandMarkProps) {
-  const height = width / BRAND_MARK_ASPECT
+export function BrandMark({ width, height, color }: BrandMarkProps) {
+  const w = width ?? (height !== undefined ? Math.round(height * BRAND_MARK_ASPECT) : 24)
+  const h = height ?? Math.round(w / BRAND_MARK_ASPECT)
   return (
-    <Svg width={width} height={height} viewBox={`${VIEW_BOX_MIN_X} ${VIEW_BOX_MIN_Y} ${VIEW_BOX_WIDTH} ${VIEW_BOX_HEIGHT}`}>
+    <Svg width={w} height={h} viewBox={`${VIEW_BOX_MIN_X} ${VIEW_BOX_MIN_Y} ${VIEW_BOX_WIDTH} ${VIEW_BOX_HEIGHT}`}>
       <Path d={BRAND_NOTE_PATH} fill={color} />
     </Svg>
   )

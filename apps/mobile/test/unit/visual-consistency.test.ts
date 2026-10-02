@@ -27,8 +27,8 @@ describe('默认封面占位：浅灰底 + 品牌记号', () => {
     // 断言源码里的几何数据本身（不 import 组件：那样会把 react-native-svg 拖进测试环境）
     const mark = readSource('components/brand-mark.tsx')
     expect(mark).toContain('export const BRAND_NOTE_PATH =')
-    expect(mark).toContain('export const VIEW_BOX_WIDTH = 382')
-    expect(mark).toContain('export const VIEW_BOX_HEIGHT = 676')
+    expect(mark).toContain('export const VIEW_BOX_WIDTH = 398')
+    expect(mark).toContain('export const VIEW_BOX_HEIGHT = 648')
     expect(mark).toContain('export const BRAND_MARK_ASPECT = VIEW_BOX_WIDTH / VIEW_BOX_HEIGHT')
   })
 })

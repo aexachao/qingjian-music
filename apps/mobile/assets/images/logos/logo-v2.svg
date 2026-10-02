@@ -1,42 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <!-- 背景品牌渐变 (Brand Crimson Gradient) -->
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#fb3f58"/>
-      <stop offset="100%" stop-color="#e10b55"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F96165" />
+      <stop offset="50%" stop-color="#F4285E" />
+      <stop offset="100%" stop-color="#E50960" />
     </linearGradient>
-
-    <!-- 音符轻微质感渐变 (Subtle Note Gradient) -->
-    <linearGradient id="noteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#fcedf0"/>
-    </linearGradient>
-
-    <!-- 柔和立体环境光投影 (Soft Ambient Drop Shadow) -->
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#8a0026" flood-opacity="0.32"/>
-    </filter>
   </defs>
-
-  <!-- iOS App Icon 圆角背景 (Squircle Background) -->
-  <rect width="1024" height="1024" rx="224" fill="url(#bgGrad)"/>
-
-  <!-- 音乐音符主体 (Music Note Vector) -->
-  <g filter="url(#softShadow)">
-    <path d="
-      M 510 215
-      C 506 195, 518 177, 536 173
-      C 588 199, 631 247, 686 265
-      C 744 291, 795 346, 796 412
-      C 796 460, 794 510, 752 537
-      C 768 518, 774 485, 759 462
-      C 713 396, 618 422, 572 356
-      L 572 710
-      C 572 785, 492 843, 422 843
-      C 358 843, 282 816, 282 741
-      C 282 685, 311 636, 361 609
-      C 403 578, 460 591, 510 575
-      L 510 215 Z
-    " fill="url(#noteGrad)" fill-rule="evenodd" />
-  </g>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)" />
+  <path d="M704.0,194.6C659.5,216.0,639.9,222.2,576.5,234.5C544.1,240.8,536.8,242.6,522.8,247.7C486.4,260.9,464.4,288.7,466.3,319.3C466.5,323.9,470.8,347.0,475.9,371.5C490.5,441.4,494.4,460.5,508.0,527.0C518.3,577.5,519.4,583.0,518.9,583.5C518.7,583.6,514.7,583.0,510.1,582.0C430.5,564.6,352.8,610.0,334.5,684.5C320.8,740.0,348.5,797.5,401.5,823.8C436.5,841.1,478.4,843.5,516.4,830.3C576.2,809.5,614.0,759.2,614.0,700.3C614.0,680.9,613.4,677.2,594.0,583.0C590.1,564.0,586.1,544.2,585.0,539.0C583.9,533.8,580.3,516.2,577.0,500.0C573.7,483.8,570.1,466.2,569.0,461.0C568.0,455.8,564.4,438.2,561.0,422.0C548.9,363.4,549.2,366.5,554.8,361.0C559.1,356.6,568.5,353.4,601.5,345.0C622.5,339.7,632.0,336.8,643.5,332.5C698.2,311.8,728.8,269.1,729.0,213.0C729.0,200.9,727.6,197.0,722.1,193.3C717.3,190.0,712.7,190.4,704.0,194.6Z" fill="#FFFFFF" fill-rule="evenodd" />
 </svg>
