@@ -10,7 +10,12 @@
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
-      "buildNumber": "37",
+      "buildNumber": "58",
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)com.chrisli.music"
+        ]
+      },
       "supportsTablet": false,
       "infoPlist": {
         "CFBundleDisplayName": "轻简音乐",

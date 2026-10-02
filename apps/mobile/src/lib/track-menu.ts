@@ -39,7 +39,6 @@ export const TRACK_MENU_IDS = [
   'song-info',
   'goto-album',
   'goto-artist',
-  'lyric-offset',
 ] as const
 
 export type TrackMenuId = (typeof TRACK_MENU_IDS)[number]
@@ -59,7 +58,6 @@ export const TRACK_MENU_LABEL: Record<TrackMenuId, string> = {
   'song-info': '歌曲信息',
   'goto-album': '前往专辑',
   'goto-artist': '查看艺术家',
-  'lyric-offset': '歌词偏移',
 }
 
 /** 平台图标：iOS 用 SF Symbol 名，Android 用系统 drawable 名 */
@@ -76,9 +74,8 @@ export const TRACK_MENU_ICON: Record<TrackMenuId, { ios: string; android: string
   'share-song': { ios: 'square.and.arrow.up', android: 'ic_menu_share' },
   'share-lyrics': { ios: 'quote.bubble', android: 'ic_menu_info_details' },
   'song-info': { ios: 'info.circle', android: 'ic_menu_help' },
-  'goto-album': { ios: 'music.note.list', android: 'ic_media_play' },
+  'goto-album': { ios: 'square.stack', android: 'ic_media_play' },
   'goto-artist': { ios: 'person.crop.circle', android: 'ic_menu_myplaces' },
-  'lyric-offset': { ios: 'clock', android: 'ic_menu_recent_history' },
 }
 
 /** iOS 上要标成破坏性（红字）的条目 */
@@ -86,9 +83,8 @@ export const TRACK_MENU_DESTRUCTIVE: ReadonlySet<TrackMenuId> = new Set<TrackMen
 
 /**
  * 在 iOS 上要渲染成「分组（带子项）」而不是单个条目的 id。
- * 歌词偏移是个组：±0.5 秒 / 重置，原生菜单里做不了连续滑块。
  */
-export const TRACK_MENU_GROUP_IDS: ReadonlySet<TrackMenuId> = new Set<TrackMenuId>(['lyric-offset'])
+export const TRACK_MENU_GROUP_IDS: ReadonlySet<TrackMenuId> = new Set<TrackMenuId>()
 
 export interface TrackMenuCapabilities {
   /** 后端支持收藏 */
@@ -101,8 +97,6 @@ export interface TrackMenuCapabilities {
   hasAlbum: boolean
   /** 曲目带艺术家信息 */
   hasArtist: boolean
-  /** 有同步歌词（歌词偏移才有意义） */
-  canAdjustLyricOffset: boolean
   /** 后端支持音频流（能下载） */
   canDownload: boolean
   /** 这首歌已经下载到本地 */
@@ -153,7 +147,6 @@ export function trackMenuIds(input: TrackMenuInput): TrackMenuId[] {
     ids.push('share-song', 'share-lyrics', 'song-info')
     if (capabilities.hasAlbum) ids.push('goto-album')
     if (capabilities.hasArtist) ids.push('goto-artist')
-    if (capabilities.canAdjustLyricOffset) ids.push('lyric-offset')
     return ids
   }
 
@@ -209,15 +202,11 @@ const UPCOMING_GROUPS: TrackMenuGroup[] = [
   { id: 'group-remove', ids: ['remove-from-queue'] },
 ]
 
-/** 歌词偏移组永远排在最后，不参与「向上弹出」的整体反向 */
-const TAIL_GROUP_IDS: TrackMenuId[] = ['lyric-offset']
-
 /**
  * iOS 的分组顺序。
  *
  * UIKit 从锚点由近及远排列，所以**向上弹出**与**向下弹出**需要的组顺序正好相反；
  * 与其手写两份容易漏改的数组，这里只维护「向下」一份，向上时整体反向（组顺序 + 组内顺序）。
- * 唯一例外是歌词偏移组：它在两种方向下都排在最后，所以单独抽出来在末尾追加。
  */
 export function trackMenuGroups(
   ids: TrackMenuId[],
@@ -225,7 +214,6 @@ export function trackMenuGroups(
   popDirection: 'up' | 'down' = 'up',
 ): TrackMenuGroup[] {
   const present = new Set(ids)
-  const tail = TAIL_GROUP_IDS.filter((id) => present.has(id))
   // 待播行和其它 context 都用分组（用户要求一致的菜单风格）
   const template = context === 'current' ? CURRENT_GROUPS : context === 'upcoming' ? UPCOMING_GROUPS : LIST_GROUPS
 
@@ -237,7 +225,6 @@ export function trackMenuGroups(
     groups = groups.reverse().map((group) => ({ id: group.id, ids: [...group.ids].reverse() }))
   }
 
-  if (tail.length > 0) groups = [...groups, { id: 'group-lyric-offset', ids: tail }]
   return groups
 }
 
