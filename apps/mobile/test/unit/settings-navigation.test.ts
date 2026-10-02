@@ -66,3 +66,29 @@ describe('换服务器的唯一路径：登录页 → 历史服务器二级页�
     expect(login).not.toContain('settings/servers')
   })
 })
+
+describe('formatServerAddress: 设置页服务器地址格式化', () => {
+  it('正确移除 http:// 与 https:// 前缀', async () => {
+    const { formatServerAddress } = await import('../../src/lib/server-address-format')
+    expect(formatServerAddress('http://192.168.1.100:5666')).toBe('192.168.1.100:5666')
+    expect(formatServerAddress('https://192.168.1.100:5666')).toBe('192.168.1.100:5666')
+    expect(formatServerAddress('HTTP://10.0.0.2:8080/')).toBe('10.0.0.2:8080')
+    expect(formatServerAddress('https://music.example.com')).toBe('music.example.com')
+  })
+
+  it('FN ID 只显示 ID 本身，不显示完整域名', async () => {
+    const { formatServerAddress } = await import('../../src/lib/server-address-format')
+    expect(formatServerAddress('https://my-nas-01.fnos.net')).toBe('my-nas-01')
+    expect(formatServerAddress('http://my-nas-01.fnos.net:5666')).toBe('my-nas-01')
+    expect(formatServerAddress('https://my-nas-01.5ddd.com')).toBe('my-nas-01')
+    expect(formatServerAddress('https://my-nas-01.trzznas.com/')).toBe('my-nas-01')
+    expect(formatServerAddress('my-nas-01.fnos.net')).toBe('my-nas-01')
+  })
+
+  it('空地址或异常情况容错返回 —', async () => {
+    const { formatServerAddress } = await import('../../src/lib/server-address-format')
+    expect(formatServerAddress('')).toBe('—')
+    expect(formatServerAddress(undefined)).toBe('—')
+  })
+})
+

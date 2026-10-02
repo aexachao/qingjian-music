@@ -1,3 +1,4 @@
+import { useToast } from '@/components/toast'
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   FlatList,
@@ -15,6 +16,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
 import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
 import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
+import MaskedView from '@react-native-masked-view/masked-view'
+import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
 import Animated, {
   Easing,
@@ -51,6 +54,7 @@ import {
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from './cover-backdrop'
+import type { AmbientPalette } from '@/theme/ambient-palette'
 import { usePlayerStore } from '@/player/store'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
@@ -83,6 +87,7 @@ type HistoryRowData =
 
 
 export function PlayerQueue({
+  palette,
   bottomSpace,
   listAnim,
   stageTopOffset: propStageTopOffset,
@@ -97,6 +102,7 @@ export function PlayerQueue({
   translateY,
   onDismiss,
 }: {
+  palette?: AmbientPalette
   bottomSpace: number
   listAnim?: SharedValue<number>
   stageTopOffset?: number
@@ -111,11 +117,12 @@ export function PlayerQueue({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
+  const toast = useToast()
   const styles = useStyles()
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   const stageTopOffset = propStageTopOffset ?? (insets.top + spacing.sm + 50 + spacing.xs)
-  const [containerHeight, setContainerHeight] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(propStageHeight?.value || 0)
   const queueViewportHeight = containerHeight || propStageHeight?.value || 350
 
   const { provider, connection } = useServerSession()
@@ -437,13 +444,13 @@ export function PlayerQueue({
           playing={false} 
           isGloballyPlaying={!!isGloballyPlaying}
           isHistory={false}
-          onSelect={() => void skipToIndex(item.index)}
+          onSelect={() => void skipToIndex(item.index).catch((error: unknown) => toast(error instanceof Error ? error.message : '切换歌曲失败，请重试'))}
           swipeEnabled={!dragging}
           onActionOpenChange={setQueueActionOpen}
         />
       </Animated.View>
     )
-  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, upcomingCount])
+  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, toast, upcomingCount])
 
   const renderHistoryItem = useCallback(({ item }: { item: HistoryRowData }) => {
     if (item.type === 'emptyState') {
@@ -502,7 +509,10 @@ export function PlayerQueue({
   return (
     <View
       style={[styles.container, { paddingBottom: bottomSpace }]}
-      onLayout={(e) => setContainerHeight(e.nativeEvent.layout.height)}
+      onLayout={(e) => {
+        const h = Math.round(e.nativeEvent.layout.height)
+        setContainerHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev))
+      }}
     >
       <Animated.View style={[styles.headerOverlay, headerAnimatedStyle]} pointerEvents="box-none">
         {headerOverlayDismissGesture ? (
@@ -518,6 +528,7 @@ export function PlayerQueue({
                 />
               ) : null}
               <ModesHeader
+                palette={palette}
                 artwork={queue[index]?.artwork}
                 stageTopOffset={stageTopOffset}
                 modesContentOffset={modesContentOffset}
@@ -550,6 +561,7 @@ export function PlayerQueue({
               />
             ) : null}
             <ModesHeader
+              palette={palette}
               artwork={queue[index]?.artwork}
               stageTopOffset={stageTopOffset}
               modesContentOffset={modesContentOffset}
@@ -572,7 +584,22 @@ export function PlayerQueue({
         )}
       </Animated.View>
 
-      <View style={styles.pagerViewport}>
+      <MaskedView
+        style={styles.pagerViewport}
+        maskElement={
+          <LinearGradient
+            colors={[
+              'rgba(0,0,0,0)',
+              'rgba(0,0,0,1)',
+              'rgba(0,0,0,1)',
+              'rgba(0,0,0,0)',
+            ]}
+            locations={[0, 0.05, 0.95, 0.995]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        }
+      >
         <Animated.View style={[styles.pagerTrack, { width: screenWidth * 2 }, pagerAnimatedStyle]}>
           <View style={[styles.page, { width: screenWidth }]}>
             <ReorderableList
@@ -638,7 +665,7 @@ export function PlayerQueue({
             />
           </View>
         </Animated.View>
-      </View>
+      </MaskedView>
     </View>
   )
 }
@@ -663,7 +690,9 @@ export function CurrentTrackCard({
     <View style={styles.currentCard}>
       <CoverImage resource={item.artwork} size={64} borderRadius={radius.md} />
       <View style={styles.currentInfo}>
-        <Text style={styles.currentTitle} numberOfLines={1}>{item.title}</Text>
+        <View style={styles.currentTitleRow}>
+          <Text style={styles.currentTitle} numberOfLines={1}>{item.title}</Text>
+        </View>
         <Text style={styles.currentArtist} numberOfLines={1}>{item.artistText}</Text>
       </View>
       <View style={styles.currentActions}>
@@ -691,6 +720,7 @@ export function CurrentTrackCard({
 }
 
 function ModesHeader({
+  palette,
   artwork,
   stageTopOffset,
   modesContentOffset,
@@ -709,6 +739,7 @@ function ModesHeader({
   onClearUpcoming,
   onToggleAutoplay,
 }: {
+  palette?: AmbientPalette
   artwork?: any
   stageTopOffset: number
   modesContentOffset: number
@@ -791,7 +822,7 @@ function ModesHeader({
             bgStyle,
           ]}
         >
-          <CoverBackdrop artwork={artwork} />
+          <CoverBackdrop artwork={artwork} palette={palette} />
         </Animated.View>
       </Animated.View>
       <View style={styles.modes}>
@@ -1331,7 +1362,8 @@ const useStyles = createThemedStyles((colors) => ({
     overflow: 'hidden',
   },
   currentInfo: { flex: 1, justifyContent: 'center' },
-  currentTitle: { ...typography.title, color: colors.textPrimary },
+  currentTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  currentTitle: { ...typography.title, color: colors.textPrimary, flexShrink: 1 },
   currentArtist: { ...typography.callout, color: colors.textSecondary, marginTop: 2 },
   currentActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
 

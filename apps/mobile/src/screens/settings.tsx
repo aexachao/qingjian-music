@@ -15,6 +15,7 @@ import { usePlaybackNetworkPreferences } from '@/lib/playback-network-preference
 import { useServerSession } from '@/lib/server-session'
 import { audioCacheStats } from '@/player/audio-cache'
 import { formatBytes } from '@/player/audio-cache-policy'
+import { formatServerAddress } from '@/lib/server-address-format'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 import { radius, spacing, typography } from '@/theme/tokens'
 
@@ -146,7 +147,7 @@ export function SettingsScreen() {
             </View>
             <View style={styles.userMetaRow}>
               <Text numberOfLines={1} style={styles.userMeta}>
-                {backendName} · {showUrl ? (activeUrl || '—') : '••••••'}
+                {backendName} · {showUrl ? formatServerAddress(activeUrl) : '••••••'}
               </Text>
               <Pressable
                 hitSlop={8}
@@ -403,7 +404,7 @@ const useStyles = createThemedStyles((colors) => ({
     flexShrink: 1,
   },
   value: {
-    ...typography.caption,
+    ...typography.subhead,
     color: colors.textTertiary,
     textAlign: 'right',
   },

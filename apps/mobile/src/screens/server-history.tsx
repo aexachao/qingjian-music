@@ -8,6 +8,7 @@ import { useConfirm } from '@/components/confirm-modal'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { useServerSession } from '@/lib/server-session'
+import { formatServerAddress } from '@/lib/server-address-format'
 import { radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
@@ -57,7 +58,7 @@ export function ServerHistoryScreen() {
     (server: ServerConnection) => {
       confirm({
         title: '删除服务器',
-        message: `确定删除“${server.displayName}”及其保存在本机的登录信息吗？`,
+        message: `确定删除“${formatServerAddress(server.displayName)}”及其保存在本机的登录信息吗？`,
         confirmText: '删除',
         destructive: true,
         onConfirm: async () => {
@@ -185,15 +186,15 @@ function ServerRow({
         }}
         style={styles.row}
         accessibilityRole="button"
-        accessibilityLabel={`用 ${server.displayName} 登录`}
+        accessibilityLabel={`用 ${formatServerAddress(server.displayName)} 登录`}
       >
         <Icon name="server" size={iconSize.lg} color={colors.iconMid} />
         <View style={styles.info}>
           <Text numberOfLines={1} style={styles.name}>
-            {server.displayName}
+            {formatServerAddress(server.displayName)}
           </Text>
           <Text numberOfLines={1} style={styles.meta}>
-            {server.baseUrl} · {server.username}
+            {formatServerAddress(server.baseUrl)} · {server.username}
           </Text>
         </View>
         <Icon name="chevronRight" size={16} color={colors.textQuaternary} />

@@ -1,13 +1,15 @@
+import { useToast } from '@/components/toast'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
+import { useActiveTrack, useIsPlaying, useProgress } from 'react-native-track-player'
 
 import Animated, {
   Easing,
   Extrapolation,
+  ReduceMotion,
   interpolate,
   runOnJS,
   useAnimatedStyle,
@@ -17,11 +19,14 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { StatusBar } from 'expo-status-bar'
-import { AirplayRouteButton } from '../../modules/airplay-button'
+import { PlayerToolbar } from '@/components/player/player-toolbar'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { ImmersiveDarkOverlay, ViewportCover } from '@/components/player/immersive-cover'
+import { LyricAdjustmentSheet } from '@/components/player/lyric-adjustment-sheet'
 import { IconButton, iconSize } from '@/components/icon'
+import { seekAndPlay as seekLyricAndPlay } from '@/player/controller'
+import { useLyricOffset } from '@/lib/lyric-offset'
 import { LyricView } from '@/components/lyric-view'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
@@ -30,17 +35,19 @@ import { DarkThemeScope } from '@/theme/theme-provider'
 import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { getThemeColors, radius, spacing, typography } from '@/theme/tokens'
 
-const LYRIC_TICK_MS = 200
+const LYRIC_TICK_MS = 100
+const LYRIC_IDLE_TICK_MS = 200
+const PAUSED_COVER_SCALE = 0.86
 
 type PlayerMode = 'cover' | 'lyrics' | 'list'
 
 export default function PlayerScreen() {
-  const colors = darkColors
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { height } = useWindowDimensions()
   
   const current = usePlayerStore(selectCurrent)
+  const { playing } = useIsPlaying()
   const palette = useMemo(
     () => resolveAmbientPalette(current?.trackId ?? current?.coverId),
     [current?.trackId, current?.coverId],
@@ -53,16 +60,29 @@ export default function PlayerScreen() {
   const initialStageHeight = useMemo(() => {
     const pageH = height || 850
     const top = insets.top + spacing.sm + 50 + spacing.xs
-    const bottom = insets.bottom + spacing.xs + 56
+    const bottom = insets.bottom + spacing.xs + 80
     return Math.max(320, pageH - top - bottom - 190)
   }, [height, insets.top, insets.bottom])
 
-  const [hasEntered, setHasEntered] = useState(false)
   const stageHeight = useSharedValue(initialStageHeight)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
   const listAnim = useSharedValue(0)
   const lyricAnim = useSharedValue(0)
+  const coverScale = useSharedValue(playing === false ? PAUSED_COVER_SCALE : 1)
+
+  useEffect(() => {
+    if (playing === undefined) return
+    coverScale.value = withTiming(playing ? 1 : PAUSED_COVER_SCALE, {
+      duration: 320,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+      reduceMotion: ReduceMotion.System,
+    })
+  }, [playing, coverScale])
+
+  const coverScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: coverScale.value }],
+  }))
 
   // Apple 级流体动量曲线（前快后慢、自然阻尼，杜绝顿挫）
   useEffect(() => {
@@ -88,27 +108,63 @@ export default function PlayerScreen() {
   const translateY = useSharedValue(height || 850)
   const startY = useSharedValue(0)
   const [isListAtTop, setIsListAtTop] = useState(true)
-  const [isLyricAtTop, setIsLyricAtTop] = useState(true)
   const [queueActionOpen, setQueueActionOpen] = useState(false)
 
+  // 追踪歌词层与队列层的激活与显示生命周期：
+  // 1. hasEnteredList / hasEnteredLyrics: 一旦进入或进场后预热就常驻内存，绝不反复卸载重建组件树，彻底消除切入时的冷启动卡顿/掉帧
+  // 2. isListVisible / isLyricsVisible: 切出模式等 380ms 动画完全结束后才应用 display: 'none'，同时 pointerEvents 根据当前模式切换，彻底防止后台 ScrollView 拦截手势
+  const [hasEnteredList, setHasEnteredList] = useState(false)
+  const [isListVisible, setIsListVisible] = useState(false)
+  const [hasEnteredLyrics, setHasEnteredLyrics] = useState(false)
+  const [isLyricsVisible, setIsLyricsVisible] = useState(false)
+
+  // 播放页进场动画 (360ms) 完成后，后台空闲预热挂载列表和歌词，确保首次点击时已在内存中就绪
   useEffect(() => {
-    if (mode === 'list') {
-      setIsListAtTop(true)
-    } else if (mode === 'lyrics') {
-      setIsLyricAtTop(true)
+    const listTimer = setTimeout(() => {
+      setHasEnteredList(true)
+    }, 400)
+    const lyricsTimer = setTimeout(() => {
+      setHasEnteredLyrics(true)
+    }, 650)
+    return () => {
+      clearTimeout(listTimer)
+      clearTimeout(lyricsTimer)
     }
+  }, [])
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (mode === 'lyrics') {
+      setHasEnteredLyrics(true)
+      setIsLyricsVisible(true)
+    } else {
+      timer = setTimeout(() => {
+        setIsLyricsVisible(false)
+      }, 380)
+    }
+    return () => clearTimeout(timer)
   }, [mode])
 
-  // 2. 优化进场时长与曲线（360ms 对齐 Apple Music 原生弹层节奏），进场完成后再激活后台渲染
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (mode === 'list') {
+      setIsListAtTop(true)
+      setHasEnteredList(true)
+      setIsListVisible(true)
+    } else {
+      timer = setTimeout(() => {
+        setIsListVisible(false)
+      }, 380)
+    }
+    return () => clearTimeout(timer)
+  }, [mode])
+
+  // 播放器进场动效
   useEffect(() => {
     translateY.value = withTiming(0, {
       duration: 360,
       easing: Easing.bezier(0.2, 0.9, 0.3, 1),
     })
-    const timer = setTimeout(() => {
-      setHasEntered(true)
-    }, 380)
-    return () => clearTimeout(timer)
   }, [translateY])
 
   const createDismissPan = useCallback((enabled: boolean) =>
@@ -137,8 +193,9 @@ export default function PlayerScreen() {
         // 动量投射：结合当前位移与松手瞬时速度（Apple Music / iOS 原生交互物理法则）
         const projectedY = translateY.value + event.velocityY * 0.15
         const shouldDismiss =
-          (projectedY > pageHeight * 0.4 && translateY.value > 60) ||
-          (translateY.value > pageHeight * 0.5)
+          (projectedY > 130 && translateY.value > 25) ||
+          (translateY.value > 150) ||
+          (event.velocityY > 500 && translateY.value > 15)
 
         if (shouldDismiss && event.velocityY > -200) {
           translateY.value = withTiming(pageHeight + 100, {
@@ -166,18 +223,33 @@ export default function PlayerScreen() {
     })
   }, [height, translateY, dismiss])
 
-  const dismissGesture = useMemo(
+  const isDismissEnabled = useMemo(
     () =>
-      createDismissPan(
-        !menuOpen &&
-          (mode !== 'list' || isListAtTop) &&
-          (mode !== 'lyrics' || isLyricAtTop),
-      ),
-    [createDismissPan, menuOpen, mode, isListAtTop, isLyricAtTop],
+      !menuOpen && mode !== 'lyrics' &&
+      (mode === 'cover' || isListAtTop),
+    [menuOpen, mode, isListAtTop],
+  )
+
+  const dismissGesture = useMemo(
+    () => createDismissPan(isDismissEnabled),
+    [createDismissPan, isDismissEnabled],
+  )
+  // 每个 GestureDetector 独占实例，避免顶部把手和歌曲卡片互相覆盖原生绑定。
+  const handleDismissGesture = useMemo(
+    () => createDismissPan(!menuOpen),
+    [createDismissPan, menuOpen],
   )
   const headerDismissGesture = useMemo(
     () => createDismissPan(!menuOpen),
     [createDismissPan, menuOpen]
+  )
+  const lyricHeaderDismissGesture = useMemo(
+    () => createDismissPan(!menuOpen && mode === 'lyrics'),
+    [createDismissPan, menuOpen, mode],
+  )
+  const coverDismissGesture = useMemo(
+    () => createDismissPan(!menuOpen && mode === 'cover'),
+    [createDismissPan, menuOpen, mode]
   )
 
   // 动态圆角：有 Safe Area（iPhone X+）用适度圆角，无 Safe Area（旧机型/安卓）用直角
@@ -252,6 +324,7 @@ export default function PlayerScreen() {
     }
   })
 
+
   if (!current) {
     return (
       <DarkThemeScope>
@@ -273,8 +346,8 @@ export default function PlayerScreen() {
             <ImmersiveDarkOverlay />
           </Animated.View>
 
-          <GestureDetector gesture={headerDismissGesture}>
-            <View style={styles.header}>
+          <GestureDetector gesture={handleDismissGesture}>
+            <View style={styles.header} collapsable={false}>
               <View style={styles.dragHandle} />
             </View>
           </GestureDetector>
@@ -290,16 +363,19 @@ export default function PlayerScreen() {
                 <View
                   style={styles.stage}
                   onLayout={(e) => {
-                    const h = e.nativeEvent.layout.height
-                    stageHeight.value = h
+                    const h = Math.round(e.nativeEvent.layout.height)
+                    if (Math.abs(stageHeight.value - h) > 2) {
+                      stageHeight.value = h
+                    }
                   }}
                 >
                   <Animated.View
-                    style={[StyleSheet.absoluteFill, queueAnimatedStyle]}
+                    style={[StyleSheet.absoluteFill, queueAnimatedStyle, !isListVisible && styles.hiddenLayer]}
                     pointerEvents={mode === 'list' ? 'auto' : 'none'}
                   >
-                    {(mode === 'list' || hasEntered) ? (
+                    {hasEnteredList ? (
                       <PlayerQueue
+                        palette={palette}
                         bottomSpace={0}
                         listAnim={listAnim}
                         stageTopOffset={stageTopOffset}
@@ -321,26 +397,30 @@ export default function PlayerScreen() {
                     pointerEvents={mode === 'cover' ? 'auto' : 'none'}
                     style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
                   >
-                    {/* 视口核心舞台：导航栏底部至歌名行顶部，按屏幕宽度展示专辑图 */}
-                    <View style={styles.coverImageWrapper}>
-                      <ViewportCover artwork={current.artwork} coverId={current.coverId} />
-                    </View>
-                    <View style={styles.titleRowWrapper}>
-                      <PlayerTitleRow
-                        current={current}
-                        onDismissWithAction={dismissWithAction}
-                        onMenuOpenChange={setMenuOpen}
-                      />
-                    </View>
+                    <GestureDetector gesture={coverDismissGesture}>
+                      <View style={styles.coverGestureContainer}>
+                        {/* 视口核心舞台：导航栏底部至歌名行顶部，按屏幕宽度展示专辑图 */}
+                        <View style={styles.coverImageWrapper}>
+                          <Animated.View style={[styles.coverScaleLayer, coverScaleStyle]}>
+                            <ViewportCover artwork={current.artwork} coverId={current.coverId} />
+                          </Animated.View>
+                        </View>
+                        <View style={styles.titleRowWrapper}>
+                          <PlayerTitleRow
+                            current={current}
+                            onDismissWithAction={dismissWithAction}
+                            onMenuOpenChange={setMenuOpen}
+                          />
+                        </View>
+                      </View>
+                    </GestureDetector>
                   </Animated.View>
                 </View>
 
                 <View style={{ paddingHorizontal: spacing.xl }}>
                   <PlayerDeck
                     current={current}
-                    listAnim={listAnim}
                     hideTitle={true}
-                    hideVolume={mode === 'list'}
                     onDismissWithAction={dismissWithAction}
                     onMenuOpenChange={setMenuOpen}
                   />
@@ -350,13 +430,17 @@ export default function PlayerScreen() {
 
             {/* 歌词层 */}
             <Animated.View
-              style={[StyleSheet.absoluteFill, lyricsContainerAnimatedStyle]}
+              style={[
+                StyleSheet.absoluteFill,
+                lyricsContainerAnimatedStyle,
+                !isLyricsVisible && styles.hiddenLayer,
+              ]}
               pointerEvents={mode === 'lyrics' ? 'auto' : 'none'}
             >
               <Animated.View style={pinnedHeaderAnimatedStyle}>
-                <GestureDetector gesture={headerDismissGesture}>
-                  <View style={styles.pinnedHeader}>
-                    {(mode === 'lyrics' || hasEntered) ? (
+                <GestureDetector gesture={lyricHeaderDismissGesture}>
+                  <View style={styles.pinnedHeader} collapsable={false}>
+                    {hasEnteredLyrics ? (
                       <CurrentTrackCard
                         item={current}
                         consumeOpenAction={() => false}
@@ -369,11 +453,11 @@ export default function PlayerScreen() {
               </Animated.View>
 
               <View style={styles.lyricsStage}>
-                {(mode === 'lyrics' || hasEntered) ? (
+                {hasEnteredLyrics ? (
                   <LyricPage
+                    key={current.qid}
                     trackId={current.trackId}
                     bottomSpace={48 + insets.bottom}
-                    onTopStateChange={setIsLyricAtTop}
                     active={mode === 'lyrics'}
                     translateY={translateY}
                     onDismiss={dismiss}
@@ -383,34 +467,7 @@ export default function PlayerScreen() {
             </Animated.View>
           </View>
 
-          {/* 底部工具栏常驻 */}
-          <View style={[styles.toolbar, { paddingBottom: insets.bottom + spacing.xs }]}>
-            <IconButton
-              name="lyrics"
-              size={iconSize.lg}
-              color={colors.iconMid}
-              isActive={mode === 'lyrics'}
-              onPress={() => setMode(mode === 'lyrics' ? 'cover' : 'lyrics')}
-              accessibilityLabel="歌词"
-              style={styles.bottomIcon}
-            />
-            <View accessible accessibilityRole="button" accessibilityLabel="隔空播放">
-              <AirplayRouteButton
-                style={styles.airplayNative}
-                tintColor={colors.iconMid}
-                activeTintColor={colors.stateSelected}
-              />
-            </View>
-            <IconButton
-              name="queue"
-              size={iconSize.lg}
-              color={colors.iconMid}
-              isActive={mode === 'list'}
-              onPress={() => setMode(mode === 'list' ? 'cover' : 'list')}
-              accessibilityLabel="播放队列"
-              style={styles.bottomIcon}
-            />
-          </View>
+          <PlayerToolbar mode={mode} onModeChange={setMode} bottomInset={insets.bottom} />
 
           {menuOpen ? (
             <Pressable
@@ -456,26 +513,50 @@ function LyricPage({
   translateY?: SharedValue<number>
   onDismiss?: () => void
 }) {
+  const toast = useToast()
   const { playing } = useIsPlaying()
-  const progress = useProgress(active ? LYRIC_TICK_MS : 1000)
+  const progress = useProgress(active ? LYRIC_TICK_MS : LYRIC_IDLE_TICK_MS)
+  const activeTrack = useActiveTrack()
   const current = usePlayerStore(selectCurrent)
+  const lyricOffset = useLyricOffset(trackId)
+  const [adjustOpen, setAdjustOpen] = useState(false)
   const seekAndPlay = useCallback((seconds: number) => {
-    void TrackPlayer.seekTo(seconds)
-    void TrackPlayer.play()
-  }, [])
+    void seekLyricAndPlay(seconds).catch((error: unknown) => toast(error instanceof Error ? error.message : '歌词跳转失败'))
+  }, [toast])
   return (
     <View style={styles.stageFill}>
       <LyricView
+        key={trackId}
         trackId={trackId}
-        positionMs={progress.position * 1000}
+        positionMs={activeTrack?.id === current?.qid ? progress.position * 1000 : Number.NEGATIVE_INFINITY}
+        offsetMs={lyricOffset.offsetMs}
         onSeek={seekAndPlay}
         songTitle={current?.title}
+        songArtist={current?.artistText}
         bottomSpace={bottomSpace}
         onTopStateChange={onTopStateChange}
         active={active}
         translateY={translateY}
         onDismiss={onDismiss}
         playing={playing}
+      />
+      {active ? (
+        <View style={styles.lyricActions}>
+          <IconButton
+            name="lyricAdjust"
+            size={iconSize.lg}
+            color={darkColors.iconMid}
+            disabled={!lyricOffset.canAdjust}
+            onPress={() => setAdjustOpen(true)}
+            accessibilityLabel="调整歌词时间"
+          />
+        </View>
+      ) : null}
+      <LyricAdjustmentSheet
+        visible={adjustOpen}
+        offsetMs={lyricOffset.offsetMs}
+        onAdjust={lyricOffset.adjust}
+        onClose={() => setAdjustOpen(false)}
       />
     </View>
   )
@@ -516,6 +597,12 @@ const styles = StyleSheet.create({
   page: { flex: 1, paddingTop: spacing.xs, paddingBottom: 6, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },
+  lyricActions: { position: 'absolute', right: spacing.xl, bottom: 24, zIndex: 20 },
+  hiddenLayer: { display: 'none' },
+  coverGestureContainer: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
   coverStage: {
     flex: 1,
     justifyContent: 'space-between',
@@ -525,16 +612,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  coverScaleLayer: { width: '100%', alignItems: 'center' },
   titleRowWrapper: {
     paddingHorizontal: spacing.xl,
   },
-  toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: spacing.xxl,
-  },
-  airplayNative: { width: 44, height: 44 },
-  bottomIcon: { borderRadius: 12 },
   menuScrim: { backgroundColor: 'rgba(0, 0, 0, 0.001)', zIndex: 9999 },
 })

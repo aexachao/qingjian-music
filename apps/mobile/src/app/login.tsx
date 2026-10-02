@@ -17,6 +17,7 @@ import { isMusicError } from '@qj/core-domain'
 import { isLoopbackOrPrivateHost } from '@qj/provider-api'
 import { isFnId, resolveFnIdToBaseUrl } from '@qj/provider-fnos'
 import { useServerSession } from '@/lib/server-session'
+import { formatServerAddress } from '@/lib/server-address-format'
 import { getLastServer, getPassword } from '@/lib/storage'
 import { md5Hex, sha256Hex } from '@/lib/crypto'
 import { AuthGate } from '@/lib/auth-gate'
@@ -72,6 +73,17 @@ export default function LoginScreen() {
     blurTimeoutRef.current = setTimeout(() => {
       setFocusedField(null)
     }, 150)
+    setAddress((prev) => {
+      const trimmed = prev.trim()
+      if (!trimmed) return ''
+      if (/^https:\/\//i.test(trimmed)) {
+        setUseHttps(true)
+      } else if (/^http:\/\//i.test(trimmed)) {
+        setUseHttps(false)
+      }
+      const formatted = formatServerAddress(trimmed)
+      return formatted === '—' ? trimmed : formatted
+    })
   }
 
   useEffect(() => {
@@ -90,7 +102,8 @@ export default function LoginScreen() {
       remember: boolean,
     ) => {
       if (cancelled) return
-      setAddress(target.baseUrl)
+      const formatted = formatServerAddress(target.baseUrl)
+      setAddress(formatted === '—' ? target.baseUrl : formatted)
       setUsername(target.username)
       setUseHttps(target.baseUrl.startsWith('https://'))
       setRememberPassword(remember)
@@ -410,7 +423,7 @@ export default function LoginScreen() {
           >
             {busy ? (
               <View style={styles.busyRow}>
-                <ActivityIndicator color={colors.textOnAccent} size="small" />
+                <ActivityIndicator color={colors.loadingIndicator} size="small" />
                 <Text style={styles.buttonLabel}>{statusMessage || '登录中...'}</Text>
               </View>
             ) : (
