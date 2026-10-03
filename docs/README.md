@@ -64,3 +64,4 @@
 - [TestFlight 0.1.4（61）发布记录](./TestFlight-0.1.4-61-2026-10-02.md)
 - [TestFlight 0.1.4（62）发布记录](./TestFlight-0.1.4-62-2026-10-02.md)
 - [TestFlight 0.1.4（63）发布记录](./TestFlight-0.1.4-63-2026-10-03.md)
+- [TestFlight 0.1.4（64）发布记录](./TestFlight-0.1.4-64-2026-10-03.md)
