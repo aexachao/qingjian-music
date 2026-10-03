@@ -26,6 +26,10 @@ export default defineConfig({
       // 对应 tsconfig: { "@/assets/*": ["./assets/*"], "@/*": ["./src/*"] }
       { find: /^@\/assets\//, replacement: `${root}assets/` },
       { find: /^@\//, replacement: `${root}src/` },
+      {
+        find: '@react-native-masked-view/masked-view',
+        replacement: `${root}test/support/masked-view-mock.tsx`,
+      },
     ],
   },
   test: {

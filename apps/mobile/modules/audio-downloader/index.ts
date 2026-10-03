@@ -53,6 +53,8 @@ export interface PendingJob {
   total: number
   /** 系统队列里还挂着的任务数（对账时判断「还在下」还是「可以拼了」） */
   outstanding: number
+  status?: 'pending' | 'completed' | 'failed'
+  error?: string
 }
 
 type AudioDownloaderEvents = {

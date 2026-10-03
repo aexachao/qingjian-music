@@ -23,7 +23,13 @@ installCrashLogPersistence()
 
 TrackPlayer.registerPlaybackService(() => playbackService)
 
-// 这里必须是「副作用 import」，且必须排在 registerPlaybackService 之后：
-// 入口模块一旦被求值就会挂载 expo-router，播放服务必须先注册好。
-// eslint-disable-next-line import/first -- 顺序是刻意的，不是写错位置
-import 'expo-router/entry'
+// React Native 延迟注册原生视图的事件配置。iOS 在首个视图配置加载前
+// 偶尔会发来 topLayout；提前加载 RCTView 可让 onLayout 在挂载前就已注册。
+// 这里使用 require 保证执行顺序，静态 import 会被 Metro 提前到模块顶部。
+if (require('react-native').Platform.OS === 'ios') {
+  require('react-native/Libraries/Components/View/ViewNativeComponent')
+  require('react-native/Libraries/Renderer/shims/ReactNativeViewConfigRegistry').get('RCTView')
+}
+
+// expo-router/entry 会立即挂载应用，必须在错误处理器、播放服务和事件配置就绪后执行。
+require('expo-router/entry')

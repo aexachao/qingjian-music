@@ -19,6 +19,7 @@ import { queryClient } from '@/lib/query-client'
 import { ServerSessionProvider } from '@/lib/server-session'
 import { getNavigationTheme, useStackScreenOptions } from '@/lib/stack-options'
 import { PlayerBridge } from '@/player/bridge'
+import * as ScreenOrientation from 'expo-screen-orientation'
 import { AppThemeProvider, useThemeColors } from '@/theme/theme-provider'
 
 /**
@@ -37,7 +38,6 @@ function useFatalError() {
   return useSyncExternalStore(subscribeFatalError, getFatalError, getFatalError)
 }
 
-// 采用原生系统字体（iOS: San Francisco / PingFang SC；Android: Roboto / Noto Sans），启动即可用，无需加载外部字体包
 export default function RootLayout() {
   const fatal = useFatalError()
   const [, forceRender] = useState(0)

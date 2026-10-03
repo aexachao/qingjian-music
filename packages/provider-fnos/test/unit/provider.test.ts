@@ -625,3 +625,19 @@ describe('曲库扫描', () => {
     })
   })
 })
+
+
+it('canceling lyric prefetch reaches the underlying NAS request', async () => {
+  let requestSignal: AbortSignal | null | undefined
+  const fetchImpl: typeof fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
+    requestSignal = init?.signal
+    requestSignal?.addEventListener('abort', () => reject(new Error('transport canceled')), { once: true })
+  })
+  const provider = makeProvider(fetchImpl)
+  const controller = new AbortController()
+  const request = provider.lyrics('track-1', { signal: controller.signal })
+  expect(requestSignal?.aborted).toBe(false)
+  controller.abort()
+  await expect(request).rejects.toSatisfy((error: unknown) => isMusicError(error) && error.code === 'canceled')
+  expect(requestSignal?.aborted).toBe(true)
+})

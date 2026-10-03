@@ -1,4 +1,5 @@
 import { File } from 'expo-file-system'
+import { fetchBoundedBytes, fetchBoundedText, BoundedFetchError } from '../lib/bounded-fetch'
 import { isAutoCacheEnabled } from '../lib/cache-preferences'
 import {
   transcodeCacheFileName,
@@ -8,6 +9,7 @@ import {
 import {
   cacheAudioDirectory,
   cachedUriByName,
+  releaseCacheSpace,
   registerCacheEntry,
   removeCacheEntry,
   reserveCacheSpace,
@@ -40,6 +42,8 @@ const SEGMENT_RETRY_ATTEMPTS = 6
 const SEGMENT_RETRY_DELAY_MS = 1_000
 /** 单个请求超时：分片不大，给 15 秒足够 */
 const REQUEST_TIMEOUT_MS = 15_000
+/** Per-segment response ceiling; this is a bound, not a measured process-memory peak. */
+const MAX_SEGMENT_BYTES = 16 * 1024 * 1024
 /** 转码缓存的并发上限：这是一件很重的事，不与正在播放的那首抢带宽 */
 const MAX_PARALLEL = 1
 
@@ -58,6 +62,7 @@ export interface TranscodeCacheInput {
 
 let inflight = 0
 const running = new Map<string, Promise<void>>()
+const controllers = new Map<string, AbortController>()
 /** 清空缓存时自增，让在途任务自行放弃 */
 let epoch = 0
 
@@ -77,6 +82,7 @@ export function invalidateTranscodeProduct(serverId: string, trackId: string): v
 /** 清空缓存时调用，让在途任务放弃 */
 export function abortTranscodeCaching(): void {
   epoch += 1
+  for (const controller of controllers.values()) controller.abort()
 }
 
 /**
@@ -89,7 +95,9 @@ export function startTranscodeCaching(input: TranscodeCacheInput): void {
   if (running.has(name)) return
   if (inflight >= MAX_PARALLEL) return
 
-  const task = run(input, name)
+  const controller = new AbortController()
+  controllers.set(name, controller)
+  const task = run(input, name, controller.signal)
     .catch((error: unknown) => {
       // 缓存是加速与省 CPU 的手段，失败绝不影响播放
       console.warn('转码产物缓存失败', error)
@@ -97,19 +105,22 @@ export function startTranscodeCaching(input: TranscodeCacheInput): void {
     .finally(() => {
       inflight -= 1
       running.delete(name)
+      controllers.delete(name)
+      releaseCacheSpace(name)
     })
   inflight += 1
   running.set(name, task)
 }
 
-async function run(input: TranscodeCacheInput, name: string): Promise<void> {
+async function run(input: TranscodeCacheInput, name: string, signal: AbortSignal): Promise<void> {
   const { playlistUrl, headers, sourceDurationSeconds, shouldAbort } = input
   const startedEpoch = epoch
   const dir = cacheAudioDirectory()
   const finalFile = new File(dir, name)
   if (finalFile.exists) return
 
-  const playlist = await fetchPlaylist(playlistUrl, headers)
+  const playlist = await fetchPlaylist(playlistUrl, headers, signal)
+  if (startedEpoch !== epoch || shouldAbort?.()) return
   const precheck = validatePlaylistAgainstSource(playlist.durationSeconds, sourceDurationSeconds)
   if (!precheck.ok) {
     console.warn(`转码产物预校验未通过，跳过缓存：${precheck.reason}`)
@@ -132,16 +143,37 @@ async function run(input: TranscodeCacheInput, name: string): Promise<void> {
     }
 
     if (playlist.initUri) {
-      writePart(await fetchSegmentBytes(playlist.initUri, headers, 'init'))
+      if (startedEpoch !== epoch || signal.aborted || shouldAbort?.()) {
+        discard(part)
+        return
+      }
+      const init = await fetchSegmentBytes(playlist.initUri, headers, 'init', signal)
+      if (startedEpoch !== epoch || signal.aborted || shouldAbort?.()) {
+        discard(part)
+        return
+      }
+      if (!reserveCacheSpace(writtenBytes + init.byteLength, name)) {
+        discard(part)
+        return
+      }
+      writePart(init)
     }
 
     for (const [index, uri] of playlist.segmentUris.entries()) {
-      if (startedEpoch !== epoch || shouldAbort?.()) {
+      if (startedEpoch !== epoch || signal.aborted || shouldAbort?.()) {
         // 切歌 / 清空缓存：半成品直接丢掉，不要留下坏文件
         discard(part)
         return
       }
-      const bytes = await fetchSegmentBytes(uri, headers, `分片 ${index + 1}/${playlist.segmentUris.length}`)
+      const bytes = await fetchSegmentBytes(uri, headers, `分片 ${index + 1}/${playlist.segmentUris.length}`, signal)
+      if (startedEpoch !== epoch || signal.aborted || shouldAbort?.()) {
+        discard(part)
+        return
+      }
+      if (!reserveCacheSpace(writtenBytes + bytes.byteLength, name)) {
+        discard(part)
+        return
+      }
       writePart(bytes)
       const moof = countBoxes(bytes, 'moof')
       moofCount += moof
@@ -170,10 +202,23 @@ async function run(input: TranscodeCacheInput, name: string): Promise<void> {
     }
 
     // 落到最终文件名前才腾空间，避免为一次可能失败的下载提前删掉别人的缓存
-    reserveCacheSpace(writtenBytes, name)
+    if (startedEpoch !== epoch || signal.aborted || shouldAbort?.() || !isAutoCacheEnabled() || !reserveCacheSpace(writtenBytes, name)) {
+      discard(part)
+      return
+    }
+    if (startedEpoch !== epoch || signal.aborted || shouldAbort?.() || !isAutoCacheEnabled()) {
+      discard(part)
+      return
+    }
     if (finalFile.exists) finalFile.delete()
     await part.move(finalFile)
-    registerCacheEntry(name, writtenBytes)
+    if (startedEpoch !== epoch || signal.aborted || shouldAbort?.() || !isAutoCacheEnabled() || !registerCacheEntry(name, writtenBytes)) {
+      try {
+        if (finalFile.exists) finalFile.delete()
+      } catch {
+        // 下次按磁盘重建索引
+      }
+    }
   } catch (error) {
     discard(part)
     throw error
@@ -188,8 +233,8 @@ function discard(part: File): void {
   }
 }
 
-async function fetchPlaylist(url: string, headers?: Record<string, string>): Promise<HlsPlaylist> {
-  const text = await fetchText(url, headers, '播放列表')
+async function fetchPlaylist(url: string, headers: Record<string, string> | undefined, signal: AbortSignal): Promise<HlsPlaylist> {
+  const text = await fetchText(url, headers, '播放列表', signal)
   return parseHlsPlaylist(text, url)
 }
 
@@ -200,39 +245,58 @@ async function fetchPlaylist(url: string, headers?: Record<string, string>): Pro
  * 分片可能还没生成 —— 实测源越重越容易踩到（DSD256 稳定复现，等约 2 秒即好）。
  * **410 不重试**：那是任务已被服务端回收，继续重试没有意义。
  */
-async function fetchSegmentBytes(url: string, headers: Record<string, string> | undefined, label: string): Promise<Uint8Array> {
+async function fetchSegmentBytes(url: string, headers: Record<string, string> | undefined, label: string, signal: AbortSignal): Promise<Uint8Array> {
   let lastStatus = 0
   for (let attempt = 1; attempt <= SEGMENT_RETRY_ATTEMPTS; attempt += 1) {
-    const response = await fetchWithTimeout(url, headers)
-    if (response.ok) {
-      return new Uint8Array(await response.arrayBuffer())
-    }
-    lastStatus = response.status
-    if (response.status !== 404) break
-    if (attempt < SEGMENT_RETRY_ATTEMPTS) {
-      await delay(SEGMENT_RETRY_DELAY_MS * attempt)
+    try {
+      return await fetchBoundedBytes(url, {
+        headers,
+        signal,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        maxBytes: MAX_SEGMENT_BYTES,
+      })
+    } catch (error) {
+      if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
+      const status = error instanceof BoundedFetchError ? error.status : undefined
+      if (status !== 404) throw new Error(`${label} HTTP ${status ?? '请求失败'}`, { cause: error })
+      lastStatus = status
+      if (attempt < SEGMENT_RETRY_ATTEMPTS) await delay(SEGMENT_RETRY_DELAY_MS * attempt, signal)
     }
   }
   throw new Error(`${label} HTTP ${lastStatus}`)
 }
 
-async function fetchText(url: string, headers: Record<string, string> | undefined, label: string): Promise<string> {
-  const response = await fetchWithTimeout(url, headers)
-  if (!response.ok) throw new Error(`${label} HTTP ${response.status}`)
-  return response.text()
-}
-
-/** 自己拼超时，不依赖 `AbortSignal.timeout`（Hermes 上不保证存在） */
-async function fetchWithTimeout(url: string, headers?: Record<string, string>): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+async function fetchText(url: string, headers: Record<string, string> | undefined, label: string, signal: AbortSignal): Promise<string> {
   try {
-    return await fetch(url, { ...(headers ? { headers } : {}), signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
+    return await fetchBoundedText(url, {
+      headers,
+      signal,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      maxBytes: 1024 * 1024,
+    })
+  } catch (error) {
+    throw new Error(`${label} 获取失败`, { cause: error })
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(abortError())
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(abortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function abortError(): Error {
+  const error = new Error('Transcode cache aborted')
+  error.name = 'AbortError'
+  return error
 }

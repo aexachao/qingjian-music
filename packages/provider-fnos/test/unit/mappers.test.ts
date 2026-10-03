@@ -69,9 +69,10 @@ describe('parseLyrics', () => {
   it('解析 LRC 时间轴并排序', () => {
     const sheet = parseLyrics('[00:12.34]第一行\n[00:05.00]更早的一行\n[ti:标题]')
     expect(sheet.synced).toBe(true)
-    expect(sheet.lines.map((l) => l.text)).toEqual(['更早的一行', '第一行'])
-    expect(sheet.lines[0]?.atMs).toBe(5000)
-    expect(sheet.lines[1]?.atMs).toBe(12340)
+    expect(sheet.lines.map((l) => l.text)).toEqual(['歌曲：标题', '更早的一行', '第一行'])
+    expect(sheet.lines[0]?.atMs).toBeLessThan(0)
+    expect(sheet.lines[1]?.atMs).toBe(5000)
+    expect(sheet.lines[2]?.atMs).toBe(12340)
   })
 
   it('纯文本歌词退化为不带时间轴', () => {
@@ -160,4 +161,15 @@ describe('mapLyricSheet', () => {
   it('单版本时不产生 alternates', () => {
     expect(mapLyricSheet([{ guid: 'only', content: '[00:01.00]只有一份', isLRC: true }])?.alternates).toBeUndefined()
   })
+})
+
+it('preserves provider credits without turning technical tags into lyrics', () => {
+  const sheet = parseLyrics('[ar:歌手]\n[作词:甲]\n[composer:乙]\n[by:制作者]\n[offset:50]\n[00:03]正文')
+  expect(sheet.lines.map((line) => line.text)).toEqual(['歌手：歌手', '作词：甲', '作曲：乙', '正文'])
+  expect(sheet.lines.slice(0, 3).every((line) => line.atMs < 0)).toBe(true)
+  expect(sheet.lines[3]?.atMs).toBe(3000)
+})
+
+it('does not treat credits alone as a playable lyric candidate', () => {
+  expect(mapLyricSheet([{ guid: 'credits', content: '[ar:歌手]\n[作词:甲]', isLRC: true }])).toBeNull()
 })

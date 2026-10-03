@@ -14,6 +14,7 @@ interface CollapsibleHeaderBarProps {
   title: string
   scrollY: SharedValue<number>
   rightElement?: ReactNode
+  rightElementWidth?: number
 }
 
 interface LargeTitleHeaderProps {
@@ -32,6 +33,7 @@ export const CollapsibleHeaderBar = memo(function CollapsibleHeaderBar({
   title,
   scrollY,
   rightElement,
+  rightElementWidth = 44,
 }: CollapsibleHeaderBarProps) {
   const { mode } = useAppTheme()
   const styles = useStyles()
@@ -68,11 +70,11 @@ export const CollapsibleHeaderBar = memo(function CollapsibleHeaderBar({
 
       {/* 导航栏内容区（高度 44pt，贴合状态栏下方） */}
       <View style={[styles.barContent, { marginTop: topInset }]}>
-        <View style={styles.sideSlot} />
+        <View style={[styles.sideSlot, { width: rightElementWidth }]} />
         <Animated.Text style={[styles.navTitle, animatedTitleStyle]} numberOfLines={1}>
           {title}
         </Animated.Text>
-        <View style={styles.sideSlot}>{rightElement ?? null}</View>
+        <View style={[styles.sideSlot, { width: rightElementWidth }]}>{rightElement ?? null}</View>
       </View>
     </View>
   )

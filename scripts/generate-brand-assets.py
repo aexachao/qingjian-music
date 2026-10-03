@@ -143,6 +143,7 @@ render_svg_to_png(svg_crimson_isolated, android_icons / 'dark-crimson-monochrome
 xcassets = mobile / 'ios/app/Images.xcassets'
 import shutil
 shutil.copy(ios_icons / 'crimson-note.png', xcassets / 'AppIcon.appiconset/App-Icon-1024x1024@1x.png')
+shutil.copy(ios_icons / 'crimson-note.png', xcassets / 'AppIconCrimsonNote.appiconset/AppIconCrimsonNote-1024.png')
 shutil.copy(ios_icons / 'white-note.png', xcassets / 'AppIconWhiteNote.appiconset/AppIconWhiteNote-1024.png')
 shutil.copy(ios_icons / 'dark-note.png', xcassets / 'AppIconDarkNote.appiconset/AppIconDarkNote-1024.png')
 shutil.copy(ios_icons / 'dark-crimson.png', xcassets / 'AppIconDarkCrimson.appiconset/AppIconDarkCrimson-1024.png')

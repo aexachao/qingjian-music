@@ -34,6 +34,11 @@ interface LyricCacheIndex {
 
 let index: LyricCacheIndex | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+let lyricCacheGeneration = 0
+
+export function captureLyricCacheGeneration(): number {
+  return lyricCacheGeneration
+}
 
 function lyricDir(): Directory {
   const dir = new Directory(Paths.cache, LYRIC_DIR)
@@ -113,16 +118,18 @@ function evictIfNeeded(): void {
   for (const key of victims) {
     const record = current.entries[key]
     if (record) {
+      let deleted = false
       try {
         const file = new File(lyricDir(), lyricCacheFileName(...splitKey(key), record.tier))
         if (file.exists) file.delete()
+        deleted = !file.exists
       } catch {
         // 删不掉就留着，下次再试
       }
+      if (deleted) delete current.entries[key]
     }
-    delete current.entries[key]
   }
-  scheduleFlush()
+  if (victims.some((key) => !(key in current.entries))) scheduleFlush()
 }
 
 /** 键的形态是 `serverId__trackId__tier`，serverId / trackId 本身不含 `__` */
@@ -135,7 +142,10 @@ function splitKey(key: string): [string, string] {
  * 读本地歌词：按「逐字 > 整行 > 纯文本」取最好的一份。
  * 命中即刷新 LRU 时间戳；文件损坏时顺手清掉这条索引。
  */
-export function readCachedLyric(serverId: string, trackId: string): LyricSheet | null {
+export function readCachedLyric(
+  serverId: string,
+  trackId: string,
+): { sheet: LyricSheet; sourceIdentity?: string; sourceRevision?: number; metadataParsed: boolean } | null {
   let current: LyricCacheIndex
   try {
     current = loadIndex()
@@ -152,11 +162,16 @@ export function readCachedLyric(serverId: string, trackId: string): LyricSheet |
         scheduleFlush()
         continue
       }
-      const sheet = JSON.parse(file.textSync()) as LyricSheet
+      const sheet = JSON.parse(file.textSync()) as LyricSheet & { metadataParsed?: boolean }
       if (!sheet || !Array.isArray(sheet.lines)) throw new Error('歌词缓存结构不对')
       current.entries[key] = { ...current.entries[key]!, lastUsedAt: Date.now() }
       scheduleFlush()
-      return sheet
+      return {
+        sheet,
+        metadataParsed: sheet.metadataParsed === true,
+        ...(current.entries[key]!.sourceIdentity === undefined ? {} : { sourceIdentity: current.entries[key]!.sourceIdentity }),
+        ...(current.entries[key]!.sourceRevision === undefined ? {} : { sourceRevision: current.entries[key]!.sourceRevision }),
+      }
     } catch {
       // 单条坏了就跳过并清掉，不影响其它档位
       delete current.entries[key]
@@ -167,11 +182,17 @@ export function readCachedLyric(serverId: string, trackId: string): LyricSheet |
 }
 
 /** 写回本地。只缓存服务端选中的那一份（备选版本的内容当前不落盘，见文档说明） */
-export function writeCachedLyric(serverId: string, trackId: string, sheet: LyricSheet): void {
+export function writeCachedLyric(
+  serverId: string,
+  trackId: string,
+  sheet: LyricSheet,
+  options: { generation?: number; sourceIdentity?: string; sourceRevision?: number } = {},
+): boolean {
+  if (options.generation !== undefined && options.generation !== lyricCacheGeneration) return false
   try {
     const file = new File(lyricDir(), lyricCacheFileName(serverId, trackId, sheet.tier))
     if (!file.exists) file.create({ intermediates: true, overwrite: true })
-    file.write(JSON.stringify(sheet))
+    file.write(JSON.stringify({ ...sheet, metadataParsed: true }))
     const current = loadIndex()
     const now = Date.now()
     current.entries[lyricCacheKey(serverId, trackId, sheet.tier)] = {
@@ -180,17 +201,23 @@ export function writeCachedLyric(serverId: string, trackId: string, sheet: Lyric
       offsetMs: sheet.offsetMs,
       fetchedAt: now,
       lastUsedAt: now,
+      ...(options.sourceIdentity === undefined ? {} : { sourceIdentity: options.sourceIdentity }),
+      ...(options.sourceRevision === undefined ? {} : { sourceRevision: options.sourceRevision }),
     }
     evictIfNeeded()
     scheduleFlush()
+    return true
   } catch {
     // 缓存写失败不影响歌词显示
+    return false
   }
 }
 
-/** 清空全部歌词缓存（设置页用）。返回清掉的文件数 */
-export function clearLyricCache(): number {
+/** 清空全部歌词缓存（设置页用），保留删除失败的登记并返回真实残留。 */
+export function clearLyricCache(): { removed: number; remaining: number; success: boolean } {
+  lyricCacheGeneration += 1
   let removed = 0
+  let scanFailed = false
   try {
     const dir = lyricDir()
     for (const item of dir.list()) {
@@ -198,17 +225,18 @@ export function clearLyricCache(): number {
       if (item.name === INDEX_NAME) continue
       try {
         item.delete()
-        removed += 1
+        if (!item.exists) removed += 1
       } catch {
         // 忽略单个删除失败
       }
     }
   } catch {
-    // 目录读不了就当作已清空
+    scanFailed = true
   }
-  index = { version: 1, entries: {} }
+  index = null
+  const remaining = Object.keys(syncWithDisk().entries).length
   flushIndex()
-  return removed
+  return { removed, remaining, success: !scanFailed && remaining === 0 }
 }
 
 /** 设置页展示用：当前缓存了多少首歌的歌词 */

@@ -2,6 +2,8 @@ import { type ImageSourcePropType, useColorScheme } from 'react-native'
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
 import { getAppIcon, setAppIcon, type AppIconId } from '../../modules/app-icon'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createHydrationQueue, createLatestAsyncIntentQueue } from './hydration-queue'
 
 const KEY_APPEARANCE_PREFS = 'qj.prefs.appearance'
 
@@ -22,12 +24,12 @@ export const THEME_MODE_OPTIONS: readonly ThemeModeOption[] = [
   {
     value: 'dark',
     label: '暗色',
-    description: '始终保持深色视觉，沉浸且护眼',
+    description: '始终使用深色外观',
   },
   {
     value: 'light',
     label: '亮色',
-    description: '始终保持明亮清爽的视觉风格',
+    description: '始终使用亮色外观',
   },
 ] as const
 
@@ -99,61 +101,90 @@ function normalizeLogoId(val: unknown): AppIconId {
 
 async function persist(state: AppearancePreferencesData) {
   try {
-    await SecureStore.setItemAsync(
-      KEY_APPEARANCE_PREFS,
-      JSON.stringify({
-        themeMode: state.themeMode,
-        activeLogoId: state.activeLogoId,
-      }),
+    await storageWrites.run(() =>
+      SecureStore.setItemAsync(
+        KEY_APPEARANCE_PREFS,
+        JSON.stringify({
+          themeMode: state.themeMode,
+          activeLogoId: state.activeLogoId,
+        }),
+      ),
     )
   } catch {
     // 忽略写入异常
   }
 }
 
+const storageWrites = new StorageMutationQueue()
+const hydration = createHydrationQueue<AppearancePreferencesData>()
+const iconQueue = createLatestAsyncIntentQueue()
+let latestIconIntent: AppIconId = DEFAULT_LOGO_ID
+let hasIconIntent = false
+
+function ensureHydrated(): void {
+  let logoNeedsSync = false
+  let retryAfterIntentChange = false
+  void hydration.hydrate(async () => {
+    const startIntent = iconQueue.current()
+    const raw = await SecureStore.getItemAsync(KEY_APPEARANCE_PREFS)
+    const data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    const nativeLogoId = normalizeLogoId(await getAppIcon())
+    // Hydration itself must not invalidate pending icon changes.
+    if (startIntent !== iconQueue.current()) {
+      retryAfterIntentChange = true
+      throw new Error('Appearance changed during hydration')
+    }
+    logoNeedsSync = data.activeLogoId !== nativeLogoId
+    return {
+      themeMode: data.themeMode ? normalizeThemeMode(data.themeMode) : 'system',
+      activeLogoId: nativeLogoId,
+    }
+  }, (data, replayed) => {
+    useAppearancePreferences.setState({ ...data })
+    if (replayed || logoNeedsSync) {
+      void persist(useAppearancePreferences.getState())
+    }
+  }).then((hydrated) => {
+    if (!hydrated && retryAfterIntentChange) ensureHydrated()
+  })
+}
+
 export const useAppearancePreferences = create<AppearancePreferencesState>((set, get) => ({
   themeMode: 'system',
   activeLogoId: DEFAULT_LOGO_ID,
   setThemeMode: (themeMode) => {
+    hydration.queue((data) => ({ ...data, themeMode }))
     set({ themeMode })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
   },
   setActiveLogoId: async (activeLogoId) => {
-    const previousLogoId = get().activeLogoId
-    if (activeLogoId === previousLogoId) return
+    const currentTarget = hasIconIntent ? latestIconIntent : get().activeLogoId
+    if (activeLogoId === currentTarget) return
+    const intent = iconQueue.begin()
+    latestIconIntent = activeLogoId
+    hasIconIntent = true
+    ensureHydrated()
 
-    try {
-      await setAppIcon(activeLogoId)
+    const operation = iconQueue.run(intent, () => setAppIcon(activeLogoId)).then(async (latest) => {
+      if (!latest) return
       set({ activeLogoId })
-      await persist(get())
-    } catch (error) {
-      set({ activeLogoId: previousLogoId })
+      hydration.queue((data) => ({ ...data, activeLogoId }))
+      if (hydration.hydrated) await persist(get())
+      else ensureHydrated()
+    }).catch((error: unknown) => {
+      if (iconQueue.isLatest(intent)) {
+        hasIconIntent = false
+        latestIconIntent = normalizeLogoId(get().activeLogoId)
+      }
       throw error
-    }
+    })
+    return operation
   },
 }))
 
 // 初始化：异步从 SecureStore 恢复持久化数据
-void (async () => {
-  try {
-    const raw = await SecureStore.getItemAsync(KEY_APPEARANCE_PREFS)
-    if (raw) {
-      const data = JSON.parse(raw) as Record<string, unknown>
-      const nativeLogoId = normalizeLogoId(await getAppIcon())
-      useAppearancePreferences.setState({
-        ...(data.themeMode ? { themeMode: normalizeThemeMode(data.themeMode) } : {}),
-        activeLogoId: nativeLogoId,
-      })
-      if (data.activeLogoId !== nativeLogoId) {
-        await persist(useAppearancePreferences.getState())
-      }
-    } else {
-      useAppearancePreferences.setState({ activeLogoId: normalizeLogoId(await getAppIcon()) })
-    }
-  } catch {
-    // 忽略异常
-  }
-})()
+ensureHydrated()
 
 /**
  * 获取当前经过系统设置与用户偏好计算后实际生效的主题模式：'dark' | 'light'

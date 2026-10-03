@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 
+// swiftlint:disable type_body_length
 /**
  * 后台分片下载会话。
  *
@@ -34,6 +35,7 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
 
   private var jobsFileURL: URL { storeDirectory.appendingPathComponent("jobs.json") }
   private var jobs: [String: Job] = [:]
+  private let stateQueue = DispatchQueue(label: "com.chrisli.music.audio-downloader.state")
   private var session: URLSession?
   private var progressListener: ((JobProgress) -> Void)?
   private var finishListener: ((JobFinished) -> Void)?
@@ -80,32 +82,46 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     finish: @escaping (JobFinished) -> Void,
     failure: @escaping (JobFailure) -> Void
   ) {
-    progressListener = progress
-    finishListener = finish
-    failureListener = failure
-    _ = ensureSession()
+    stateQueue.sync {
+      progressListener = progress
+      finishListener = finish
+      failureListener = failure
+      _ = ensureSession()
+    }
   }
 
   /// JS 侧不再监听时清空回调（避免事件发到已经销毁的 JS runtime）
   func clearListeners() {
-    progressListener = nil
-    finishListener = nil
-    failureListener = nil
+    stateQueue.sync {
+      progressListener = nil
+      finishListener = nil
+      failureListener = nil
+    }
   }
 
   /// 启动一个分片下载作业：所有分片一次性入队，立刻返回
   @discardableResult
   func start(job: Job) -> Bool {
-    guard !job.urls.isEmpty else { return false }
-    jobs[job.id] = job
-    persistJobs()
+    stateQueue.sync { startLocked(job: job) }
+  }
 
-    let partsDirectory = URL(fileURLWithPath: job.partsDirectory, isDirectory: true)
-    try? FileManager.default.createDirectory(at: partsDirectory, withIntermediateDirectories: true)
-
+  private func startLocked(job: Job) -> Bool {
+    guard !job.urls.isEmpty, job.urls.allSatisfy({ URL(string: $0) != nil }) else { return false }
     let session = ensureSession()
-    // 已经在队列里的同作业任务先撤掉，避免重复下载
-    cancelTasks(for: job.id, in: session, removeParts: true)
+    // The native id is a unique attempt id, so old tasks cannot share this job state.
+    jobs[job.id] = job
+    guard persistJobs() else {
+      jobs.removeValue(forKey: job.id)
+      return false
+    }
+    let partsDirectory = URL(fileURLWithPath: job.partsDirectory, isDirectory: true)
+    do {
+      try FileManager.default.createDirectory(at: partsDirectory, withIntermediateDirectories: true)
+    } catch {
+      jobs.removeValue(forKey: job.id)
+      _ = persistJobs()
+      return false
+    }
 
     for (index, urlString) in job.urls.enumerated() {
       guard let url = URL(string: urlString) else { continue }
@@ -123,25 +139,50 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     return true
   }
 
-  /// 未完成的作业（JS 启动时对账用）
-  func pendingJobs() -> [[String: Any]] {
-    let session = ensureSession()
-    let outstanding = sessionTasksByJob(in: session)
-    return jobs.values.map { job in
-      let parts = existingParts(of: job)
-      return [
-        "id": job.id,
-        "destination": job.destination,
-        "completed": parts.count,
-        "total": job.urls.count,
-        "outstanding": outstanding[job.id] ?? 0
-      ]
+  /// 未完成作业：getAllTasks 异步回调避免在状态队列等待 delegate 队列。
+  func pendingJobs(completion: @escaping ([[String: Any]]) -> Void) {
+    let (session, queriedJobIds) = stateQueue.sync { (ensureSession(), Set(jobs.keys)) }
+    session.getAllTasks { [weak self] tasks in
+      guard let self else { return }
+      let activeIds = Set(tasks.compactMap { task -> String? in
+        guard let description = task.taskDescription,
+              let jobId = description.split(separator: "|").first else { return nil }
+        return String(jobId)
+      })
+      self.stateQueue.async {
+        let snapshot = self.jobs.values.map { job -> [String: Any] in
+          let parts = self.existingParts(of: job)
+          let status: String
+          if parts.count == job.urls.count {
+            status = "completed"
+          } else if !queriedJobIds.contains(job.id) || activeIds.contains(job.id) {
+            status = "pending"
+          } else {
+            status = "failed"
+          }
+          let outstanding = max(job.urls.count - parts.count, 0)
+          return [
+            "id": job.id,
+            "destination": job.destination,
+            "completed": parts.count,
+            "total": job.urls.count,
+            "outstanding": outstanding,
+            "status": status,
+            "error": status == "failed" ? "后台下载任务已停止" : ""
+          ]
+        }
+        completion(snapshot)
+      }
     }
   }
 
   /// 分片都在就立刻拼接（对账路径：App 被杀期间系统把分片下完了）
   @discardableResult
   func assembleIfComplete(jobId: String) -> Bool {
+    stateQueue.sync { assembleIfCompleteLocked(jobId: jobId) }
+  }
+
+  private func assembleIfCompleteLocked(jobId: String) -> Bool {
     guard let job = jobs[jobId] else { return false }
     guard existingParts(of: job).count == job.urls.count else { return false }
     assemble(job: job)
@@ -151,6 +192,10 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
   /// 把所有分片已齐的作业就地拼装（App 被系统唤醒、或下次启动对账时调用）
   @discardableResult
   func assembleCompletedJobs() -> Int {
+    stateQueue.sync { assembleCompletedJobsLocked() }
+  }
+
+  private func assembleCompletedJobsLocked() -> Int {
     var assembled = 0
     for job in jobs.values where existingParts(of: job).count == job.urls.count {
       assemble(job: job)
@@ -160,11 +205,12 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
   }
 
   func cancel(jobId: String) {
+    stateQueue.sync { cancelLocked(jobId: jobId) }
+  }
+
+  private func cancelLocked(jobId: String) {
     let session = ensureSession()
     cancelTasks(for: jobId, in: session, removeParts: true)
-    if let job = jobs[jobId] {
-      try? FileManager.default.removeItem(atPath: job.partsDirectory)
-    }
     jobs.removeValue(forKey: jobId)
     persistJobs()
   }
@@ -185,31 +231,12 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     return created
   }
 
-  private func sessionTasksByJob(in session: URLSession) -> [String: Int] {
-    var counts: [String: Int] = [:]
-    let semaphore = DispatchSemaphore(value: 0)
-    session.getAllTasks { tasks in
-      for task in tasks {
-        guard let description = task.taskDescription,
-              let jobId = description.split(separator: "|").first else { continue }
-        counts[String(jobId), default: 0] += 1
-      }
-      semaphore.signal()
-    }
-    // getAllTasks 的回调在 session 队列上；这里等一小会儿即可，纯内存统计
-    _ = semaphore.wait(timeout: .now() + 2)
-    return counts
-  }
-
   private func cancelTasks(for jobId: String, in session: URLSession, removeParts: Bool) {
-    let semaphore = DispatchSemaphore(value: 0)
     session.getAllTasks { tasks in
       for task in tasks where task.taskDescription?.hasPrefix("\(jobId)|") == true {
         task.cancel()
       }
-      semaphore.signal()
     }
-    _ = semaphore.wait(timeout: .now() + 2)
     if removeParts, let job = jobs[jobId] {
       try? FileManager.default.removeItem(atPath: job.partsDirectory)
     }
@@ -237,38 +264,17 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
 
   /// 按序号把所有分片拼成成品文件（fMP4 的 init + 分片顺序拼接即合法文件）
   private func assemble(job: Job) {
-    let parts = existingParts(of: job)
-    guard parts.count == job.urls.count else { return }
-
     let destination = URL(fileURLWithPath: job.destination)
-    try? FileManager.default.createDirectory(
-      at: destination.deletingLastPathComponent(),
-      withIntermediateDirectories: true
-    )
-    let partial = URL(fileURLWithPath: job.destination + ".part")
-    FileManager.default.createFile(atPath: partial.path, contents: nil)
-
-    guard let handle = try? FileHandle(forWritingTo: partial) else {
-      failureListener?(JobFailure(id: job.id, reason: "无法写入成品文件"))
-      return
-    }
-
+    let partsDirectory = URL(fileURLWithPath: job.partsDirectory, isDirectory: true)
     do {
-      for index in parts {
-        let data = try Data(contentsOf: partURL(job: job, index: index))
-        try handle.write(contentsOf: data)
-      }
-      try handle.close()
-      if FileManager.default.fileExists(atPath: destination.path) {
-        try FileManager.default.removeItem(at: destination)
-      }
-      try FileManager.default.moveItem(at: partial, to: destination)
-      let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
-      let bytes = (attributes?[.size] as? Int) ?? 0
+      let bytes = try AudioDownloaderFileAssembler.assemble(
+        urls: job.urls,
+        destination: destination,
+        partsDirectory: partsDirectory
+      )
       finishListener?(JobFinished(id: job.id, destination: job.destination, bytes: bytes))
     } catch {
-      try? handle.close()
-      try? FileManager.default.removeItem(at: partial)
+      try? FileManager.default.removeItem(atPath: job.destination + ".part")
       failureListener?(JobFailure(id: job.id, reason: error.localizedDescription))
       return
     }
@@ -285,19 +291,33 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     jobs = decoded
   }
 
-  private func persistJobs() {
-    guard let data = try? JSONEncoder().encode(jobs) else { return }
-    try? data.write(to: jobsFileURL, options: .atomic)
+  @discardableResult
+  private func persistJobs() -> Bool {
+    guard let data = try? JSONEncoder().encode(jobs) else { return false }
+    do {
+      try data.write(to: jobsFileURL, options: .atomic)
+      return true
+    } catch {
+      return false
+    }
   }
 
   // MARK: - URLSessionDownloadDelegate
 
   func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    stateQueue.sync {
     guard let description = downloadTask.taskDescription,
           let indexString = description.split(separator: "|").last,
           let index = Int(indexString),
           let rawJobId = description.split(separator: "|").first,
           let job = jobs[String(rawJobId)] else { return }
+
+    if let response = downloadTask.response as? HTTPURLResponse,
+       !(200..<300).contains(response.statusCode) {
+      try? FileManager.default.removeItem(at: location)
+      fail(job: job, reason: "分片 HTTP \(response.statusCode)")
+      return
+    }
 
     let target = partURL(job: job, index: index)
     // 这个回调返回后系统就会删掉 location，必须同步搬走
@@ -306,17 +326,27 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
       try FileManager.default.moveItem(at: location, to: target)
     } catch {
       // 搬不动就当作这一片失败：不写 .part，下次对账时会重下整个作业
+      fail(job: job, reason: "无法保存下载分片")
     }
     emitProgress(for: job.id)
+    }
+  }
+
+  private func fail(job: Job, reason: String) {
+    try? FileManager.default.removeItem(atPath: job.partsDirectory)
+    jobs.removeValue(forKey: job.id)
+    persistJobs()
+    failureListener?(JobFailure(id: job.id, reason: reason))
   }
 
   func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    stateQueue.sync {
     guard let description = task.taskDescription,
           let rawJobId = description.split(separator: "|").first,
           let job = jobs[String(rawJobId)] else { return }
 
     if let error, (error as NSError).code != NSURLErrorCancelled {
-      failureListener?(JobFailure(id: job.id, reason: error.localizedDescription))
+      fail(job: job, reason: error.localizedDescription)
       return
     }
 
@@ -325,6 +355,7 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     if parts.count == job.urls.count {
       assemble(job: job)
     }
+    }
   }
 
   /// 后台事件处理完：把 AppDelegate 收下的 completionHandler 交回去，系统据此决定何时挂起 App
@@ -332,3 +363,4 @@ final class AudioDownloaderSession: NSObject, URLSessionDownloadDelegate {
     AudioDownloaderBackgroundHandler.shared.invokeCompletionHandler(forSessionIdentifier: Self.sessionIdentifier)
   }
 }
+// swiftlint:enable type_body_length

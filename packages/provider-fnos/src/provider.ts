@@ -28,6 +28,7 @@ import type {
   PlaylistCreateInput,
   PlaylistEditInput,
   ProviderFactory,
+  ProviderRouting,
   ProviderSession,
   RadioSlice,
   SearchSuggestion,
@@ -36,6 +37,7 @@ import type {
 } from '@qj/provider-api'
 import { z } from 'zod'
 import { FnosClient } from './client'
+import { FnosRouteCoordinator } from './routing'
 import { FNOS_ENDPOINTS, FNOS_EVENT_TYPES } from './endpoints'
 import {
   formatSort,
@@ -123,6 +125,7 @@ const TRANSCODE_HEARTBEAT_MS = 10_000
  * 服务端本来就会按心跳超时（约 1 分钟）自行回收任务。
  */
 const TRANSCODE_SESSION_TIMEOUT_MS = 3_000
+const ROUTE_PROBE_TIMEOUT_MS = 3_000
 
 /**
  * 发起转码的请求超时。
@@ -144,6 +147,10 @@ function transcodeBitrate(quality: StreamOptions['quality']): number {
   return 320
 }
 
+function canceledTranscode(): MusicError {
+  return new MusicError({ code: 'canceled', message: '较新的转码请求已接管当前歌曲' })
+}
+
 const trackListSchema = fnListSchema(fnTrackSchema)
 const albumListSchema = fnListSchema(fnAlbumSchema)
 const artistListSchema = fnListSchema(fnArtistSchema)
@@ -151,6 +158,11 @@ const genreListSchema = fnListSchema(fnGenreRefSchema)
 const playlistListSchema = fnListSchema(fnPlaylistSchema)
 /** batch-detail 一次最多带多少个 guid（飞牛网页面也是分批问的） */
 const PLAYLIST_COUNT_BATCH = 50
+
+interface ActiveTranscodeLease {
+  generation: number
+  client: FnosClient
+}
 
 const roamEntrySchema = z.object({
   track: fnTrackSchema.nullish(),
@@ -169,7 +181,13 @@ export class FnosProvider implements MusicProvider {
   readonly capabilities = FNOS_CAPABILITIES
 
   private readonly client: FnosClient
+  private readonly routeCoordinator: FnosRouteCoordinator
+  readonly routing: ProviderRouting
   private session: ProviderSession | undefined
+  /** 同一曲目的转码创建/关闭必须串行；不同曲目互不阻塞。 */
+  private readonly transcodeGenerations = new Map<string, number>()
+  private readonly activeTranscodes = new Map<string, ActiveTranscodeLease>()
+  private readonly transcodeQueues = new Map<string, Promise<void>>()
 
   constructor(
     readonly connection: ServerConnection,
@@ -182,28 +200,45 @@ export class FnosProvider implements MusicProvider {
       timeoutMs: deps.timeoutMs,
       fetchImpl: deps.fetchImpl,
       ...(deps.recoverPassword ? { reauthorize: () => this.silentRelogin() } : {}),
+      recoverRoute: (failedUrl) => this.routeCoordinator.recover(failedUrl),
     })
     this.session = session
+    this.routeCoordinator = new FnosRouteCoordinator({
+      baseUrl: connection.baseUrl,
+      alternateBaseUrls: connection.alternateBaseUrls,
+      session: () => this.session,
+      probe: (baseUrl, token) => this.probeRoute(baseUrl, token),
+      activeChanged: (baseUrl) => this.client.setBaseUrl(baseUrl),
+    })
+    this.routing = this.routeCoordinator
   }
 
   /** token 过期后的静默重登：拿 Keychain 里的密码换新 token，失败就放弃 */
+  private authRevision = 0
+  private retired = false
+
   private async silentRelogin(): Promise<string | undefined> {
-    if (!this.deps.recoverPassword) return undefined
+    const revision = this.authRevision
+    if (this.retired || !this.deps.recoverPassword) return undefined
     const password = await this.deps.recoverPassword(this.connection)
-    if (!password) return undefined
+    if (!password || revision !== this.authRevision) return undefined
     const session = await this.login({ password })
+    if (revision !== this.authRevision) return undefined
     await this.deps.onSessionRefreshed?.(this.connection, session)
+    if (revision !== this.authRevision || this.retired) return undefined
     return session.token
   }
 
   // ---- 认证 ----
 
   async login(credentials: Credentials): Promise<ProviderSession> {
+    const revision = this.authRevision
     const passwordHash = await this.deps.sha256Hex(credentials.password)
     const data = await this.client.post(
       FNOS_ENDPOINTS.user.passwordLogin,
       { username: this.connection.username, password: passwordHash, deviceId: this.deps.deviceId },
       fnLoginSchema,
+      { skipReauth: true },
     )
     const session: ProviderSession = {
       token: data.userToken,
@@ -211,6 +246,7 @@ export class FnosProvider implements MusicProvider {
       deviceId: this.deps.deviceId,
       createdAt: Date.now(),
     }
+    if (revision !== this.authRevision) throw new MusicError({ code: 'canceled', message: '登录操作已取消' })
     this.restoreSession(session)
     return session
   }
@@ -220,18 +256,53 @@ export class FnosProvider implements MusicProvider {
     this.client.setToken(session.token)
   }
 
+  /** 线路验证只拿现有 token 读 /user/me，绝不触发密码静默重登。 */
+  private async probeRoute(baseUrl: string, token: string): Promise<SessionUser> {
+    const controller = new AbortController()
+    const probe = new FnosClient({
+      baseUrl,
+      token,
+      timeoutMs: ROUTE_PROBE_TIMEOUT_MS,
+      fetchImpl: this.deps.fetchImpl,
+    })
+    const request = probe.get(FNOS_ENDPOINTS.user.me, fnUserSchema, { skipReauth: true, signal: controller.signal })
+    // RN fetch 的 abort 在少数网络栈里只发信号、不结算 Promise。race 一个自己的
+    // deadline，保证恢复循环最多等这一条线路三秒；底层请求若随后才结束也已被处理。
+    return new Promise<SessionUser>((resolve, reject) => {
+      let settled = false
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        callback()
+      }
+      const timer = setTimeout(() => {
+        controller.abort()
+        finish(() => reject(new MusicError({ code: 'timeout', message: '备用线路验证超时' })))
+      }, ROUTE_PROBE_TIMEOUT_MS)
+      void request.then(
+        (value) => finish(() => resolve(mapUser(value))),
+        (error) => finish(() => reject(error)),
+      )
+    })
+  }
+
   async currentUser(): Promise<SessionUser> {
     return mapUser(await this.client.get(FNOS_ENDPOINTS.user.me, fnUserSchema))
   }
 
   async logout(): Promise<void> {
-    try {
-      // 服务端登出尽力而为：2s 超时，否则外网/服务器慢时会卡住退出登录。
-      await this.client.post(FNOS_ENDPOINTS.user.logout, undefined, z.unknown(), { timeoutMs: 2000 })
-    } finally {
-      this.session = undefined
-      this.client.setToken(undefined)
-    }
+    // Invalidate refresh before any await; send logout with the old token, then
+    // immediately revoke local credentials while its best-effort response waits.
+    this.authRevision += 1
+    this.retired = true
+    this.routeCoordinator.retire()
+    this.activeTranscodes.clear()
+    this.transcodeGenerations.clear()
+    const request = this.client.post(FNOS_ENDPOINTS.user.logout, undefined, z.unknown(), { timeoutMs: 2000, skipReauth: true })
+    this.session = undefined
+    this.client.setToken(undefined)
+    await request
   }
 
   // ---- 浏览 ----
@@ -464,45 +535,77 @@ export class FnosProvider implements MusicProvider {
    * 4. 结束时 POST /track/transcode/quit {guid}
    */
   private async transcodeStream(trackId: string, options: StreamOptions): Promise<StreamRequest> {
-    const data = await this.client.post(
-      FNOS_ENDPOINTS.track.transcode,
-      { guid: trackId, output: { codec: 'flac', bitrate: transcodeBitrate(options.quality), channel: 2 } },
-      fnTranscodeSchema,
-      { timeoutMs: TRANSCODE_START_TIMEOUT_MS },
-    )
-    const status = (data.status ?? '').toLowerCase()
-    if (status !== 'success' && status !== 'ready') {
-      throw new MusicError({
-        code: 'server',
-        message: data.errmsg?.trim() || `转码失败（status=${data.status ?? '未知'}）`,
-        ...(data.errno ? { providerCode: data.errno } : {}),
-      })
-    }
-    return {
-      url: this.client.resourceUrl(FNOS_ENDPOINTS.track.hlsPreset.replace(':guid', encodeURIComponent(trackId))),
-      headers: this.client.authHeaders(),
-      transport: 'hls',
-      quality: options.quality,
-      mimeHint: 'application/vnd.apple.mpegurl',
-      session: this.transcodeSession(trackId),
-    }
+    // 先失效旧 lease，再等它的队列。这样新会话一开始排队，旧 session 的
+    // heartbeat/close 就不再发请求；而真正启动新任务前仍会有界清掉旧任务。
+    const generation = (this.transcodeGenerations.get(trackId) ?? 0) + 1
+    this.transcodeGenerations.set(trackId, generation)
+    return this.enqueueTranscode(trackId, async () => {
+      if (!this.isCurrentTranscodeGeneration(trackId, generation)) throw canceledTranscode()
+      const previous = this.activeTranscodes.get(trackId)
+      if (previous) {
+        this.activeTranscodes.delete(trackId)
+        await this.quitTranscode(previous.client, trackId).catch(() => undefined)
+      }
+      if (!this.isCurrentTranscodeGeneration(trackId, generation)) throw canceledTranscode()
+
+      // HLS 的启动端点是 POST，不能靠 POST 失败后重放来切线。仅在线路已配置时
+      // 先做一次可重放的 GET /user/me；client 会在三秒读超时后按备用线路恢复并重试。
+      if (this.routeCoordinator.hasAlternates()) {
+        await this.client.get(FNOS_ENDPOINTS.user.me, fnUserSchema, { timeoutMs: ROUTE_PROBE_TIMEOUT_MS, hardTimeoutMs: ROUTE_PROBE_TIMEOUT_MS })
+      }
+      if (!this.isCurrentTranscodeGeneration(trackId, generation)) throw canceledTranscode()
+
+      // 线路与 token 以这一次创建为准，返回的 HLS、心跳和 quit 永远不混用 host。
+      const routeClient = this.client.snapshot()
+      let data: z.infer<typeof fnTranscodeSchema>
+      try {
+        data = await this.startTranscode(routeClient, trackId, options)
+      } catch (error) {
+        if (!this.isCurrentTranscodeGeneration(trackId, generation)) throw canceledTranscode()
+        throw error
+      }
+      if (!this.isCurrentTranscodeGeneration(trackId, generation)) {
+        // 较新的创建仍在队列后，所以在这里清理自己创建的任务不会误关新任务。
+        await this.quitTranscode(routeClient, trackId).catch(() => undefined)
+        throw canceledTranscode()
+      }
+      const status = (data.status ?? '').toLowerCase()
+      if (status !== 'success' && status !== 'ready') {
+        throw new MusicError({
+          code: 'server',
+          message: data.errmsg?.trim() || `转码失败（status=${data.status ?? '未知'}）`,
+          ...(data.errno ? { providerCode: data.errno } : {}),
+        })
+      }
+      const lease = { generation, client: routeClient }
+      this.activeTranscodes.set(trackId, lease)
+      return {
+        url: routeClient.resourceUrl(FNOS_ENDPOINTS.track.hlsPreset.replace(':guid', encodeURIComponent(trackId))),
+        headers: routeClient.authHeaders(),
+        transport: 'hls',
+        quality: options.quality,
+        mimeHint: 'application/vnd.apple.mpegurl',
+        session: this.transcodeSession(trackId, lease),
+      }
+    })
   }
 
-  private transcodeSession(trackId: string): StreamSession {
+  private transcodeSession(trackId: string, lease: ActiveTranscodeLease): StreamSession {
     // 心跳时间戳必须严格递增，卡住不动就自己 +1 毫秒（对齐 web 端做法）
     let lastSeconds = -1
     return {
       id: trackId,
       heartbeatIntervalMs: TRANSCODE_HEARTBEAT_MS,
       heartbeat: async (positionMs: number) => {
+        if (!this.ownsTranscodeLease(trackId, lease)) return
         const seconds = Math.max(0, positionMs) / 1000
         const timestamp = seconds > lastSeconds ? seconds : lastSeconds + 0.001
         lastSeconds = timestamp
-        const data = await this.client.post(
+        const data = await lease.client.post(
           FNOS_ENDPOINTS.track.transcodeHeartbeat,
           { guid: trackId, timestamp: Number(timestamp.toFixed(3)) },
           fnTranscodeSchema,
-          { timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS },
+          { timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS, skipReauth: true },
         )
         // 任务被回收后心跳会返回 failed（errmsg: playLink not found），交给上层重新起会话
         if ((data.status ?? '').toLowerCase() === 'failed') {
@@ -514,11 +617,81 @@ export class FnosProvider implements MusicProvider {
         }
       },
       close: async () => {
-        await this.client.post(FNOS_ENDPOINTS.track.transcodeQuit, { guid: trackId }, fnTranscodeSchema, {
-          timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS,
+        await this.enqueueTranscode(trackId, async () => {
+          if (!this.ownsTranscodeLease(trackId, lease)) return
+          this.activeTranscodes.delete(trackId)
+          await this.quitTranscode(lease.client, trackId)
         })
       },
     }
+  }
+
+  private startTranscode(routeClient: FnosClient, trackId: string, options: StreamOptions): Promise<z.infer<typeof fnTranscodeSchema>> {
+    const controller = new AbortController()
+    return this.withDeadline(
+      routeClient.post(
+        FNOS_ENDPOINTS.track.transcode,
+        { guid: trackId, output: { codec: 'flac', bitrate: transcodeBitrate(options.quality), channel: 2 } },
+        fnTranscodeSchema,
+        { timeoutMs: TRANSCODE_START_TIMEOUT_MS, signal: controller.signal },
+      ),
+      controller,
+      TRANSCODE_START_TIMEOUT_MS,
+      '转码启动超时',
+    )
+  }
+
+  private quitTranscode(routeClient: FnosClient, trackId: string): Promise<void> {
+    const controller = new AbortController()
+    return this.withDeadline(
+      routeClient.post(FNOS_ENDPOINTS.track.transcodeQuit, { guid: trackId }, fnTranscodeSchema, {
+        timeoutMs: TRANSCODE_SESSION_TIMEOUT_MS, skipReauth: true, signal: controller.signal,
+      }).then(() => undefined),
+      controller,
+      TRANSCODE_SESSION_TIMEOUT_MS,
+      '关闭转码会话超时',
+    )
+  }
+
+  private withDeadline<T>(request: Promise<T>, controller: AbortController, timeoutMs: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        callback()
+      }
+      const timer = setTimeout(() => {
+        controller.abort()
+        finish(() => reject(new MusicError({ code: 'timeout', message })))
+      }, timeoutMs)
+      void request.then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      )
+    })
+  }
+
+  private enqueueTranscode<T>(trackId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.transcodeQueues.get(trackId) ?? Promise.resolve()
+    const request = previous.catch(() => undefined).then(operation)
+    const tail = request.then(() => undefined, () => undefined)
+    this.transcodeQueues.set(trackId, tail)
+    void tail.then(() => {
+      if (this.transcodeQueues.get(trackId) !== tail) return
+      this.transcodeQueues.delete(trackId)
+      if (!this.activeTranscodes.has(trackId)) this.transcodeGenerations.delete(trackId)
+    })
+    return request
+  }
+
+  private isCurrentTranscodeGeneration(trackId: string, generation: number): boolean {
+    return !this.retired && this.transcodeGenerations.get(trackId) === generation
+  }
+
+  private ownsTranscodeLease(trackId: string, lease: ActiveTranscodeLease): boolean {
+    return this.isCurrentTranscodeGeneration(trackId, lease.generation) && this.activeTranscodes.get(trackId) === lease
   }
 
   image(coverId: string, sizePx?: number): HttpResource {
@@ -528,8 +701,8 @@ export class FnosProvider implements MusicProvider {
     }
   }
 
-  async lyrics(trackId: string): Promise<LyricSheet | null> {
-    const data = await this.client.get(FNOS_ENDPOINTS.lyric.list, fnLyricListSchema, { query: { trackGUID: trackId } })
+  async lyrics(trackId: string, options: { signal?: AbortSignal } = {}): Promise<LyricSheet | null> {
+    const data = await this.client.get(FNOS_ENDPOINTS.lyric.list, fnLyricListSchema, { query: { trackGUID: trackId }, signal: options.signal })
     return mapLyricSheet(data.list ?? [], data.preferred)
   }
 

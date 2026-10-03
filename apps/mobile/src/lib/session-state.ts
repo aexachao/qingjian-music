@@ -16,12 +16,11 @@ interface SessionTeardown {
   publishSignedOut(): void
 }
 
-/** 先消除跨账号可见状态和持久凭证，最后才让路由进入退出态。 */
+/** 本地退出立即生效；存储或原生清理失败不能把 UI 留在已登录状态。 */
 export async function teardownSession(actions: SessionTeardown): Promise<void> {
-  await actions.clearPlayback()
   actions.clearQueryCache()
-  await actions.clearCredentials()
   actions.publishSignedOut()
+  await Promise.all([actions.clearPlayback(), actions.clearCredentials()])
 }
 
 export const SIGNED_OUT_SESSION: SessionState = {

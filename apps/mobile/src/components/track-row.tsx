@@ -89,23 +89,17 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
             )}
           </View>
         ) : (
-          <View style={styles.coverWrapper}>
-            <CoverImage
-              coverId={track.coverId ?? track.album?.coverId}
-              size={48}
-              borderRadius={radius.sm}
-            />
-            {playing ? (
-              <View style={styles.coverPlayingOverlay}>
-                <LivePlayingBars size={11} />
-              </View>
-            ) : null}
-          </View>
+          <CoverImage
+            coverId={track.coverId ?? track.album?.coverId}
+            size={48}
+            borderRadius={radius.sm}
+          />
         )}
 
         <View style={styles.metaCol}>
-          {/* 标题行：歌名永远保持像素级左平齐，绝不被播放中动画推移偏离 */}
+          {/* 封面行在歌名前显示律动；序号行只在序号位显示，避免重复。 */}
           <View style={styles.titleRow}>
+            {playing && leading === 'cover' ? <LivePlayingBars size={11} /> : null}
             <Text numberOfLines={1} style={[styles.title, playing && styles.playing]}>
               {track.title}
             </Text>
@@ -154,27 +148,6 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.footnote,
     color: colors.textTertiary,
     fontVariant: ['tabular-nums'],
-  },
-  trackNoPlaying: {
-    color: colors.playing,
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-  },
-  coverWrapper: {
-    position: 'relative',
-    width: 48,
-    height: 48,
-  },
-  coverPlayingOverlay: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.bgFloatingBlur,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   metaCol: {
     flex: 1,

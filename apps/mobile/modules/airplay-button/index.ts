@@ -1,14 +1,21 @@
-import { Platform, type ColorValue, type ViewProps } from 'react-native'
+import { Platform, type ColorValue, type NativeSyntheticEvent, type ViewProps } from 'react-native'
 import { requireNativeView } from 'expo'
+
+export interface AirplayRouteChangeEvent {
+  name: string
+  external: boolean
+}
 
 export interface AirplayRouteButtonProps extends ViewProps {
   tintColor?: ColorValue
+  /** Kept for API compatibility; the native icon uses tintColor for every state. */
   activeTintColor?: ColorValue
+  onRouteChange?: (event: NativeSyntheticEvent<AirplayRouteChangeEvent>) => void
 }
 
 /**
  * 系统 AirPlay 输出设备选择按钮（原生 `AVRoutePickerView`）。
- * 点按弹出 iOS 输出设备选择面板，颜色由运行时主题传入。
+ * 点按弹出 iOS 输出设备选择面板；图标由当前真实音频路由决定。
  *
  * Android 没有等价控件（音频路由由系统接管），渲染 `null` 即可。
  *

@@ -21,6 +21,8 @@ interface PlayerState {
   autoplay: boolean
   /** 歌词时间轴偏移（毫秒，正值歌词提前） */
   lyricOffsetMs: number
+  /** 偏移只属于这一首；切歌时绝不把上一首的值用于新歌词。 */
+  lyricOffsetTrackId?: string
   setQueue(queue: QueueItem[], index: number, source?: PlaySource, baseQueue?: QueueItem[]): void
   /** 往队尾追加（漫游续歌、无限播放用） */
   appendItems(items: QueueItem[]): void
@@ -35,17 +37,19 @@ interface PlayerState {
   activateHistoryItem(item: QueueItem, qid: string): void
   /** 从历史中恢复上一首：弹出历史末尾项置于队头，原当前曲目与待播列表顺延。 */
   restorePreviousTrack(item: QueueItem): void
+  /** 连续上一首尚未提交时，一次恢复选中的历史范围。 */
+  restorePreviousTracks(items: QueueItem[], historyIds: string[]): void
   setRepeat(repeat: RepeatMode): void
   setShuffle(shuffle: boolean): void
   setAutoplay(autoplay: boolean): void
-  setLyricOffsetMs(offsetMs: number): void
+  setLyricOffsetMs(offsetMs: number, trackId?: string): void
   /** 队列页拖动排序后同步本地顺序 */
   moveItem(from: number, to: number): void
   /** 队列页删除一首后同步本地顺序 */
   removeItem(target: number): void
   /** 队列页「清空待播」：只丢掉当前曲目之后的部分，当前曲目继续播放 */
   clearUpcoming(): void
-  patchItem(trackId: string, patch: Partial<QueueItem>): void
+  patchItem(trackId: string, patch: Partial<QueueItem>, serverId?: string): void
   clear(): void
   clearHistory(): void
   /** 队列页历史行左滑删除：只删这一条（按 qid 定位，同一曲目可能有多条历史） */
@@ -59,6 +63,9 @@ interface PlayerState {
   /** 音频是否正在加载/解码中（用于在播放/暂停按钮呈现 loading 状态） */
   isLoadingAudio: boolean
   setIsLoadingAudio(loading: boolean): void
+  /** 用户已选中的加载目标；与尚未提交的原生队列分开，避免显示旧歌名。 */
+  pendingCurrent?: QueueItem
+  setPendingCurrent(item: QueueItem | undefined): void
 }
 
 /** 持久化恢复时用的整套状态（restore 的入参） */
@@ -102,10 +109,13 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   playMode: DEFAULT_PLAY_MODE,
   autoplay: false,
   lyricOffsetMs: 0,
+  lyricOffsetTrackId: undefined,
   playbackEnded: false,
   setPlaybackEnded: (playbackEnded) => set({ playbackEnded }),
   isLoadingAudio: false,
   setIsLoadingAudio: (isLoadingAudio) => set({ isLoadingAudio }),
+  pendingCurrent: undefined,
+  setPendingCurrent: (pendingCurrent) => set({ pendingCurrent }),
   appendHistoryItem: (item) =>
     set((state) => ({
       history: appendHistoryOccurrence(state.history, item),
@@ -126,6 +136,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         index,
         source,
         playbackEnded: false,
+        lyricOffsetMs: 0,
+        lyricOffsetTrackId: queue[index]?.trackId,
       }
     }),
   appendItems: (items) =>
@@ -196,10 +208,21 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         playbackEnded: false,
       }
     }),
+  restorePreviousTracks: (items, historyIds) =>
+    set((state) => ({
+      queue: [...items, ...state.queue],
+      baseQueue: [...items, ...state.baseQueue],
+      history: state.history.filter((item) => !historyIds.includes(item.qid)),
+      index: 0,
+      playbackEnded: false,
+    })),
   setRepeat: (repeat) => set((state) => ({ playMode: { ...state.playMode, repeat } })),
   setShuffle: (shuffle) => set((state) => ({ playMode: { ...state.playMode, shuffle } })),
   setAutoplay: (autoplay) => set({ autoplay }),
-  setLyricOffsetMs: (lyricOffsetMs) => set({ lyricOffsetMs }),
+  setLyricOffsetMs: (lyricOffsetMs, trackId) => set((state) => ({
+    lyricOffsetMs,
+    lyricOffsetTrackId: trackId ?? selectCurrent(state)?.trackId,
+  })),
   moveItem: (from, to) =>
     set((state) => {
       if (from === to) return state
@@ -224,12 +247,16 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         index: Math.min(index, queue.length - 1),
       }
     }),
-  patchItem: (trackId, patch) =>
-    set((state) => ({
-      queue: state.queue.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
-      history: state.history.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
-      baseQueue: state.baseQueue.map((item) => (item.trackId === trackId ? { ...item, ...patch } : item)),
-    })),
+  patchItem: (trackId, patch, serverId) =>
+    set((state) => {
+      const matches = (item: QueueItem) => item.trackId === trackId && (!serverId || item.serverId === serverId)
+      return {
+        pendingCurrent: state.pendingCurrent && matches(state.pendingCurrent) ? { ...state.pendingCurrent, ...patch } : state.pendingCurrent,
+        queue: state.queue.map((item) => (matches(item) ? { ...item, ...patch } : item)),
+        history: state.history.map((item) => (matches(item) ? { ...item, ...patch } : item)),
+        baseQueue: state.baseQueue.map((item) => (matches(item) ? { ...item, ...patch } : item)),
+      }
+    }),
   clearUpcoming: () =>
     set((state) => {
       // index < 0 表示还没开始播放，此时「待播」就是整个队列
@@ -257,9 +284,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         playMode: payload.playMode,
         autoplay: payload.autoplay,
         lyricOffsetMs: payload.lyricOffsetMs,
+        lyricOffsetTrackId: current?.trackId,
       }
     }),
-  clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined, isLoadingAudio: false }),
+  clear: () => set({ queue: [], history: [], baseQueue: [], index: -1, source: undefined, isLoadingAudio: false, pendingCurrent: undefined, lyricOffsetMs: 0, lyricOffsetTrackId: undefined }),
   clearHistory: () => set({ history: [] }),
   removeHistoryItem: (qid) =>
     set((state) => ({ history: state.history.filter((item) => item.qid !== qid) })),
@@ -267,5 +295,5 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
 /** 当前曲目（没有则 undefined） */
 export function selectCurrent(state: PlayerState): QueueItem | undefined {
-  return state.index >= 0 ? state.queue[state.index] : undefined
+  return state.pendingCurrent ?? (state.index >= 0 ? state.queue[state.index] : undefined)
 }

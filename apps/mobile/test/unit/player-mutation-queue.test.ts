@@ -75,6 +75,22 @@ describe('播放器 mutation 队列', () => {
     stuck.resolve()
   })
 
+  it('看门狗从任务真正开始时计时，不把前面的排队时间算进去', async () => {
+    const queue = new AsyncMutationQueue()
+    const gate = deferred<void>()
+    const first = queue.run(async () => {
+      await gate.promise
+    }, { timeoutMs: 200, label: '前置任务' })
+    const second = queue.run(async () => 'ok', { timeoutMs: 20, label: '排队任务' })
+
+    await new Promise((resolve) => setTimeout(resolve, 35))
+    gate.resolve()
+
+    await expect(first).resolves.toBeUndefined()
+    // 如果从入队时计时，second 会在等待 first 时被 20ms 看门狗误杀。
+    await expect(second).resolves.toBe('ok')
+  })
+
   it('超时值设为 0 时不启用看门狗', async () => {
     const queue = new AsyncMutationQueue()
     const gate = deferred<void>()

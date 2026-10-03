@@ -1,3 +1,4 @@
+import { hydratePlaybackNetworkPreferences, usePlaybackNetworkPreferences } from '@/lib/playback-network-preferences'
 import { Platform } from 'react-native'
 import TrackPlayer, {
   AppKilledPlaybackBehavior,
@@ -28,6 +29,7 @@ export function ensurePlayer(): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
+  await hydratePlaybackNetworkPreferences()
   try {
     await TrackPlayer.setupPlayer({
       autoHandleInterruptions: true,
@@ -73,6 +75,7 @@ async function initialize(): Promise<void> {
  */
 function buildOptions(): UpdateOptions {
   return {
+    allowsCellularAccess: usePlaybackNetworkPreferences.getState().allowCellularPlayback,
     // 锁屏 / 控制中心 / 车机能用的能力
     capabilities: [
       Capability.Play,
@@ -115,5 +118,11 @@ export async function setLikeState(active: boolean): Promise<void> {
   if (active === likeActive) return
   likeActive = active
   if (!setupPromise) return
+  await applyPlayerOptions()
+}
+
+/** Apply the persisted policy to already-created native audio assets as well as future tracks. */
+export async function applyPlaybackNetworkOptions(): Promise<void> {
+  await ensurePlayer()
   await applyPlayerOptions()
 }

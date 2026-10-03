@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>桌面伴听 · 流体光影</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #090a0d;
+      --card-glow: rgba(197, 83, 95, 0.28);
+      --card-glow-sub: rgba(65, 80, 140, 0.22);
+      --text-pri: #ffffff;
+      --text-sec: rgba(255, 255, 255, 0.65);
+      --text-muted: rgba(255, 255, 255, 0.32);
+      --capsule-bg: rgba(255, 255, 255, 0.08);
+      --capsule-border: rgba(255, 255, 255, 0.12);
+      --accent: #c5535f;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text-pri);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 顶部预览工具条（仅用于评审测试） */
+    .preview-bar {
+      height: 38px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(20, 21, 26, 0.85);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      color: var(--text-sec);
+      z-index: 100;
+    }
+    .preview-bar button {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: inherit;
+      padding: 3px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      transition: all 0.2s;
+    }
+    .preview-bar button:hover, .preview-bar button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .preview-bar .sep {
+      width: 1px;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* 横屏舞台主体 (模拟 iPhone / iPad 横屏容器) */
+    .landscape-stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 36px 20px;
+      overflow: hidden;
+    }
+
+    /* 流体动态弥散光 */
+    .ambient-mesh {
+      position: absolute;
+      inset: -20%;
+      pointer-events: none;
+      background: 
+        radial-gradient(circle at 25% 45%, var(--card-glow) 0%, transparent 48%),
+        radial-gradient(circle at 75% 55%, var(--card-glow-sub) 0%, transparent 52%),
+        radial-gradient(circle at 50% 90%, rgba(20, 25, 45, 0.4) 0%, transparent 60%);
+      filter: blur(60px);
+      opacity: 0.95;
+      animation: ambientDrift 18s ease-in-out infinite alternate;
+    }
+    @keyframes ambientDrift {
+      0% { transform: scale(1) translate(0, 0); }
+      50% { transform: scale(1.08) translate(-2%, 3%); }
+      100% { transform: scale(1.02) translate(3%, -2%); }
+    }
+
+    /* 左右分联结构 */
+    .content-split {
+      width: 100%;
+      height: 100%;
+      max-width: 960px;
+      display: grid;
+      grid-template-columns: 4.2fr 5.8fr;
+      gap: 36px;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* 左侧视听卡片：悬浮封面 + 音乐标题 */
+    .left-deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 10px 0;
+    }
+    .cover-anchor {
+      position: relative;
+      width: min(230px, 48vh);
+      height: min(230px, 48vh);
+      perspective: 800px;
+    }
+    .cover-glow {
+      position: absolute;
+      inset: -12px;
+      border-radius: 28px;
+      background: inherit;
+      background-image: url('assets/cover.jpg');
+      background-size: cover;
+      filter: blur(28px);
+      opacity: 0.55;
+      transform: scale(0.95);
+      z-index: 1;
+      transition: opacity 0.5s;
+    }
+    .cover-img {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 22px;
+      object-fit: cover;
+      box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.12);
+      z-index: 2;
+      animation: coverFloat 8s ease-in-out infinite alternate;
+    }
+    @keyframes coverFloat {
+      0% { transform: translateY(0) rotate(0deg); }
+      100% { transform: translateY(-6px) rotate(0.8deg); }
+    }
+
+    .track-meta {
+      margin-top: 18px;
+      text-align: center;
+      width: 100%;
+    }
+    .track-title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-artist {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--text-sec);
+      margin-top: 4px;
+    }
+    .track-tags {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .tag-badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* 右侧流体景深歌词 */
+    .lyrics-deck {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+      padding-left: 12px;
+      position: relative;
+      mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 18%, black 82%, transparent 100%);
+      overflow: hidden;
+    }
+    .lyrics-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: transform 0.6s cubic-bezier(0.2, 0.9, 0.25, 1);
+    }
+    .lyric-line {
+      font-size: 18px;
+      line-height: 1.4;
+      font-weight: 500;
+      color: var(--text-muted);
+      filter: blur(1.5px);
+      opacity: 0.35;
+      transition: all 0.5s cubic-bezier(0.2, 0.8, 0.25, 1);
+      cursor: pointer;
+    }
+    .lyric-line.near {
+      opacity: 0.6;
+      filter: blur(0.8px);
+      font-size: 20px;
+      color: var(--text-sec);
+    }
+    .lyric-line.active {
+      font-size: 26px;
+      line-height: 1.35;
+      font-weight: 700;
+      color: #ffffff;
+      opacity: 1;
+      filter: blur(0);
+      transform: scale(1.02);
+      transform-origin: left center;
+      text-shadow: 0 4px 20px rgba(197, 83, 95, 0.45);
+    }
+    .lyric-trans {
+      font-size: 14px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.75);
+      margin-top: 4px;
+      display: block;
+    }
+
+    /* 悬浮微胶囊控制岛 (常驻/静置弱化) */
+    .control-dock {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 8px 22px;
+      border-radius: 40px;
+      background: var(--capsule-bg);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid var(--capsule-border);
+      box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.65);
+      z-index: 10;
+      transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .control-dock.idle-dim {
+      opacity: 0.22;
+      transform: translateX(-50%) translateY(4px) scale(0.96);
+    }
+    .control-dock.idle-dim:hover {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+
+    .btn-circle {
+      background: transparent;
+      border: none;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border-radius: 50%;
+      transition: transform 0.15s, opacity 0.2s;
+    }
+    .btn-circle:active {
+      transform: scale(0.9);
+    }
+    .btn-circle.play-btn {
+      width: 44px;
+      height: 44px;
+      background: #ffffff;
+      color: #121318;
+      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.25);
+    }
+    .btn-circle.play-btn svg {
+      fill: #121318;
+      width: 20px;
+      height: 20px;
+    }
+    .btn-circle.sec-btn {
+      width: 32px;
+      height: 32px;
+      opacity: 0.85;
+    }
+    .btn-circle.sec-btn svg {
+      fill: currentColor;
+      width: 18px;
+      height: 18px;
+    }
+
+    /* 紧凑进度条 */
+    .progress-strip {
+      width: 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .progress-bar-bg {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 42%;
+      background: #ffffff;
+      border-radius: 2px;
+      box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+    }
+    .time-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+    }
+
+    /* 暂停状态动效暂停 */
+    .paused .ambient-mesh,
+    .paused .cover-img {
+      animation-play-state: paused !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 评审交互工具条 -->
+  <div class="preview-bar">
+    <span>横屏探索 · 01 桌面伴听</span>
+    <div class="sep"></div>
+    <button id="toggle-play" aria-pressed="true">播放中</button>
+    <button id="toggle-dim" aria-pressed="false">模拟 3s 静置淡化</button>
+    <button id="next-lyric">下一句歌词</button>
+  </div>
+
+  <!-- 横屏播放界面 -->
+  <div class="landscape-stage" id="stage">
+    <div class="ambient-mesh"></div>
+
+    <div class="content-split">
+      <!-- 左栏：大封面 + 曲目信息 -->
+      <div class="left-deck">
+        <div class="cover-anchor">
+          <div class="cover-glow"></div>
+          <img class="cover-img" src="assets/cover.jpg" alt="Album Cover">
+        </div>
+        <div class="track-meta">
+          <div class="track-title">夜航星 (Night Navigation)</div>
+          <div class="track-artist">不鸟万如一 / 纯白</div>
+          <div class="track-tags">
+            <span class="tag-badge">Hi-Res 无损</span>
+            <span class="tag-badge">24bit / 96kHz</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右栏：景深动态失焦卡拉OK歌词 -->
+      <div class="lyrics-deck">
+        <div class="lyrics-stream" id="lyrics-stream">
+          <div class="lyric-line" data-idx="0">穿过漫长寒夜与恒星残骸</div>
+          <div class="lyric-line near" data-idx="1">在重力沉沦的边缘捕获微光</div>
+          <div class="lyric-line active" data-idx="2">
+            我们是银河静默的航海者
+            <span class="lyric-trans">We are the silent sailors of the galaxy</span>
+          </div>
+          <div class="lyric-line near" data-idx="3">等待下一束信号自深空降临</div>
+          <div class="lyric-line" data-idx="4">哪怕电波散作零落的光年尘埃</div>
+          <div class="lyric-line" data-idx="5">愿这声微弱呼唤跨越亿万光纪</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部微胶囊控制岛 -->
+    <div class="control-dock" id="control-dock">
+      <!-- 喜欢 -->
+      <button class="btn-circle sec-btn" title="喜欢" aria-label="喜欢">
+        <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#c5535f"/></svg>
+      </button>
+
+      <!-- 上一首 -->
+      <button class="btn-circle sec-btn" title="上一曲" aria-label="上一曲">
+        <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+      </button>
+
+      <!-- 播放/暂停 -->
+      <button class="btn-circle play-btn" id="play-pause-btn" title="播放/暂停" aria-label="播放">
+        <svg viewBox="0 0 24 24" id="play-icon"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+
+      <!-- 下一首 -->
+      <button class="btn-circle sec-btn" title="下一曲" aria-label="下一曲">
+        <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+      </button>
+
+      <!-- 紧凑微进度条 -->
+      <div class="progress-strip">
+        <div class="progress-bar-bg">
+          <div class="progress-fill"></div>
+        </div>
+        <div class="time-labels">
+          <span>02:18</span>
+          <span>04:46</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const togglePlay = document.getElementById('toggle-play');
+    const toggleDim = document.getElementById('toggle-dim');
+    const nextLyricBtn = document.getElementById('next-lyric');
+    const controlDock = document.getElementById('control-dock');
+    const playPauseBtn = document.getElementById('play-pause-btn');
+    const playIcon = document.getElementById('play-icon');
+    const lyricsStream = document.getElementById('lyrics-stream');
+    const lines = Array.from(document.querySelectorAll('.lyric-line'));
+
+    let isPlaying = true;
+    let currentLineIdx = 2;
+
+    function setPlayState(play) {
+      isPlaying = play;
+      document.body.classList.toggle('paused', !play);
+      togglePlay.setAttribute('aria-pressed', play);
+      togglePlay.textContent = play ? '播放中' : '已暂停';
+      playIcon.innerHTML = play 
+        ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>' 
+        : '<path d="M8 5v14l11-7z"/>';
+    }
+
+    togglePlay.onclick = () => setPlayState(!isPlaying);
+    playPauseBtn.onclick = () => setPlayState(!isPlaying);
+
+    toggleDim.onclick = () => {
+      const isDimmed = controlDock.classList.toggle('idle-dim');
+      toggleDim.setAttribute('aria-pressed', isDimmed);
+      toggleDim.textContent = isDimmed ? '恢复常亮' : '模拟 3s 静置淡化';
+    };
+
+    function updateLyrics(idx) {
+      currentLineIdx = idx;
+      lines.forEach((line, i) => {
+        line.className = 'lyric-line';
+        if (i === idx) line.classList.add('active');
+        else if (Math.abs(i - idx) === 1) line.classList.add('near');
+      });
+      const offset = (idx - 2) * -44;
+      lyricsStream.style.transform = `translateY(${offset}px)`;
+    }
+
+    nextLyricBtn.onclick = () => {
+      const next = (currentLineIdx + 1) % lines.length;
+      updateLyrics(next);
+    };
+
+    lines.forEach((l, i) => {
+      l.onclick = () => updateLyrics(i);
+    });
+
+    setPlayState(true);
+  </script>
+</body>
+</html>

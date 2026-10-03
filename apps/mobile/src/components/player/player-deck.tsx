@@ -1,6 +1,7 @@
+import { usePlaybackIntent } from '@/player/playback-intent'
 import { useCallback, useEffect, useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
-import TrackPlayer, { useIsPlaying, useProgress } from 'react-native-track-player'
+import { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
 import { Icon, IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
@@ -22,7 +23,7 @@ import { useToast } from '@/components/toast'
 import { formatAudioSourceInfo } from '@/lib/audio-info'
 import { useToggleFavorite } from '@/lib/favorites'
 import { select, tap } from '@/lib/haptics'
-import { skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
+import { seekPlayback, skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { useIsAudioLoading } from '@/player/use-audio-loading'
 import { radius, spacing, typography } from '@/theme/tokens'
@@ -35,6 +36,7 @@ interface PlayerDeckProps {
   /** 列表态：完全卸载音量条（连同透明 MPVolumeView 一起），腾高给 list；
    * 卸载后 iOS 交还系统音量 HUD（按音量键弹原生指示条） */
   hideVolume?: boolean
+  compact?: boolean
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
 }
@@ -52,8 +54,8 @@ export function PlayerTitleRow({
 }: PlayerTitleRowProps) {
   const colors = useThemeColors()
   const styles = useStyles()
-  const toggleFavorite = useToggleFavorite()
   const toast = useToast()
+  const toggleFavorite = useToggleFavorite()
 
   const onToggleFavorite = useCallback(async () => {
     const next = !current.isFavorite
@@ -106,16 +108,20 @@ export function PlayerDeck({
   listAnim,
   hideTitle = false,
   hideVolume = false,
+  compact = false,
   onDismissWithAction,
   onMenuOpenChange,
 }: PlayerDeckProps) {
   const colors = useThemeColors()
   const styles = useStyles()
+  const toast = useToast()
   const { playing } = useIsPlaying()
+  const networkWaiting = usePlaybackIntent((s) => s.waitingForNetwork)
   const isAudioLoading = useIsAudioLoading()
   const audioSourceInfo = useMemo(() => formatAudioSourceInfo(current), [current])
   const progress = useProgress(500)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
+  const selectionPending = usePlayerStore((s) => Boolean(s.pendingCurrent))
 
   const titleAnimatedStyle = useAnimatedStyle(() => {
     if (!listAnim) return {}
@@ -142,11 +148,22 @@ export function PlayerDeck({
     }
   })
 
-  const duration = progress.duration > 0 ? progress.duration : current.durationMs / 1000
-  const position = playbackEnded ? duration : progress.position
+  const duration = !selectionPending && progress.duration > 0 ? progress.duration : current.durationMs / 1000
+  const position = selectionPending ? 0 : playbackEnded ? duration : progress.position
+
+  const history = usePlayerStore((s) => s.history)
+  const queue = usePlayerStore((s) => s.queue)
+  const index = usePlayerStore((s) => s.index)
+  const autoplay = usePlayerStore((s) => s.autoplay)
+  const repeatMode = usePlayerStore((s) => s.playMode.repeat)
+
+  const upcomingCount = index >= 0 ? queue.length - index - 1 : Math.max(0, queue.length - 1)
+  const isLooping = repeatMode !== 'off'
+  const canGoPrevious = history.length > 0
+  const canGoNext = autoplay || isLooping || upcomingCount > 0
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.containerCompact]}>
       {!hideTitle ? (
         <Animated.View style={titleAnimatedStyle}>
           <PlayerTitleRow
@@ -163,45 +180,47 @@ export function PlayerDeck({
         centerLabel={audioSourceInfo}
         onSeek={(seconds) => {
           usePlayerStore.getState().setPlaybackEnded(false)
-          void TrackPlayer.seekTo(seconds)
+          void seekPlayback(seconds).catch(() => toast('调整进度失败，请重试'))
         }}
       />
 
       {/* 传输控制：大字形、无圆形底，对齐 Apple Music */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, compact && styles.controlsCompact]}>
         <IconButton
           name="previous"
-          size={iconSize.xxl}
-          color={colors.textPrimary}
+          size={compact ? iconSize.xxl : iconSize.xxl}
+          color={canGoPrevious ? colors.textPrimary : colors.textTertiary}
+          disabled={!canGoPrevious}
           onPress={() => {
             tap()
-            void skipToPreviousSmart()
+            void skipToPreviousSmart().catch(() => toast('切换上一首失败，请重试'))
           }}
           accessibilityLabel="上一首"
-          style={styles.sideControlHit}
+          style={compact ? styles.sideControlHitCompact : styles.sideControlHit}
         />
         <IconButton
-          name={playing ? 'pause' : 'play'}
-          size={iconSize.hero}
+          name={playing || networkWaiting ? 'pause' : 'play'}
+          size={compact ? iconSize.hero : iconSize.hero}
           color={colors.textPrimary}
-          loading={isAudioLoading}
+          loading={isAudioLoading && !networkWaiting}
           onPress={() => {
             tap()
-            void togglePlay()
+            void togglePlay().catch((error: unknown) => toast(error instanceof Error ? error.message : '播放操作失败，请重试'))
           }}
-          accessibilityLabel={playing ? '暂停' : '播放'}
-          style={styles.playControlHit}
+          accessibilityLabel={networkWaiting ? '取消网络恢复后续播' : playing ? '暂停' : '播放'}
+          style={compact ? styles.playControlHitCompact : styles.playControlHit}
         />
         <IconButton
           name="next"
-          size={iconSize.xxl}
-          color={colors.textPrimary}
+          size={compact ? iconSize.xxl : iconSize.xxl}
+          color={canGoNext ? colors.textPrimary : colors.textTertiary}
+          disabled={!canGoNext}
           onPress={() => {
             tap()
-            void skipToNextSafe()
+            void skipToNextSafe().catch(() => toast('切换下一首失败，请重试'))
           }}
           accessibilityLabel="下一首"
-          style={styles.sideControlHit}
+          style={compact ? styles.sideControlHitCompact : styles.sideControlHit}
         />
       </View>
 
@@ -340,6 +359,10 @@ export function DeckMoreButton({
 
 const useStyles = createThemedStyles((colors) => ({
   container: { gap: spacing.lg },
+  containerCompact: {
+    gap: spacing.xl,
+    justifyContent: 'center',
+  },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
   // 歌名占满剩余宽度，两个图标按钮自然贴到行尾
   titleText: { flex: 1, gap: 2, paddingRight: spacing.sm },
@@ -349,8 +372,17 @@ const useStyles = createThemedStyles((colors) => ({
   // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐
   menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  controlsCompact: {
+    gap: spacing.xl,
+    // 音量条的 32pt 触控区包着 6pt 轨道；补偿透明留白，让时间字段与音量轨道
+    // 到播放图标的可见间距相当，同时保持整个横屏控制区的高度和触控范围。
+    marginTop: 6,
+    marginBottom: -6,
+  },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
+  playControlHitCompact: { minWidth: 64, minHeight: 64, borderRadius: 32 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },
+  sideControlHitCompact: { minWidth: 48, minHeight: 48, borderRadius: 24 },
   volumeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   volumeSliderContainer: {
     flex: 1,

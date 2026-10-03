@@ -8,7 +8,7 @@ import { usePlayerStore } from './store'
 export function useIsAudioLoading(): boolean {
   const playbackState = usePlaybackState()
   const { bufferingDuringPlay } = useIsPlaying()
-  const storeLoading = usePlayerStore((s) => s.isLoadingAudio)
+  const storeLoading = usePlayerStore((s) => s.isLoadingAudio || Boolean(s.pendingCurrent))
 
   const state = playbackState.state
   const isNativeLoading =

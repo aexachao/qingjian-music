@@ -1,6 +1,5 @@
 import { useRouter } from 'expo-router'
 import { IconButton, iconSize } from '@/components/icon'
-import { spacing } from '@/theme/tokens'
 import { useThemeColors } from '@/theme/theme-provider'
 
 export function StackBackButton({ fallbackRoute = '/(tabs)/library' }: { fallbackRoute?: string }) {
@@ -22,7 +21,6 @@ export function StackBackButton({ fallbackRoute = '/(tabs)/library' }: { fallbac
       color={colors.textPrimary}
       onPress={handlePress}
       accessibilityLabel="返回"
-      style={{ marginLeft: -spacing.sm }}
     />
   )
 }

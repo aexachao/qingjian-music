@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createHydrationQueue } from './hydration-queue'
 import {
   applyEvent,
   emptyProfile,
@@ -35,10 +37,24 @@ interface TasteProfileStore {
 
 async function persist(profiles: ProfileMap): Promise<void> {
   try {
-    await SecureStore.setItemAsync(KEY_TASTE_PROFILES, JSON.stringify(profiles))
+    await storageWrites.run(() => SecureStore.setItemAsync(KEY_TASTE_PROFILES, JSON.stringify(profiles)))
   } catch {
     // 画像丢了不影响功能（下次从行为重新长出来），不打断播放
   }
+}
+
+const storageWrites = new StorageMutationQueue()
+const hydration = createHydrationQueue<ProfileMap>()
+
+function ensureHydrated(): void {
+  void hydration.hydrate(async () => {
+    const raw = await SecureStore.getItemAsync(KEY_TASTE_PROFILES)
+    const parsed = raw ? (JSON.parse(raw) as ProfileMap) : {}
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }, (profiles, replayed) => {
+    useTasteProfileStore.setState({ hydrated: true, profiles })
+    if (replayed) void persist(profiles)
+  })
 }
 
 export const useTasteProfileStore = create<TasteProfileStore>((set, get) => ({
@@ -47,29 +63,25 @@ export const useTasteProfileStore = create<TasteProfileStore>((set, get) => ({
 
   record: (serverId, track, signal, now = Date.now()) => {
     if (!serverId) return
+    const features = extractTrackFeatures(track)
+    const operation = (profiles: ProfileMap): ProfileMap => ({
+      ...profiles,
+      [serverId]: applyEvent(profiles[serverId] ?? emptyProfile(now), { features, signal, at: now }),
+    })
+    hydration.queue(operation)
     const prev = get().profiles[serverId] ?? emptyProfile(now)
-    const next = applyEvent(prev, { features: extractTrackFeatures(track), signal, at: now })
+    const next = applyEvent(prev, { features, signal, at: now })
     const profiles = { ...get().profiles, [serverId]: next }
     set({ profiles })
-    void persist(profiles)
+    if (hydration.hydrated) void persist(profiles)
+    else ensureHydrated()
   },
 
   profileOf: (serverId) => get().profiles[serverId] ?? emptyProfile(),
 }))
 
-// 初始异步水合（与 local-favorites 同一套模式：模块加载即读回）
-void (async () => {
-  try {
-    const raw = await SecureStore.getItemAsync(KEY_TASTE_PROFILES)
-    const parsed = raw ? (JSON.parse(raw) as ProfileMap) : {}
-    useTasteProfileStore.setState({
-      hydrated: true,
-      profiles: parsed && typeof parsed === 'object' ? parsed : {},
-    })
-  } catch {
-    useTasteProfileStore.setState({ hydrated: true })
-  }
-})()
+// 初始异步水合（模块加载即读回）
+ensureHydrated()
 
 /** 非 React 环境（播放控制器）里记录信号的便捷入口 */
 export function recordTasteSignal(serverId: string, track: Track, signal: TasteSignal): void {

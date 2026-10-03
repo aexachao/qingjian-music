@@ -3,9 +3,10 @@ import UIKit
 
 private let defaultIconId = "crimson-note"
 private let alternateIconNames: [String: String] = [
+  "crimson-note": "AppIconCrimsonNote",
   "white-note": "AppIconWhiteNote",
   "dark-note": "AppIconDarkNote",
-  "dark-crimson": "AppIconDarkCrimson",
+  "dark-crimson": "AppIconDarkCrimson"
 ]
 
 public class AppIconModule: Module {
@@ -28,20 +29,24 @@ public class AppIconModule: Module {
     // 所以用 DispatchGroup 在 Expo 后台线程上阻塞等主线程回调完成。
     // 刻意**不**加 .runOnQueue(.main)：否则 semaphore.wait() 会阻塞主线程、死锁。
     AsyncFunction("setAppIcon") { (iconId: String) in
-      guard iconId == defaultIconId || alternateIconNames[iconId] != nil else {
+      guard let targetIconName = alternateIconNames[iconId] else {
         throw InvalidAppIconException(iconId)
       }
       guard UIApplication.shared.supportsAlternateIcons else {
         throw UnsupportedAppIconException()
       }
 
-      let iconName = iconId == defaultIconId ? nil : alternateIconNames[iconId]
+      let currentAlternate = UIApplication.shared.alternateIconName
+      if currentAlternate == targetIconName || (iconId == defaultIconId && (currentAlternate == nil || currentAlternate == targetIconName)) {
+        return
+      }
+
       let group = DispatchGroup()
       group.enter()
       var resultError: Error?
 
       DispatchQueue.main.async {
-        UIApplication.shared.setAlternateIconName(iconName) { error in
+        UIApplication.shared.setAlternateIconName(targetIconName) { error in
           resultError = error
           group.leave()
         }

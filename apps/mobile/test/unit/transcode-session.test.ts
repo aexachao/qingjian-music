@@ -6,6 +6,7 @@ vi.mock('react-native-track-player', () => ({
 }))
 
 import {
+  hasTranscodeSession,
   replaceTranscodeSession,
   setSessionLostHandler,
   stopTranscodeSession,
@@ -75,7 +76,7 @@ describe('转码会话切换', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('先等待旧会话关闭，再激活新会话', async () => {
+  it('旧会话远程关闭挂起时仍可激活新会话', async () => {
     const steps: string[] = []
     let release!: () => void
     const closing = new Promise<void>((resolve) => {
@@ -92,11 +93,33 @@ describe('转码会话切换', () => {
     }))
     await Promise.resolve()
     expect(steps).toEqual(['old:close:start'])
-    release()
     await replacement
+    expect(hasTranscodeSession('new')).toBe(true)
+    release()
+    await closing
+    await Promise.resolve()
     expect(steps).toEqual(['old:close:start', 'old:close:end'])
 
     await stopTranscodeSession()
     expect(steps).toEqual(['old:close:start', 'old:close:end', 'new:close'])
   })
+})
+
+
+it('same occurrence recovery hands heartbeat ownership to the replacement session', async () => {
+  vi.useFakeTimers()
+  const oldBeat = vi.fn(async () => undefined)
+  const newBeat = vi.fn(async () => undefined)
+  const oldClose = vi.fn(async () => undefined)
+  const newClose = vi.fn(async () => undefined)
+  await replaceTranscodeSession('same', { ...session('same', oldClose), heartbeatIntervalMs: 1000, heartbeat: oldBeat })
+  await vi.advanceTimersByTimeAsync(1000)
+  await replaceTranscodeSession('same', { ...session('same', newClose), heartbeatIntervalMs: 1000, heartbeat: newBeat })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(oldBeat).toHaveBeenCalledOnce()
+  expect(newBeat).toHaveBeenCalledOnce()
+  expect(oldClose).not.toHaveBeenCalled()
+  expect(newClose).not.toHaveBeenCalled()
+  await stopTranscodeSession()
+  expect(newClose).toHaveBeenCalledOnce()
 })

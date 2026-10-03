@@ -202,7 +202,6 @@ export default function TrackInfoScreen() {
                 <Text style={styles.hintValue} numberOfLines={1}>{genreText}</Text>
               </View>
             ) : null}
-            <Text style={styles.editNote}>歌手 / 风格 / 封面的编辑即将支持，保存时会原样保留。</Text>
           </View>
         ) : null}
 
@@ -347,11 +346,6 @@ const useStyles = createThemedStyles((colors) => ({
     flex: 1,
     textAlign: 'right',
     marginLeft: spacing.md,
-  },
-  editNote: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    marginTop: spacing.sm,
   },
   loading: {
     ...typography.body,

@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readPackageFile } from '../support/source'
 
+const networkPreferences = vi.hoisted(() => ({ allowCellularPlayback: false }))
+
+vi.mock('@/lib/playback-network-preferences', () => ({
+  hydratePlaybackNetworkPreferences: async () => true,
+  usePlaybackNetworkPreferences: { getState: () => networkPreferences },
+}))
+
 /**
  * 播放器初始化（`src/player/setup.ts`）的**行为**测试。
  *
@@ -76,6 +83,7 @@ function lastUpdateOptions(): Record<string, unknown> {
 }
 
 beforeEach(() => {
+  networkPreferences.allowCellularPlayback = false
   hoisted.platform = 'ios'
   hoisted.setupPlayer.mockReset()
   hoisted.updateOptions.mockReset()
@@ -124,6 +132,18 @@ describe('播放器初始化：失败必须可恢复', () => {
     await ensurePlayer()
 
     expect(hoisted.setupPlayer).toHaveBeenCalledTimes(1)
+  })
+
+  it('把蜂窝网络策略同步到 RNTP，并支持运行中切换', async () => {
+    networkPreferences.allowCellularPlayback = true
+    const { applyPlaybackNetworkOptions, ensurePlayer } = await loadSetup()
+
+    await ensurePlayer()
+    expect(lastUpdateOptions().allowsCellularAccess).toBe(true)
+
+    networkPreferences.allowCellularPlayback = false
+    await applyPlaybackNetworkOptions()
+    expect(lastUpdateOptions().allowsCellularAccess).toBe(false)
   })
 })
 

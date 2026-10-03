@@ -64,7 +64,7 @@ export function PlaylistsScreen() {
       headerRight: canWrite
         ? () => (
             <Pressable
-              hitSlop={12}
+              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               onPress={handleCreate}
               accessibilityRole="button"
               accessibilityLabel="新建歌单"

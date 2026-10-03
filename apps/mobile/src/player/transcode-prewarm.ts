@@ -12,7 +12,7 @@ let transition: Promise<void> = Promise.resolve()
 
 async function closeWarm(current: WarmTranscode): Promise<void> {
   clearInterval(current.timer)
-  await current.session.close().catch(() => undefined)
+  void current.session.close().catch(() => undefined)
 }
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -25,19 +25,24 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /** 保持一个“下一首”转码任务热着；新的预热会替换并关闭旧任务。 */
-export function setWarmTranscode(qid: string, stream: StreamRequest): Promise<void> {
+export function setWarmTranscode(qid: string, stream: StreamRequest, isCurrent = () => true): Promise<void> {
   return serialize(async () => {
     if (!stream.session) return
+    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return }
     if (warm?.qid === qid) {
-      await stream.session.close().catch(() => undefined)
+      void stream.session.close().catch(() => undefined)
       return
     }
     if (warm) await closeWarm(warm)
+    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return }
     const session = stream.session
+    let beating = false
     const timer = setInterval(() => {
+      if (beating) return
+      beating = true
       void session.heartbeat(0).catch(() => {
-        void clearWarmTranscode(qid)
-      })
+        if (warm?.session === session) void clearWarmTranscode(qid)
+      }).finally(() => { beating = false })
     }, session.heartbeatIntervalMs)
     warm = { qid, stream, session, timer }
   })

@@ -196,16 +196,6 @@ export function GenreDetailScreen() {
     }
   })
 
-  const navPlayAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      scrollY.value,
-      [190, 240],
-      [0, 1],
-      Extrapolation.CLAMP,
-    )
-    return { opacity }
-  })
-
   if (query.isPending && items.length === 0) return <LoadingState />
   if (query.isLoadingError && items.length === 0) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
@@ -250,7 +240,7 @@ export function GenreDetailScreen() {
           ),
           headerRight: () => (
             <View style={styles.navRightRow}>
-              <Animated.View style={navPlayAnimatedStyle}>
+              {pinned ? (
                 <Pressable
                   hitSlop={8}
                   style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
@@ -262,7 +252,7 @@ export function GenreDetailScreen() {
                 >
                   <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
-              </Animated.View>
+              ) : null}
               <MenuView
                 title={displayName}
                 themeVariant={mode === 'dark' ? 'dark' : 'light'}
@@ -286,7 +276,7 @@ export function GenreDetailScreen() {
       />
 
       {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} />
+      <AmbientHeaderBackground palette={palette} coverId={firstTrackCoverId} />
 
       <Animated.FlatList
         data={items}
@@ -310,25 +300,27 @@ export function GenreDetailScreen() {
                 {displayName}
               </Text>
 
-              {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
+              {/* 核心双动作胶囊：icon + label 全宽双胶囊 */}
               <View style={styles.actions}>
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
                   onPress={() => void play(0)}
                   accessibilityRole="button"
                   accessibilityLabel="播放全部歌曲"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                  <Icon name="play" size={16} color={colors.textPrimary} filled />
                   <Text style={styles.secondaryButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
                   onPress={() => void handleAppendToQueue()}
                   accessibilityRole="button"
                   accessibilityLabel="添加到播放队列"
                 >
-                  <Icon name="add" size={iconSize.sm} color={colors.textPrimary} />
+                  <Icon name="add" size={16} color={colors.textPrimary} />
                   <Text style={styles.secondaryButtonLabel}>添加到队列</Text>
                 </Pressable>
               </View>
@@ -437,8 +429,9 @@ const useStyles = createThemedStyles((colors) => ({
   },
   actions: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: 20,
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 18,
     width: '100%',
   },
   secondaryButton: {
@@ -448,21 +441,22 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs + 2,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
   },
   secondaryButtonLabel: {
-    ...typography.headline,
+    ...typography.subhead,
     fontSize: 15,
+    lineHeight: 20,
     fontFamily: fonts.medium,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.75,
+    transform: [{ scale: 0.96 }],
   },
   navIconButton: {
     width: 44,
@@ -511,6 +505,5 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginRight: -spacing.sm,
   },
 }))

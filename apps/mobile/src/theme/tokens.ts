@@ -43,7 +43,7 @@ const darkPalette = {
   bgInput: '#00000014',
   bgButtonPrimary: '#ffffff14',
   bgButtonSecondary: '#ffffff1a',
-  bgModal: '#1e1c26eb',
+  bgModal: '#1e1c26',
   bgDropdown: '#0a0a0eb8',
   bgFloatingPill: '#ffffff12',
   bgProgressTrack: '#ffffff26',
@@ -67,6 +67,8 @@ const darkPalette = {
   iconDim: '#f2f3f480',
   iconGray: '#bbbbbb',
   textOnAccent: '#ffffff',
+  /** 加载指示器：暗色主题使用纯白，浅色主题使用纯黑，保持与中性背景的对比。 */
+  loadingIndicator: '#ffffff',
   // --- 描边 ---
   borderDefault: '#ffffff1a',
   borderSubtle: '#ffffff12',
@@ -84,6 +86,8 @@ const darkPalette = {
   playerProgressFill: '#ffffffb3',
   playerProgressFillActive: '#ffffff',
   playerTextSecondary: '#ffffff59',
+  playerToolbarSelected: '#ffffff80',
+  playerToolbarControl: '#ffffff1f',
   playerGlassBg: '#00000099',
   playerGlassBorder: '#ffffff1f',
   /**
@@ -133,6 +137,30 @@ const darkPalette = {
    */
   coverPlaceholder: '#ffffff14',
   coverPlaceholderMark: '#ffffff33',
+  storageChartDownloads: '#69a8ff',
+  storageChartAudio: '#55cbb0',
+  storageChartLyrics: '#c19aff',
+  storageChartArtwork: '#ffc15a',
+  storageChartOther: '#8d8d93',
+  // 漫游唱片机的器物材质，不承担操作或状态语义。
+  roamingDeck: '#29292d',
+  roamingDeckFront: '#1b1b1f',
+  roamingMetal: '#bfc0c5',
+  roamingRecordLabel: '#b7858c',
+  roamingLabelPaper: '#e1b6b0',
+  roamingLamp: '#ff8396',
+  roamingLampCore: '#ffe3e8',
+  // 深色氛围用低明度的有色光，避免浅色光源叠成灰白雾层。
+  roamingAmbient: '#a9365c',
+  roamingAmbientApricot: '#945027',
+  roamingAmbientLavender: '#654399',
+  roamingTitleAccent: '#e0b2bf',
+  roamingEdge: '#e0b2bf',
+  homeFavoritesEdge: '#c78695',
+  homeDownloadsEdge: '#819ebb',
+  roamingSupportingText: '#ffffffad',
+  homeFavoritesGlow: '#c78695',
+  homeDownloadsGlow: '#819ebb',
 } as const
 
 export type PaletteKey = keyof typeof darkPalette
@@ -151,7 +179,7 @@ const lightPalette: Palette = {
   bgInput: '#0000000a',
   bgButtonPrimary: '#0000000f',
   bgButtonSecondary: '#0000000d',
-  bgModal: '#fffffff2',
+  bgModal: '#ffffff',
   bgDropdown: '#fffffff2',
   bgFloatingPill: '#ffffffd9',
   bgProgressTrack: '#0000001f',
@@ -174,6 +202,8 @@ const lightPalette: Palette = {
   iconDim: '#1c1d1f80',
   iconGray: '#666666',
   textOnAccent: '#ffffff',
+  /** 加载指示器：暗色主题使用纯白，浅色主题使用纯黑，保持与中性背景的对比。 */
+  loadingIndicator: '#000000',
   borderDefault: '#00000014',
   borderSubtle: '#0000000f',
   borderEmphasis: '#0000001f',
@@ -184,6 +214,8 @@ const lightPalette: Palette = {
   playerProgressFill: '#111111b3',
   playerProgressFillActive: '#111111',
   playerTextSecondary: '#00000059',
+  playerToolbarSelected: '#00000066',
+  playerToolbarControl: '#0000000f',
   playerGlassBg: '#ffffffcc',
   playerGlassBorder: '#0000001f',
   bgFloatingBlur: '#ffffffd9',
@@ -208,6 +240,29 @@ const lightPalette: Palette = {
   /** 封面占位：浅灰底 + 更深的灰记号（见深色那套的注释） */
   coverPlaceholder: '#0000000f',
   coverPlaceholderMark: '#00000026',
+  storageChartDownloads: '#2563c7',
+  storageChartAudio: '#087c68',
+  storageChartLyrics: '#7040b5',
+  storageChartArtwork: '#a86100',
+  storageChartOther: '#77777f',
+  roamingDeck: '#29292d',
+  roamingDeckFront: '#1b1b1f',
+  roamingMetal: '#bfc0c5',
+  roamingRecordLabel: '#b7858c',
+  roamingLabelPaper: '#e1b6b0',
+  roamingLamp: '#ff8396',
+  roamingLampCore: '#ffe3e8',
+  roamingAmbient: '#da6f83',
+  roamingAmbientApricot: '#d5ad8c',
+  roamingAmbientLavender: '#a196cc',
+  roamingTitleAccent: '#99516b',
+  // 白色表面用更沉稳的局部色边，与极浅背景柔光分开。
+  roamingEdge: '#9b4d66',
+  homeFavoritesEdge: '#a45d72',
+  homeDownloadsEdge: '#527b9e',
+  roamingSupportingText: '#111111ad',
+  homeFavoritesGlow: '#c78695',
+  homeDownloadsGlow: '#819ebb',
 }
 
 export const palette: { dark: Palette; light: Palette } = { dark: darkPalette, light: lightPalette }
@@ -224,7 +279,7 @@ export type ResolvedTheme = keyof typeof palette
  * 现在分三层：
  *   L1 调色板（`palette` / `accents`）：具体色值，**只有本文件用**；
  *   L2 角色（本类型）：`primaryAction` / `stateSelected` / `playing` / `like` / `danger` /
- *       `actionText` / `actionTextMuted` / `disabledText` / `shadow` —— 组件只许用这些；
+ *       `actionText` / `actionTextMuted` / `disabledText` / `loadingIndicator` / `shadow` —— 组件只许用这些；
  *   L3 组件：`colors.<角色>`。
  *
  * 想「少用红」「换品牌色」「收藏改黄」，只改 L2 的映射（几行），全 App 一起生效。
@@ -248,8 +303,10 @@ export type ThemeColors = Palette & {
   actionTextMuted: string
   /** 不可点状态 */
   disabledText: string
+  /** 加载指示器：随主题使用纯白或纯黑，独立于品牌色与按钮文字角色 */
+  loadingIndicator: string
   /**
-   * 品牌色的**装饰性**用法：加载指示器、设置入口的小图标、Hub 卡、封面占位……
+   * 品牌色的**装饰性**用法：设置入口的小图标、Hub 卡、封面占位……
    * 单独立一个角色，是为了让「品牌色太抢眼」这件事有一个旋钮可拧
    * （改这里一处就能把这些装饰位统一下调），而不必动状态色与主行动色。
    */
@@ -268,6 +325,7 @@ function createThemeColors(base: Palette): ThemeColors {
     actionText: base.textPrimary,
     actionTextMuted: base.textSecondary,
     disabledText: base.textQuaternary,
+    loadingIndicator: base.loadingIndicator,
     brandTint: accent,
   }
 }

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Animated,
-  Dimensions,
   Easing,
   Modal,
   Pressable,
@@ -9,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -31,9 +31,6 @@ export interface OptionPickerModalProps<T extends string = string> {
   onClose: () => void
 }
 
-const SCREEN_HEIGHT = Dimensions.get('window').height
-const MAX_SHEET_SCROLL_HEIGHT = Math.min(SCREEN_HEIGHT * 0.65, 480)
-
 export function OptionPickerModal<T extends string = string>({
   visible,
   title,
@@ -45,9 +42,10 @@ export function OptionPickerModal<T extends string = string>({
   const colors = useThemeColors()
   const styles = useStyles()
   const insets = useSafeAreaInsets()
+  const { height } = useWindowDimensions()
   const [mounted, setMounted] = useState(visible)
   const isClosingRef = useRef(false)
-  const animValue = useRef(new Animated.Value(0)).current
+  const [animValue] = useState(() => new Animated.Value(0))
 
   // 保持缓存的渲染数据，避免退场动画过程中标题或选项闪烁消失
   const cachedTitleRef = useRef(title)
@@ -173,7 +171,7 @@ export function OptionPickerModal<T extends string = string>({
 
           {/* 选项列表（带最大高度自适应，超出时滚动） */}
           <ScrollView
-            style={styles.scroll}
+            style={{ maxHeight: Math.min(height * 0.65, 480) }}
             contentContainerStyle={styles.optionsList}
             showsVerticalScrollIndicator={false}
             bounces={false}
@@ -189,7 +187,7 @@ export function OptionPickerModal<T extends string = string>({
                   ]}
                   onPress={() => handleSelect(item.key)}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  accessibilityState={{ checked: selected }}
                 >
                   <View style={styles.optionInfo}>
                     <Text style={styles.optionTitle}>{item.title}</Text>
@@ -247,26 +245,25 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
     position: 'relative',
     marginBottom: 18,
-    minHeight: 28,
+    minHeight: 44,
   },
   sheetTitle: {
     ...typography.headline,
-    fontSize: 17,
     fontWeight: '600',
     color: colors.textPrimary,
+    textAlign: 'center',
+    paddingHorizontal: 52,
+    flexShrink: 1,
   },
   closeBtn: {
     position: 'absolute',
     right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.bgListItem,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  scroll: {
-    maxHeight: MAX_SHEET_SCROLL_HEIGHT,
   },
   optionsList: {
     gap: 10,
@@ -275,7 +272,7 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 14,
     backgroundColor: colors.bgListItemSoft,
@@ -291,14 +288,12 @@ const useStyles = createThemedStyles((colors) => ({
     paddingRight: 12,
   },
   optionTitle: {
-    ...typography.body,
-    fontSize: 16,
+    ...typography.callout,
     fontWeight: '600',
     color: colors.textPrimary,
   },
   optionSubtitle: {
-    ...typography.caption,
-    fontSize: 13,
+    ...typography.footnote,
     color: colors.textTertiary,
   },
 }))

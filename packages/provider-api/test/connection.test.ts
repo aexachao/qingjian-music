@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isLoopbackOrPrivateHost, validateBaseUrl } from '../src/connection'
+import { isLoopbackOrPrivateHost, normalizeAlternateBaseUrls, validateBaseUrl } from '../src/connection'
 
 describe('validateBaseUrl', () => {
   it('缺省协议时按 http 处理并保留端口', () => {
@@ -20,6 +20,32 @@ describe('validateBaseUrl', () => {
 
   it('空值报错', () => {
     expect(() => validateBaseUrl('   ')).toThrow()
+  })
+
+  it('拒绝会改变请求目标的地址组成部分', () => {
+    for (const input of [
+      'http://user:pass@192.168.2.2:5666',
+      'http://192.168.2.2:5666?token=x',
+      'http://192.168.2.2:5666#fragment',
+      'ftp://192.168.2.2:5666',
+    ]) expect(() => validateBaseUrl(input)).toThrow()
+  })
+})
+
+describe('normalizeAlternateBaseUrls', () => {
+  const primary = 'http://192.168.2.100:5666'
+
+  it('规范化两条显式备用线路', () => {
+    expect(normalizeAlternateBaseUrls(primary, ['192.168.2.101:5666/', 'https://music.example.com/'])).toEqual([
+      'http://192.168.2.101:5666',
+      'https://music.example.com',
+    ])
+  })
+
+  it('不静默接受重复、主线路或超过上限的输入', () => {
+    expect(() => normalizeAlternateBaseUrls(primary, [primary])).toThrow()
+    expect(() => normalizeAlternateBaseUrls(primary, ['192.168.2.101:5666', '192.168.2.101:5666'])).toThrow()
+    expect(() => normalizeAlternateBaseUrls(primary, ['192.168.2.101:5666', '192.168.2.102:5666', '192.168.2.103:5666'])).toThrow()
   })
 })
 

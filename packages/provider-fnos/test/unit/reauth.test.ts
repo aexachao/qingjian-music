@@ -53,6 +53,60 @@ function makeStaleThenFreshFetch() {
 }
 
 describe('token 失效后的静默重登', () => {
+  it('登录请求本身失败时不递归触发静默重登', async () => {
+    let recoverCalls = 0
+    let loginCalls = 0
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/user/password-login')) loginCalls += 1
+      return new Response(JSON.stringify({ code: 99999, msg: 'invalid credentials', data: null }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const provider = new FnosProvider(connection, {
+      sha256Hex: async () => 'hashed',
+      deviceId: 'device-1',
+      fetchImpl,
+      recoverPassword: async () => {
+        recoverCalls += 1
+        return '示例密码-不是真实凭据'
+      },
+    })
+
+    await expect(provider.login({ password: 'bad' })).rejects.toSatisfy(
+      (error: unknown) => isMusicError(error) && error.code === 'unauthorized',
+    )
+    expect(loginCalls).toBe(1)
+    expect(recoverCalls).toBe(0)
+  })
+
+  it('服务端 logout 401 不触发静默重登', async () => {
+    let recoverCalls = 0
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/user/logout')) {
+        return new Response('unauthorized', { status: 401 })
+      }
+      return new Response(JSON.stringify({ code: 0, msg: '', data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const provider = new FnosProvider(connection, {
+      sha256Hex: async () => 'hashed',
+      deviceId: 'device-1',
+      fetchImpl,
+      recoverPassword: async () => {
+        recoverCalls += 1
+        return '示例密码-不是真实凭据'
+      },
+    }, staleSession)
+
+    await expect(provider.logout()).rejects.toSatisfy(
+      (error: unknown) => isMusicError(error) && error.code === 'unauthorized',
+    )
+    expect(recoverCalls).toBe(0)
+  })
+
   it('拿 Keychain 密码换新 token，并把原请求重试成功', async () => {
     const { fetchImpl, calls } = makeStaleThenFreshFetch()
     const refreshed: ProviderSession[] = []
@@ -169,4 +223,60 @@ describe('收藏标记映射', () => {
     // 后端不返回该字段时保持 undefined，UI 据此隐藏收藏按钮
     expect(mapTrack({ guid: 't2', title: '无收藏字段' }).isFavorite).toBeUndefined()
   })
+})
+
+it('logout invalidates an in-flight refresh and prevents later reauthorization', async () => {
+  let finishLogin!: (response: Response) => void
+  let enteredLogin!: () => void
+  const loginStarted = new Promise<void>((resolve) => { enteredLogin = resolve })
+  const refreshed = vi.fn()
+  const recover = vi.fn(async () => 'test-password')
+  const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/user/password-login')) {
+      enteredLogin()
+      return new Promise<Response>((resolve) => { finishLogin = resolve })
+    }
+    return new Response(JSON.stringify(url.includes('/user/logout')
+      ? { code: 0, data: {} }
+      : { code: 99999, msg: 'invalid token', data: null }), { status: 200 })
+  }) as unknown as typeof fetch
+  const provider = new FnosProvider(connection, { sha256Hex: async () => 'hash', deviceId: 'device', fetchImpl, recoverPassword: recover, onSessionRefreshed: refreshed }, staleSession)
+  const pending = provider.albums({ page: 1, size: 10 }).catch((error: unknown) => error)
+  await loginStarted
+  await provider.logout()
+  finishLogin(new Response(JSON.stringify({code:0,data:{userToken:'fresh',user:{guid:'u1',name:'test',role:'member'}}}),{status:200}))
+  expect(isMusicError(await pending)).toBe(true)
+  expect(refreshed).not.toHaveBeenCalled()
+  await expect(provider.albums({page:1,size:10})).rejects.toSatisfy(isMusicError)
+  expect(recover).toHaveBeenCalledTimes(1)
+})
+
+it('logout while persisting a refreshed session cannot restore the old client token', async () => {
+  let release!: () => void
+  let entered!: () => void
+  const enteredPersistence = new Promise<void>((resolve) => { entered = resolve })
+  const persistence = new Promise<void>((resolve) => { release = resolve })
+  const tokens: (string | undefined)[] = []
+  const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/user/password-login')) {
+      return new Response(JSON.stringify({ code: 0, data: { userToken: 'fresh', user: { guid: 'u1', name: 'test', role: 'member' } } }), { status: 200 })
+    }
+    if (url.includes('/user/logout')) return new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 })
+    tokens.push((init?.headers as Record<string, string> | undefined)?.authorization)
+    return new Response(JSON.stringify({ code: 99999, msg: 'invalid token', data: null }), { status: 200 })
+  }) as typeof fetch
+  const provider = new FnosProvider(connection, {
+    sha256Hex: async () => 'hash', deviceId: 'device', fetchImpl,
+    recoverPassword: async () => 'test-password',
+    onSessionRefreshed: async () => { entered(); await persistence },
+  }, staleSession)
+  const pending = provider.albums({ page: 1, size: 10 }).catch((error: unknown) => error)
+  await enteredPersistence
+  await provider.logout()
+  release()
+  expect(isMusicError(await pending)).toBe(true)
+  await expect(provider.albums({ page: 1, size: 10 })).rejects.toSatisfy(isMusicError)
+  expect(tokens).toEqual([staleSession.token, undefined])
 })

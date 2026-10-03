@@ -1,62 +1,63 @@
-import { useCallback, useState } from 'react'
-import { Pressable, RefreshControl, StyleSheet, View } from 'react-native'
-import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Platform, Pressable, RefreshControl, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import Animated, { useSharedValue } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Album, Playlist, Track } from '@qj/core-domain'
 import { CollapsibleHeaderBar, LargeTitleHeader } from '@/components/collapsible-tab-header'
+import { HomePullRefreshIndicator, useHomePullRefresh } from '@/components/home-pull-refresh'
 import { ErrorState } from '@/components/list-states'
 import { ScanMonitorButton } from '@/components/scan-monitor-button'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
+import { startNativeRefresh } from '@/lib/home-pull-refresh-policy'
+import { tap } from '@/lib/haptics'
 import { isGlobalMenuInteracting, useIsMenuOpen } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
-import { playLocalRadio } from '@/lib/local-radio'
-import { playTrackList, startRadio } from '@/player/controller'
+import { startHomeRadio } from '@/lib/local-radio'
+import { playTrackList } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { useThemeColors } from '@/theme/theme-provider'
-import { spacing } from '@/theme/tokens'
+import { spacing, typography } from '@/theme/tokens'
 import { AlbumShelf } from './home/AlbumShelf'
-import { HeroStationCard } from './home/HeroStationCard'
+import { HeroStationCard, HERO_STATION_CARD_HEIGHT } from './home/HeroStationCard'
 import { PagedTrackCarousel } from './home/PagedTrackCarousel'
 import { PlaylistShelf } from './home/PlaylistShelf'
 import { QuickAssetRow } from './home/QuickAssetRow'
+import { SectionHeader } from './home/SectionHeader'
 
 const TRACKS_CAROUSEL_SIZE = 9
 const RECENT_ALBUMS_COUNT = 12
+const EMPTY_TRACKS: Track[] = []
 
 /**
  * 首页：对齐 Apple Music「现在就听」的克制美学。
- * 顶部焦点区：随心漫游卡片与三等分瓷片紧凑组合（间距 12pt）；
- * 随后展开：歌单、最近添加歌曲、最近添加专辑、岁月拾遗。
+ * 顶部焦点区：半露唱片与喜欢、下载组成唱片抽屉；
+ * 随后展开：最近播放、歌单、最近添加歌曲、最近添加专辑、岁月拾遗。
  */
 export function HomeScreen() {
   const { provider, connection } = useServerSession()
+  const { fontScale } = useWindowDimensions()
   const bottom = useBottomSpace()
   const toast = useToast()
   const current = usePlayerStore(selectCurrent)
+  const source = usePlayerStore((s) => s.source)
+  const isRoaming = Boolean(current && source?.kind === 'radio')
   const [startingRadio, setStartingRadio] = useState(false)
+  const radioInFlight = useRef(false)
   const isMenuOpen = useIsMenuOpen()
   const colors = useThemeColors()
+  const insets = useSafeAreaInsets()
   const queryClient = useQueryClient()
   const scrollY = useSharedValue(0)
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y
-    },
-  })
 
-  // 1. 曲目总数（随心漫游卡片上的曲库规模感知）
-  const totalTracksQuery = useQuery({
-    queryKey: ['home', 'total-tracks-count', connection?.id],
-    enabled: Boolean(provider),
-    queryFn: () => provider!.tracks({ page: 1, size: 1 }),
-  })
+  const heroTop = useSharedValue(0)
 
-  // 2. 收藏总数（功能卡片区）
-  const favoritesQuery = useQuery({
-    queryKey: ['home', 'favorites-count', connection?.id],
-    enabled: Boolean(provider?.capabilities.favorites),
-    queryFn: () => provider!.favorites!({ page: 1, size: 1 }),
+  // 复用播放记录的失效前缀，播放上报后首页与完整历史页一同更新。
+  const historyQuery = useQuery({
+    queryKey: ['history', connection?.id, 'home'],
+    enabled: Boolean(provider?.capabilities.playHistory && provider.history),
+    queryFn: () => provider!.history!({ page: 1, size: TRACKS_CAROUSEL_SIZE }),
   })
 
   // 3. 歌单（有则展示，无则隐藏）
@@ -102,30 +103,57 @@ export function HomeScreen() {
       }),
   })
 
+  const historyTracks: Track[] = historyQuery.data?.items ?? EMPTY_TRACKS
   const playlists: Playlist[] = playlistsQuery.data?.items ?? []
-  const recentTracks: Track[] = recentTracksQuery.data?.items ?? []
+  const recentTracks: Track[] = recentTracksQuery.data?.items ?? EMPTY_TRACKS
   const recentAlbums: Album[] = recentAlbumsQuery.data?.items ?? []
-  const rediscoverTracks: Track[] = rediscoverTracksQuery.data?.items ?? []
+  const rediscoverTracks: Track[] = rediscoverTracksQuery.data?.items ?? EMPTY_TRACKS
 
-  // 首页 6 个查询共用一个 'home' 前缀，下拉刷新一次性刷全部。
-  // refetchQueries 内部会跳过 disabled 的查询（如后端不支持收藏时的 favorites），
-  // 所以不需要在这里逐个判断 enabled。
+  // 同时刷新首页内容与历史预览；禁用的查询由 React Query 跳过。
   const [refreshing, setRefreshing] = useState(false)
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true)
-    try {
-      await queryClient.refetchQueries({ queryKey: ['home'] })
-    } finally {
-      setRefreshing(false)
+  const mountedRef = useRef(true)
+  const refreshInFlightRef = useRef(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
     }
-  }, [queryClient])
+  }, [])
+  const startRefresh = useCallback(() => {
+    if (!mountedRef.current || refreshInFlightRef.current) return false
+    refreshInFlightRef.current = true
+    setRefreshing(true)
+    return Promise.all([
+      queryClient.refetchQueries({ queryKey: ['home'] }),
+      queryClient.refetchQueries({ queryKey: ['history', connection?.id, 'home'], exact: true }),
+    ])
+      .catch(() => {})
+      .finally(() => {
+        refreshInFlightRef.current = false
+        if (mountedRef.current) setRefreshing(false)
+      })
+      .then(() => true)
+  }, [queryClient, connection?.id])
+  // Android keeps RefreshControl: it owns the trigger threshold, so the feedback
+  // belongs to the actual native refresh callback rather than an inferred offset.
+  const onAndroidRefresh = useCallback(() => {
+    startNativeRefresh(startRefresh, () => {
+      tap()
+    })
+  }, [startRefresh])
+  const isIOS = Platform.OS === 'ios'
+  const { onScroll, pullDistance, refreshingOnUI } = useHomePullRefresh({
+    enabled: isIOS,
+    refreshing,
+    onRefresh: startRefresh,
+    scrollY,
+  })
 
   // 全部启用的查询都失败 = 网络/服务器不可达。此时所有分区都会因空数组而 return null，
   // 页面变成一片空白 —— 用户看不出是「没内容」还是「连不上」，所以必须显式给错误态。
   // 只有「全失败」才拦截：部分失败时其余分区照常展示，比整页错误更有用。
   const homeQueries = [
-    totalTracksQuery,
-    favoritesQuery,
+    historyQuery,
     playlistsQuery,
     recentTracksQuery,
     recentAlbumsQuery,
@@ -138,24 +166,35 @@ export function HomeScreen() {
   /** 随心漫游：优先用本地口味画像漫游（更懂你），失败/为空再退回服务端漫游 */
   const onRadio = useCallback(async () => {
     if (isGlobalMenuInteracting()) return
-    if (!provider || !connection || startingRadio) return
+    if (!provider || !connection || radioInFlight.current) return
+    radioInFlight.current = true
     setStartingRadio(true)
     try {
-      const started = await playLocalRadio(provider, connection.id)
-      if (!started) await startRadio(provider, connection.id)
-      toast('漫游已开始，随时切歌')
-    } catch {
-      // 本地漫游异常时兜底到服务端漫游
-      try {
-        await startRadio(provider, connection.id)
-        toast('漫游已开始，随时切歌')
-      } catch {
-        toast('漫游启动失败，请稍后再试')
-      }
+      await startHomeRadio(provider, connection.id)
+      if (mountedRef.current) toast('漫游已开始，随时切歌')
+    } catch (error) {
+      if (mountedRef.current) toast(error instanceof Error ? error.message : '漫游启动失败，请稍后再试')
     } finally {
-      setStartingRadio(false)
+      radioInFlight.current = false
+      if (mountedRef.current) setStartingRadio(false)
     }
-  }, [connection, provider, startingRadio, toast])
+  }, [connection, provider, toast])
+
+  const onPlayHistoryTrack = useCallback(
+    (_track: Track, index: number) => {
+      if (isGlobalMenuInteracting() || !provider || !connection) return
+      void playTrackList({
+        provider,
+        serverId: connection.id,
+        tracks: historyTracks,
+        startIndex: index,
+        source: { kind: 'history', label: '最近播放' },
+      }).catch((error) => {
+        if (mountedRef.current) toast(error instanceof Error ? error.message : '播放失败，请稍后再试')
+      })
+    },
+    [connection, provider, historyTracks, toast],
+  )
 
   /** 播放「最近添加歌曲」队列 */
   const onPlayRecentTrack = useCallback(
@@ -194,39 +233,69 @@ export function HomeScreen() {
       <CollapsibleHeaderBar title="首页" scrollY={scrollY} rightElement={<ScanMonitorButton />} />
       {allFailed ? (
         // 连不上服务器时整页给错误态：比「一堆空分区」更明确，且带重试入口
-        <ErrorState error={firstError} onRetry={() => void onRefresh()} />
+        <ErrorState error={firstError} onRetry={startRefresh} />
       ) : (
       <Animated.ScrollView
+        style={styles.scroll}
         contentContainerStyle={[styles.content, { paddingBottom: bottom + 24 }]}
+        alwaysBounceVertical
         scrollEventThrottle={16}
         onScroll={onScroll}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandTint} />
-        }
+        refreshControl={!isIOS ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onAndroidRefresh}
+            progressViewOffset={Math.max(insets.top, 20) + 44}
+            tintColor={colors.loadingIndicator}
+            colors={[colors.loadingIndicator]}
+            progressBackgroundColor={colors.bgPrimary}
+          />
+        ) : undefined}
       >
         <LargeTitleHeader title="首页" scrollY={scrollY} />
-        <View style={styles.sections}>
-          {/* 顶部焦点区域：随心漫游与三个快捷瓷片紧密组合（间距 12pt） */}
-          <View style={styles.heroGroup}>
+        <View style={styles.sections} onLayout={(event) => { heroTop.value = event.nativeEvent.layout.y }}>
+          {/* 唱片抽屉：左侧漫游，右侧喜欢与下载。 */}
+          <View style={[styles.heroGroup, { minHeight: HERO_STATION_CARD_HEIGHT * Math.max(1, fontScale) }]}>
             <HeroStationCard
               onStartRadio={onRadio}
+              isRoaming={isRoaming}
               startingRadio={startingRadio}
-              totalTracks={totalTracksQuery.data?.total}
+              disabled={!isRoaming && !provider}
+              scrollY={scrollY}
+              contentTop={heroTop}
               isInteracting={isGlobalMenuInteracting}
             />
 
             <QuickAssetRow
-              favoritesCount={favoritesQuery.data?.total}
               isInteracting={isGlobalMenuInteracting}
             />
           </View>
 
-          {/* 3. 歌单（如果有就展示，如果没有歌单就隐藏） */}
+          {historyQuery.isEnabled ? (
+            historyTracks.length > 0 ? (
+              <PagedTrackCarousel
+                title="最近播放"
+                tracks={historyTracks}
+                seeAllHref="/home/history"
+                currentTrackId={current?.trackId}
+                currentServerId={current?.serverId}
+                serverId={connection?.id}
+                onPlayTrack={onPlayHistoryTrack}
+              />
+            ) : (
+              <View style={styles.emptyHistory}>
+                <SectionHeader title="最近播放" href="/home/history" isInteracting={isGlobalMenuInteracting} />
+                <Text style={[typography.footnote, { color: colors.textSecondary }]}>
+                  {historyQuery.isPending ? '正在加载播放记录…' : historyQuery.isError ? '播放记录暂时无法加载，下拉重试' : '听过的歌曲会显示在这里'}
+                </Text>
+              </View>
+            )
+          ) : null}
+
           {playlists.length > 0 ? (
             <PlaylistShelf playlists={playlists} isInteracting={isGlobalMenuInteracting} />
           ) : null}
 
-          {/* 4. 最近添加歌曲（3首/屏 × 3屏 横滑单曲轮播） */}
           <PagedTrackCarousel
             title="最近添加歌曲"
             tracks={recentTracks}
@@ -258,6 +327,14 @@ export function HomeScreen() {
         </View>
       </Animated.ScrollView>
       )}
+      {isIOS ? (
+        <HomePullRefreshIndicator
+          pullDistance={pullDistance}
+          refreshing={refreshing}
+          refreshingOnUI={refreshingOnUI}
+          top={Math.max(insets.top, 20) + 44 + 8}
+        />
+      ) : null}
 
       {/* 快捷菜单打开时的全屏透明拦截遮罩：点击只用于退出菜单，绝不触发底层任何操作 */}
       {isMenuOpen ? (
@@ -276,6 +353,8 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  // 让迷你播放器与页签之间的 4pt 停靠缝隙露出页面底色，而不是截断的滚动文字。
+  scroll: { marginBottom: spacing.xs },
   content: {
     paddingHorizontal: spacing.pageMargin,
     paddingTop: 0,
@@ -285,6 +364,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   heroGroup: {
-    gap: 12,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
   },
+  emptyHistory: { gap: spacing.sm },
 })

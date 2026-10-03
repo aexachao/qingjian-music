@@ -73,7 +73,7 @@ export function ScanMonitorButton() {
         accessibilityLabel="查看曲库扫描进度"
       >
         <Animated.View style={{ transform: [{ rotate }] }}>
-          <Icon name="recentlyPlayed" size={iconSize.lg} color={colors.brandTint} />
+          <Icon name="recentlyPlayed" size={iconSize.lg} color={colors.loadingIndicator} />
         </Animated.View>
       </Pressable>
 

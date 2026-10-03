@@ -10,28 +10,26 @@ import {
   Text,
   View,
   useWindowDimensions,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native'
 import Animated, {
-  cancelAnimation,
   Easing,
   interpolate,
   interpolateColor,
   runOnJS,
-  scrollTo,
-  useAnimatedReaction,
   useAnimatedRef,
   useAnimatedScrollHandler,
   useAnimatedStyle,
-  useDerivedValue,
   useSharedValue,
+  useReducedMotion,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIsPlaying } from 'react-native-track-player'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
+import MaskedView from '@react-native-masked-view/masked-view'
+import { LinearGradient } from 'expo-linear-gradient'
 import type { LyricLine } from '@qj/core-domain'
 import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
@@ -42,8 +40,10 @@ import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 /** 没有下一行时，假设当前行唱这么久（逐词进度的兜底） */
 const FALLBACK_LINE_MS = 4000
-/** 长按多久弹出全部歌词面板 */
+const EMPTY_LINES: LyricLine[] = []
+/** 长按多久进入歌词分享 */
 const LONG_PRESS_MS = 320
+const LYRIC_MOTION = { focusMs: 180, wordMs: 100, readIdleMs: 3500, restingScale: 0.96 } as const
 
 /** 跨组件与切页持久缓存的行坐标与视口高度，避免切回歌词页重新排版导致的滚动跳跃 */
 const trackOffsetsCache = new Map<string, number[]>()
@@ -53,10 +53,13 @@ interface LyricViewProps {
   trackId: string
   /** 当前播放进度（毫秒） */
   positionMs: number
+  /** 当前曲目对应的歌词偏移，避免切歌首帧沿用上一首 */
+  offsetMs?: number
   /** 点了某一行：跳到那一句开始播（播放与否由调用方决定） */
   onSeek: (seconds: number) => void
-  /** 弹「全部歌词」面板时顶部显示的歌名（分享文本里也要用） */
+  /** 分享面板显示的歌名（分享文本里也要用） */
   songTitle?: string
+  songArtist?: string
   /** 底部工具栏占位高度（用于空状态提示词居中与歌词底边距） */
   bottomSpace?: number
   /** 列表是否停在顶部 */
@@ -79,7 +82,9 @@ interface LyricViewProps {
 function activeIndexOf(lines: LyricLine[], atMs: number): number {
   let index = -1
   for (let i = 0; i < lines.length; i += 1) {
-    if ((lines[i]?.atMs ?? 0) <= atMs) index = i
+    const lineAtMs = lines[i]?.atMs ?? 0
+    if (lineAtMs < 0) continue // 标题/歌手等元数据没有演唱时间，不参与高亮
+    if (lineAtMs <= atMs) index = i
     else break
   }
   return index
@@ -120,8 +125,10 @@ function litProgressChars(line: LyricLine, atMs: number, nextLineAtMs: number): 
 export function LyricView({
   trackId,
   positionMs,
+  offsetMs: offsetProp,
   onSeek,
   songTitle,
+  songArtist,
   bottomSpace,
   onTopStateChange,
   onPullTop,
@@ -136,49 +143,41 @@ export function LyricView({
   const hookPlaying = useIsPlaying()
   const playing = playingProp !== undefined ? playingProp : Boolean(hookPlaying?.playing)
   const { height: screenHeight } = useWindowDimensions()
-  const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
+  const reduceMotion = useReducedMotion()
+  const storedOffsetMs = usePlayerStore((state) => state.lyricOffsetTrackId === trackId ? state.lyricOffsetMs : 0)
+  const offsetMs = offsetProp ?? storedOffsetMs
   const scrollRef = useAnimatedRef<Animated.ScrollView>()
   const offsets = useRef<number[]>(trackOffsetsCache.get(trackId) ?? [])
   const [viewportHeight, setViewportHeight] = useState(lastKnownViewportHeight)
   /** 用户手指按压下的行（按下显示圆角矩形板，手指离开后立即消失） */
   const [pressingRowIndex, setPressingRowIndex] = useState<number | null>(null)
-  /** 长按某一行 → 弹全部歌词面板，并把那一行滚到可见 */
+  /** 长按某一行 → 进入分享面板并默认选中该句 */
   const [sheetOpenFor, setSheetOpenFor] = useState<number | null>(null)
 
   const query = useLyricSheet(trackId)
   const sheet = query.data ?? null
-  const lines = sheet?.lines ?? []
+  const lines = sheet?.lines ?? EMPTY_LINES
   const synced = sheet?.synced ?? false
 
   const atMs = positionMs + offsetMs
   const activeIndex = useMemo(() => (synced ? activeIndexOf(lines, atMs) : -1), [lines, atMs, synced])
 
-  // 计算初始滚动偏移量，确保首帧直达当前播放行，绝不从 0 滚下
-  const initialScrollY = useMemo(() => {
+  // contentOffset 是原生可写属性，随 activeIndex 更新会直接跳位，抢先打断 scrollTo 动画。
+  // 只在挂载时读取一次缓存；后续定位全部经 scrollToActiveIndex，遵守交互锁。
+  const [initialContentOffset] = useState(() => {
     const cached = trackOffsetsCache.get(trackId)
-    if (!cached || activeIndex < 0 || cached[activeIndex] === undefined) return 0
     const vh = lastKnownViewportHeight || 500
     const effectiveH = Math.max(vh - (bottomSpace ?? 0), 120)
-    return Math.max(cached[activeIndex]! - effectiveH * 0.38, 0)
-  }, [trackId, activeIndex, bottomSpace])
+    const y = activeIndex >= 0 && cached?.[activeIndex] !== undefined
+      ? Math.max(cached[activeIndex]! - effectiveH * 0.38, 0)
+      : 0
+    return { x: 0, y }
+  })
 
-  const scrollY = useSharedValue(initialScrollY)
-  const animScrollY = useSharedValue(initialScrollY)
-  const isProgrammaticScroll = useSharedValue(false)
+  const scrollY = useSharedValue(initialContentOffset.y)
   const isAtTopRef = useSharedValue(true)
   const isDismissing = useSharedValue(false)
   const dragStartedAtTopRef = useSharedValue(false)
-
-  // 监听并执行 UI 线程高精度平滑滚动（iOS 短信列表同款物理动量）
-  useAnimatedReaction(
-    () => animScrollY.value,
-    (currentY, prevY) => {
-      'worklet'
-      if (isProgrammaticScroll.value && currentY !== prevY) {
-        scrollTo(scrollRef, 0, currentY, false)
-      }
-    },
-  )
 
   // 当前行是卡拉OK行时，唱到第几个字（整行高亮的行用不上）
   const activeKaraoke = activeIndex >= 0 && synced && isKaraokeLine(lines[activeIndex]!)
@@ -189,13 +188,24 @@ export function LyricView({
   }, [activeKaraoke, activeIndex, atMs, lines])
 
   // —— 手势防冲突与视口跟随 ——
-  const currentScrollY = useRef(initialScrollY)
   const isInteractingRef = useRef(false)
+  const isPressingRowRef = useRef(false)
+  const isReadingSheetRef = useRef(false)
   const userManualOverrideRef = useRef(false)
   const idleResumeTimer = useRef<NodeJS.Timeout | null>(null)
   const prevActiveRef = useRef(active)
-  const prevActiveIndexRef = useRef(activeIndex)
+  const skipFollowAfterActivationRef = useRef(false)
   const hasPositionedForCurrentTrackRef = useRef(false)
+  const lastLinesRef = useRef(lines)
+
+  // 歌词源变更时旧行高不再可信；同一曲目重新进入且歌词未变时保留坐标缓存。
+  useEffect(() => {
+    if (lastLinesRef.current === lines) return
+    lastLinesRef.current = lines
+    offsets.current = []
+    trackOffsetsCache.delete(trackId)
+    hasPositionedForCurrentTrackRef.current = false
+  }, [lines, trackId])
 
   const clearIdleResumeTimer = useCallback(() => {
     if (idleResumeTimer.current) {
@@ -207,12 +217,12 @@ export function LyricView({
   // 切歌时重置手势与位移状态
   useEffect(() => {
     offsets.current = trackOffsetsCache.get(trackId) ?? []
-    currentScrollY.current = 0
     isInteractingRef.current = false
+    isPressingRowRef.current = false
+    isReadingSheetRef.current = false
     userManualOverrideRef.current = false
     clearIdleResumeTimer()
     hasPositionedForCurrentTrackRef.current = false
-    prevActiveIndexRef.current = -1
   }, [trackId, clearIdleResumeTimer])
 
   useEffect(() => {
@@ -221,7 +231,7 @@ export function LyricView({
 
   const scrollToActiveIndex = useCallback(
     (index: number, options?: { animated?: boolean; forceCenter?: boolean }) => {
-      const animated = options?.animated ?? true
+      const animated = (options?.animated ?? true) && !reduceMotion
       const forceCenter = options?.forceCenter ?? false
       if (!synced || index < 0 || viewportHeight <= 0) return
       const targetY = offsets.current[index]
@@ -231,59 +241,42 @@ export function LyricView({
 
       // 1. 手指按住、拖拽或惯性滑动中：硬锁定，绝对不自动滚动视口
       if (isInteractingRef.current) return
+      if (isPressingRowRef.current || isReadingSheetRef.current) return
 
-      // 2. 用户松手后的宽容视口态（未超时冷却恢复前）：
-      if (userManualOverrideRef.current && !forceCenter) {
-        const scrollY = currentScrollY.current
-        const safeTop = scrollY + 40
-        const safeBottom = scrollY + effectiveHeight - 40
+      // 整个阅读保护期都由用户掌握视口，当前行离屏也不能提前抢回。
+      if (userManualOverrideRef.current && !forceCenter) return
 
-        // 若当前/新高亮行仍在舒适视口内，跳过滚动，仅在原地高亮，不打扰用户视线
-        if (targetY >= safeTop && targetY <= safeBottom) {
-          return
-        }
-      }
-
-      // 3. 正常自动跟随或已超出舒适安全区：定位到上黄金分割位（约 38% 视口高）
+      // 正常自动跟随：定位到屏幕中上部（约 40% 视口高）。
       const targetScroll = Math.max(targetY - effectiveHeight * 0.38, 0)
-      currentScrollY.current = targetScroll
 
       if (animated) {
-        isProgrammaticScroll.value = true
-        animScrollY.value = scrollY.value
-        animScrollY.value = withTiming(
-          targetScroll,
-          {
-            duration: 520,
-            easing: Easing.bezier(0.22, 1, 0.36, 1),
-          },
-          (finished) => {
-            if (finished) {
-              isProgrammaticScroll.value = false
-            }
-          },
-        )
+        scrollRef.current?.scrollTo({ y: targetScroll, animated: true })
       } else {
-        isProgrammaticScroll.value = false
-        cancelAnimation(animScrollY)
-        animScrollY.value = targetScroll
         scrollRef.current?.scrollTo({ y: targetScroll, animated: false })
       }
     },
-    [synced, viewportHeight, bottomSpace, animScrollY, isProgrammaticScroll, scrollRef, scrollY],
+    [synced, viewportHeight, bottomSpace, reduceMotion, scrollRef],
   )
+
+  // 计时器到期时跟随最新歌词，避免闭包还指向用户松手时的旧行。
+  const latestFollow = useRef({ activeIndex, active, playing, scrollToActiveIndex })
+  useEffect(() => {
+    latestFollow.current = { activeIndex, active, playing, scrollToActiveIndex }
+  }, [activeIndex, active, playing, scrollToActiveIndex])
 
   const startIdleResumeTimer = useCallback(() => {
     clearIdleResumeTimer()
-    // 暂停状态下自由滑动，不启动闲置恢复计时器，滑动到哪儿就是哪儿
     if (!playing) return
     idleResumeTimer.current = setTimeout(() => {
+      idleResumeTimer.current = null
+      const latest = latestFollow.current
+      if (!latest.active || !latest.playing || isInteractingRef.current || isPressingRowRef.current || isReadingSheetRef.current) return
       userManualOverrideRef.current = false
-      if (activeIndex >= 0) {
-        scrollToActiveIndex(activeIndex, { animated: true, forceCenter: false })
+      if (latest.activeIndex >= 0) {
+        latest.scrollToActiveIndex(latest.activeIndex, { animated: true, forceCenter: true })
       }
-    }, 3500)
-  }, [clearIdleResumeTimer, playing, activeIndex, scrollToActiveIndex])
+    }, LYRIC_MOTION.readIdleMs)
+  }, [clearIdleResumeTimer, playing])
 
   const prevPlayingRef = useRef(playing)
   // 恢复播放时：若之前有过手动滑动，立即平滑跳转到当前时间戳对应的歌词行
@@ -310,6 +303,7 @@ export function LyricView({
 
     if (justActivated) {
       userManualOverrideRef.current = false
+      skipFollowAfterActivationRef.current = true
       if (activeIndex >= 0 && viewportHeight > 0) {
         scrollToActiveIndex(activeIndex, { animated: false, forceCenter: true })
       }
@@ -318,6 +312,10 @@ export function LyricView({
 
   // 高亮行自然推进或首帧就绪时的滚动判定
   useEffect(() => {
+    if (skipFollowAfterActivationRef.current) {
+      skipFollowAfterActivationRef.current = false
+      return
+    }
     // 首次在当前视口获得尺寸与对应行高度时，进行首次无动画定位
     if (!hasPositionedForCurrentTrackRef.current) {
       if (viewportHeight > 0 && activeIndex >= 0 && offsets.current[activeIndex] !== undefined) {
@@ -333,30 +331,37 @@ export function LyricView({
     // 暂停状态下若用户手动滑动过，绝不自动跳转
     if (!playing && userManualOverrideRef.current) return
 
-    // 单步自然推进时（如 activeIndex === prev + 1 或跳过空行 1~3 步内）平滑滚动；跳跃推进（如快进）直接到位
-    const isStepAdvance =
-      prevActiveIndexRef.current >= 0 &&
-      activeIndex > prevActiveIndexRef.current &&
-      activeIndex - prevActiveIndexRef.current <= 3
-    prevActiveIndexRef.current = activeIndex
-
-    scrollToActiveIndex(activeIndex, { animated: isStepAdvance })
+    // 首次定位之外都使用可被手指打断的原生滚动，倒退/跨行跳转也不瞬移。
+    scrollToActiveIndex(activeIndex, { animated: true })
   }, [activeIndex, active, playing, viewportHeight, scrollToActiveIndex])
 
   const handleRowTap = useCallback(
     (index: number, lineAtMs: number) => {
       clearIdleResumeTimer()
       isInteractingRef.current = false
+      isPressingRowRef.current = false
       userManualOverrideRef.current = false
-      onSeek((lineAtMs + offsetMs) / 1000)
+      onSeek(Math.max(0, (lineAtMs - offsetMs) / 1000))
       scrollToActiveIndex(index, { animated: true, forceCenter: true })
     },
     [offsetMs, onSeek, clearIdleResumeTimer, scrollToActiveIndex],
   )
 
   const handleRowLongPress = useCallback((index: number) => {
+    clearIdleResumeTimer()
+    isPressingRowRef.current = false
+    setPressingRowIndex(null)
+    isReadingSheetRef.current = true
     setSheetOpenFor(index)
-  }, [])
+  }, [clearIdleResumeTimer])
+
+  const closeLyricsSheet = useCallback(() => {
+    isReadingSheetRef.current = false
+    userManualOverrideRef.current = true
+    setSheetOpenFor(null)
+    // 关闭阅读面板后也保留一段阅读时间，不立刻把背后的歌词拉走。
+    startIdleResumeTimer()
+  }, [startIdleResumeTimer])
 
   const handleRowLayout = useCallback(
     (index: number, y: number) => {
@@ -364,13 +369,25 @@ export function LyricView({
       trackOffsetsCache.set(trackId, offsets.current)
 
       // 如果当前正在播放的行初次完成排版，且视口高度已就绪，立即无动画直达定位
-      if (!hasPositionedForCurrentTrackRef.current && index === activeIndex && viewportHeight > 0) {
+      const latest = latestFollow.current
+      if (!hasPositionedForCurrentTrackRef.current && index === latest.activeIndex && viewportHeight > 0) {
         hasPositionedForCurrentTrackRef.current = true
-        scrollToActiveIndex(activeIndex, { animated: false, forceCenter: true })
+        latest.scrollToActiveIndex(index, { animated: false, forceCenter: true })
       }
     },
-    [trackId, activeIndex, viewportHeight, scrollToActiveIndex],
+    [trackId, viewportHeight],
   )
+
+  const handleRowPressIn = useCallback((index: number) => {
+    isPressingRowRef.current = true
+    clearIdleResumeTimer()
+    setPressingRowIndex(index)
+  }, [clearIdleResumeTimer])
+  const handleRowPressOut = useCallback((index: number) => {
+    isPressingRowRef.current = false
+    setPressingRowIndex((prev) => (prev === index ? null : prev))
+    if (!isInteractingRef.current && !isReadingSheetRef.current) startIdleResumeTimer()
+  }, [startIdleResumeTimer])
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -396,10 +413,6 @@ export function LyricView({
       }
     },
     onBeginDrag: (event) => {
-      isProgrammaticScroll.value = false
-      cancelAnimation(animScrollY)
-      animScrollY.value = event.contentOffset.y
-
       isDismissing.value = false
       // 记录手势起点：只有在最顶部（offset <= 1）开始拉动才算全屏下拉退场手势
       dragStartedAtTopRef.value = event.contentOffset.y <= 1
@@ -417,10 +430,10 @@ export function LyricView({
         const downwardVelocity = -(event.velocity?.y ?? 0) * 1000
         // 动量投射：结合当前位移与松手瞬时速度（与播放页完全一致的 Apple 物理法则）
         const projectedY = pullDistance + downwardVelocity * 0.15
-        const dismissThreshold = 150
+        const dismissThreshold = 130
         const shouldDismiss =
-          (projectedY > dismissThreshold && pullDistance > 60) ||
-          (pullDistance > 180)
+          (projectedY > dismissThreshold && pullDistance > 40) ||
+          (pullDistance > 100)
 
         if (shouldDismiss && downwardVelocity > -200) {
           isDismissing.value = true
@@ -473,12 +486,12 @@ export function LyricView({
   if (query.isPending) {
     return (
       <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
-        <ActivityIndicator color={colors.brandTint} />
+        <ActivityIndicator color={colors.loadingIndicator} />
       </View>
     )
   }
 
-  if (query.isError) {
+  if (query.isError && !sheet) {
     return (
       <View style={[{ flex: 1 }, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -505,81 +518,94 @@ export function LyricView({
 
   return (
     <View style={styles.wrapper}>
-      <Animated.ScrollView
-        ref={scrollRef as any}
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, bottomSpace ? { paddingBottom: bottomSpace + 24 } : null]}
-        contentOffset={{ x: 0, y: initialScrollY }}
-        showsVerticalScrollIndicator={false}
-        bounces={true}
-        alwaysBounceVertical={true}
-        onLayout={(event) => {
-          const h = event.nativeEvent.layout.height
-          if (h > 0) {
-            lastKnownViewportHeight = h
-            setViewportHeight(h)
-          }
-        }}
-        scrollEventThrottle={16}
-        onScroll={scrollHandler}
-        onScrollBeginDrag={() => {
-          currentScrollY.current = scrollY.value
-          isInteractingRef.current = true
-          userManualOverrideRef.current = true
-          setPressingRowIndex(null)
-          clearIdleResumeTimer()
-          onScrollBeginDrag?.()
-        }}
-        onScrollEndDrag={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          currentScrollY.current = event.nativeEvent.contentOffset.y
-          animScrollY.value = event.nativeEvent.contentOffset.y
-          const { velocity } = event.nativeEvent
-          // 若松手时无明显惯性滑行（静止松手或慢速松手），立即结束物理交互并开启 3.5s 阅读保护（暂停时除外）
-          if (!velocity || Math.abs(velocity.y) < 0.05) {
+      {!synced ? <Text style={styles.unsyncedHint}>当前歌词不支持逐句同步</Text> : null}
+      <MaskedView
+        style={styles.maskContainer}
+        maskElement={
+          <LinearGradient
+            colors={[
+              'rgba(0,0,0,0)',
+              'rgba(0,0,0,1)',
+              'rgba(0,0,0,1)',
+              'rgba(0,0,0,0)',
+            ]}
+            locations={[0, 0.08, 0.82, 0.94]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        }
+      >
+        <Animated.ScrollView
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, bottomSpace ? { paddingBottom: bottomSpace + 24 } : null]}
+          contentOffset={initialContentOffset}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          alwaysBounceVertical={true}
+          onLayout={(event) => {
+            const h = event.nativeEvent.layout.height
+            if (h > 0) {
+              lastKnownViewportHeight = h
+              setViewportHeight(h)
+            }
+          }}
+          scrollEventThrottle={16}
+          onScroll={scrollHandler}
+          onScrollBeginDrag={() => {
+            isInteractingRef.current = true
+            userManualOverrideRef.current = true
+            isPressingRowRef.current = false
+            setPressingRowIndex(null)
+            clearIdleResumeTimer()
+            onScrollBeginDrag?.()
+          }}
+          onScrollEndDrag={() => {
+            // 边缘快速松手可能没有惯性回调；先结束拖拽，若产生惯性则由 onMomentumScrollBegin 重新锁定。
+            isInteractingRef.current = false
+            startIdleResumeTimer()
+          }}
+          onMomentumScrollBegin={() => {
+            isInteractingRef.current = true
+            clearIdleResumeTimer()
+          }}
+          onMomentumScrollEnd={() => {
             isInteractingRef.current = false
             if (playing) {
               startIdleResumeTimer()
             }
-          }
-        }}
-        onMomentumScrollBegin={() => {
-          isInteractingRef.current = true
-          clearIdleResumeTimer()
-        }}
-        onMomentumScrollEnd={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          currentScrollY.current = event.nativeEvent.contentOffset.y
-          animScrollY.value = event.nativeEvent.contentOffset.y
-          isInteractingRef.current = false
-          if (playing) {
-            startIdleResumeTimer()
-          }
-        }}
-      >
-        <Animated.View style={[styles.contentWrapper, contentAnimatedStyle]}>
-          {lines.map((line, index) => (
-            <LyricRow
-              key={`${line.atMs}-${index}`}
-              line={line}
-              active={index === activeIndex}
-              selected={index === pressingRowIndex}
-              litProgress={index === activeIndex ? litProgress : undefined}
-              synced={synced}
-              onTap={() => handleRowTap(index, line.atMs)}
-              onLongPress={() => handleRowLongPress(index)}
-              onPressIn={() => setPressingRowIndex(index)}
-              onPressOut={() => setPressingRowIndex((prev) => (prev === index ? null : prev))}
-              onLayout={(y) => handleRowLayout(index, y)}
-            />
-          ))}
-        </Animated.View>
-      </Animated.ScrollView>
+          }}
+        >
+          <Animated.View style={[styles.contentWrapper, contentAnimatedStyle]}>
+            {lines.map((line, index) => (
+              <LyricRow
+                key={`${trackId}-${line.atMs}-${index}`}
+                index={index}
+                line={line}
+                active={index === activeIndex}
+                viewActive={active}
+                selected={index === pressingRowIndex}
+                litProgress={index === activeIndex ? litProgress : undefined}
+                synced={synced}
+                renderKaraoke={isKaraokeLine(line) && Math.abs(index - Math.max(activeIndex, 0)) <= 1}
+                onTap={handleRowTap}
+                onLongPress={handleRowLongPress}
+                onPressIn={handleRowPressIn}
+                onPressOut={handleRowPressOut}
+                onLayout={handleRowLayout}
+              />
+            ))}
+          </Animated.View>
+        </Animated.ScrollView>
+      </MaskedView>
 
       {sheetOpenFor !== null ? (
         <LyricsSheetModal
           title={songTitle ?? ''}
+          artist={songArtist}
           lines={lines}
           initialIndex={sheetOpenFor}
-          onClose={() => setSheetOpenFor(null)}
+          onClose={closeLyricsSheet}
         />
       ) : null}
     </View>
@@ -587,9 +613,11 @@ export function LyricView({
 }
 
 interface LyricRowProps {
+  index: number
   line: LyricLine
   /** 正在唱的这一句 */
   active: boolean
+  viewActive: boolean
   /** 正在被点击/选中的这一句 */
   selected?: boolean
   /**
@@ -599,11 +627,12 @@ interface LyricRowProps {
    */
   litProgress?: number
   synced: boolean
-  onTap: () => void
-  onLongPress: () => void
-  onPressIn?: () => void
-  onPressOut?: () => void
-  onLayout: (y: number) => void
+  renderKaraoke: boolean
+  onTap: (index: number, atMs: number) => void
+  onLongPress: (index: number) => void
+  onPressIn: (index: number) => void
+  onPressOut: (index: number) => void
+  onLayout: (index: number, y: number) => void
 }
 
 /**
@@ -614,27 +643,35 @@ const KaraokeChar = memo(function KaraokeChar({
   char,
   index,
   lit,
+  focus,
   sungColor,
   pendingColor,
 }: {
   char: string
   index: number
   lit: SharedValue<number>
+  focus: SharedValue<number>
   sungColor: string
   pendingColor: string
 }) {
   const animStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(lit.value, [index, index + 1], [pendingColor, sungColor]),
+    color: interpolateColor(focus.value, [0, 1], [
+      sungColor,
+      interpolateColor(lit.value, [index, index + 1], [pendingColor, sungColor]),
+    ]),
   }))
   return <Animated.Text style={animStyle}>{char}</Animated.Text>
 })
 
 const LyricRow = memo(function LyricRow({
+  index,
   line,
   active,
+  viewActive,
   selected = false,
   litProgress,
   synced,
+  renderKaraoke,
   onTap,
   onLongPress,
   onPressIn,
@@ -643,58 +680,81 @@ const LyricRow = memo(function LyricRow({
 }: LyricRowProps) {
   const colors = useThemeColors()
   const styles = useStyles()
-  const karaoke = active && litProgress !== undefined
-  const chars = karaoke && line.text ? Array.from(line.text) : []
+  const reduceMotion = useReducedMotion()
+  // 仅当前行与相邻过渡行使用逐字节点，避免整首长歌词创建数千个动画订阅。
+  // 自然换行时上一行保留文本树，随焦点渐隐；远离当前行后恢复普通文本。
+  const metadata = line.atMs < 0
+  const seekable = synced && !metadata
+  const karaoke = seekable && renderKaraoke
+  const chars = useMemo(() => karaoke ? Array.from(line.text ?? '') : [], [karaoke, line.text])
 
   // 卡拉OK平滑扫过：把「已唱字数(浮点)」放进 UI 线程 SharedValue，
-  // 每次位置 tick(≈200ms) 来时用 withTiming 线性推到新值，两帧之间自然连续，
+  // 每次位置 tick(≈100ms) 来时用同周期线性插值，避免反复重启动画造成拖尾，
   // 每个字的颜色按 lit 与字序的距离平滑插值（带 1 个字的柔边）。
   const lit = useSharedValue(litProgress ?? 0)
+  const previousLitProgress = useRef<number | undefined>(undefined)
   useEffect(() => {
+    const previous = previousLitProgress.current
+    previousLitProgress.current = litProgress
     if (litProgress === undefined) return
-    lit.value = withTiming(litProgress, { duration: 220, easing: Easing.linear })
-  }, [litProgress, lit])
+    // 重新进入/倒退 seek 直接对齐；只对正常向前推进做插值，避免反向扫亮。
+    lit.value = reduceMotion || !viewActive || previous === undefined || litProgress < previous
+      ? litProgress
+      : withTiming(litProgress, { duration: LYRIC_MOTION.wordMs, easing: Easing.linear })
+  }, [litProgress, lit, reduceMotion, viewActive])
 
-  const activeAnim = useSharedValue(active ? 1 : 0)
+  const focused = !metadata && synced && active
+  const activeAnim = useSharedValue(focused ? 1 : 0)
 
   useEffect(() => {
-    activeAnim.value = withTiming(active ? 1 : 0, {
-      duration: 380,
-      easing: Easing.bezier(0.25, 1, 0.5, 1),
-    })
-  }, [active, activeAnim])
+    activeAnim.value = viewActive && !reduceMotion ? withTiming(focused ? 1 : 0, {
+      duration: LYRIC_MOTION.focusMs,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+    }) : focused ? 1 : 0
+  }, [focused, viewActive, activeAnim, reduceMotion])
 
   const animatedContentStyle = useAnimatedStyle(() => {
-    const scale = interpolate(activeAnim.value, [0, 1], [0.93, 1.0])
-    const opacity = interpolate(activeAnim.value, [0, 1], [0.32, 1.0])
+    const scale = reduceMotion ? 1 : interpolate(activeAnim.value, [0, 1], [LYRIC_MOTION.restingScale, 1.0])
+    const opacity = interpolate(activeAnim.value, [0, 1], [0.38, 1.0])
     return {
-      opacity: selected ? 1.0 : opacity,
-      transform: [{ scale }],
+      opacity: metadata ? 0.65 : selected ? 1.0 : !synced ? 0.68 : opacity,
+      transform: [{ scale: metadata || !synced ? 1 : scale }],
     }
   })
 
+  const animatedTranslationStyle = useAnimatedStyle(() => ({
+    color: selected ? colors.textPrimary : interpolateColor(
+      activeAnim.value, [0, 1], [colors.textSecondary, colors.textPrimary],
+    ),
+  }))
+
   const handlePress = useCallback(() => {
     void Haptics.selectionAsync()
-    onTap()
-  }, [onTap])
+    onTap(index, line.atMs)
+  }, [onTap, index, line.atMs])
 
   const handleLongPress = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    onLongPress()
-  }, [onLongPress])
+    onLongPress(index)
+  }, [onLongPress, index])
 
   return (
     <Pressable
-      onPress={synced ? handlePress : undefined}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
+      onPress={seekable ? handlePress : undefined}
+      onPressIn={() => onPressIn(index)}
+      onPressOut={() => onPressOut(index)}
       onLongPress={handleLongPress}
       delayLongPress={LONG_PRESS_MS}
-      onLayout={(event) => onLayout(event.nativeEvent.layout.y)}
-      accessibilityRole={synced ? 'button' : 'text'}
-      accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${synced ? '，点按从这句开始播放，长按查看全部歌词' : ''}`}
+      onLayout={(event) => onLayout(index, event.nativeEvent.layout.y)}
+      accessibilityRole={seekable ? 'button' : 'text'}
+      accessibilityActions={[{ name: 'showLyrics', label: '选择分享歌词' }]}
+      onAccessibilityAction={({ nativeEvent }) => {
+        if (nativeEvent.actionName === 'showLyrics') handleLongPress()
+      }}
+      accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${seekable ? '，点按从这句开始播放，长按选择分享歌词' : '，长按选择分享歌词'}`}
       style={[
         styles.rowContainer,
+        metadata && styles.metadataRow,
         selected && styles.rowSelected,
       ]}
     >
@@ -703,6 +763,7 @@ const LyricRow = memo(function LyricRow({
           <Text
             style={[
               styles.line,
+              metadata && styles.metadataLine,
               active && !karaoke && styles.lineActive,
               karaoke && styles.lineKaraoke,
               selected && styles.lineSelected,
@@ -715,6 +776,7 @@ const LyricRow = memo(function LyricRow({
                     char={char}
                     index={index}
                     lit={lit}
+                    focus={activeAnim}
                     sungColor={colors.textPrimary}
                     pendingColor={colors.textTertiary}
                   />
@@ -726,119 +788,127 @@ const LyricRow = memo(function LyricRow({
           <Icon name="playing" size={iconSize.lg} color={active ? colors.playing : colors.iconDim} />
         )}
         {line.translation ? (
-          <Text style={[styles.translation, (active || selected) && styles.translationActive]}>
+          <Animated.Text style={[styles.translation, animatedTranslationStyle]}>
             {line.translation}
-          </Text>
+          </Animated.Text>
         ) : null}
       </Animated.View>
     </Pressable>
   )
 })
 
-/** 长按某一句后弹的「全部歌词」面板：滚到那一句并高亮，可复制 / 分享 */
-function LyricsSheetModal({
-  title,
-  lines,
-  initialIndex,
-  onClose,
-}: {
+/** 长按默认选中该句；选择顺序始终按歌词原顺序导出。 */
+function LyricsSheetModal({ title, artist, lines, initialIndex, onClose }: {
   title: string
+  artist?: string
   lines: LyricLine[]
   initialIndex: number
   onClose: () => void
 }) {
   const colors = useThemeColors()
   const styles = useStyles()
+  const reduceMotion = useReducedMotion()
+  const insets = useSafeAreaInsets()
+  const [selected, setSelected] = useState<Set<number>>(() => new Set([initialIndex]))
+  const [copyLabel, setCopyLabel] = useState('复制')
+  const [shareError, setShareError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const scrollRef = useRef<ScrollView>(null)
   const rowY = useRef<number[]>([])
   const [viewH, setViewH] = useState(0)
-  const safe = Math.min(Math.max(initialIndex, 0), lines.length - 1)
+  const available = useMemo(() => lines.flatMap((line, index) => line.text?.trim() ? [index] : []), [lines])
+  const selectedLines = available.filter((index) => selected.has(index))
+  const allSelected = selectedLines.length === available.length
+  const selectedText = selectedLines.map((index) => lines[index]!.text).join('\n')
 
-  // 打开后把长按的那一句滚到面板中间
   useEffect(() => {
     if (viewH <= 0) return
     const timer = setTimeout(() => {
-      const y = rowY.current[safe]
-      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(y - viewH / 2, 0), animated: false })
+      const y = rowY.current[initialIndex]
+      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(y - viewH / 3, 0), animated: false })
     }, 60)
     return () => clearTimeout(timer)
-  }, [safe, viewH])
+  }, [initialIndex, viewH])
 
-  const allText = useMemo(
-    () =>
-      lines
-        .map((line) => line.text)
-        .filter((text): text is string => Boolean(text))
-        .join('\n'),
-    [lines],
-  )
-
-  const copyAll = useCallback(() => {
-    void Clipboard.setStringAsync(allText)
-  }, [allText])
-
-  const shareAll = useCallback(() => {
-    void Share.share({ message: title ? `${title}\n\n${allText}` : allText })
-  }, [allText, title])
+  const changeSelection = (next: Set<number>) => {
+    if (busyRef.current) return
+    setSelected(next)
+    setCopyLabel('复制')
+    setShareError(null)
+  }
+  const toggleLine = (index: number) => {
+    const next = new Set(selected)
+    if (next.has(index)) next.delete(index)
+    else next.add(index)
+    changeSelection(next)
+  }
+  const perform = async (action: 'copy' | 'share') => {
+    if (!selectedText || busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setShareError(null)
+    try {
+      if (action === 'copy') {
+        await Clipboard.setStringAsync(selectedText)
+        setCopyLabel('已复制')
+      } else {
+        const identity = [title, artist].filter(Boolean).join(' · ')
+        await Share.share({ message: [selectedText, identity].filter(Boolean).join('\n\n') })
+      }
+    } catch {
+      if (action === 'copy') setCopyLabel('复制失败，重试')
+      else setShareError('分享未完成，请重试')
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.sheetScrim}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel="关闭全部歌词"
-        />
-        <View style={styles.sheetCard}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle} numberOfLines={1}>
-              {title || '全部歌词'}
-            </Text>
-            <IconButton name="close" size={iconSize.lg} color={colors.iconMid} onPress={onClose} accessibilityLabel="关闭" />
-          </View>
-
-          <ScrollView
-            ref={scrollRef}
-            onLayout={(event) => setViewH(event.nativeEvent.layout.height)}
-            contentContainerStyle={styles.sheetList}
-            showsVerticalScrollIndicator={false}
-          >
-            {lines.map((line, index) =>
-              line.text ? (
-                <View
-                  key={`${line.atMs}-${index}`}
-                  onLayout={(event) => {
-                    rowY.current[index] = event.nativeEvent.layout.y
-                  }}
-                >
-                  <Text style={[styles.sheetLine, index === safe && styles.sheetLineSelected]}>{line.text}</Text>
+    <Modal visible presentationStyle="pageSheet" allowSwipeDismissal animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
+      <View style={[styles.sheetCard, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} accessibilityViewIsModal>
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>分享歌词</Text>
+          <IconButton name="close" size={iconSize.lg} color={colors.iconMid} onPress={onClose} accessibilityLabel="关闭歌词分享" />
+        </View>
+        <View style={styles.sheetIdentity}>
+          <Text style={styles.sheetSong} numberOfLines={2}>{title || '当前歌曲'}</Text>
+          {artist ? <Text style={styles.sheetArtist} numberOfLines={1}>{artist}</Text> : null}
+        </View>
+        <View style={styles.sheetSelectionBar}>
+          <Text style={styles.sheetHint}>点选想分享的歌词</Text>
+          <Pressable onPress={() => changeSelection(new Set(allSelected ? [] : available))} disabled={busy} accessibilityRole="button" accessibilityLabel={allSelected ? '取消全选' : '全选歌词'} style={styles.sheetSelectAll}>
+            <Text style={styles.sheetSelectAllLabel}>{allSelected ? '取消全选' : '全选'}</Text>
+          </Pressable>
+        </View>
+        <ScrollView ref={scrollRef} style={styles.sheetScroll} onLayout={(event) => setViewH(event.nativeEvent.layout.height)} contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
+          {available.map((index) => {
+            const line = lines[index]!
+            const checked = selected.has(index)
+            return (
+              <Pressable key={`${line.atMs}-${index}`} onLayout={(event) => { rowY.current[index] = event.nativeEvent.layout.y }} onPress={() => toggleLine(index)} disabled={busy} accessibilityRole="checkbox" accessibilityLabel={line.text} accessibilityState={{ checked, disabled: busy }} style={({ pressed }) => [styles.sheetRow, checked && styles.sheetRowSelected, pressed && styles.sheetButtonPressed]}>
+                <View style={styles.sheetRowText}>
+                  <Text style={[styles.sheetLine, checked && styles.sheetLineSelected]}>{line.text}</Text>
                   {line.translation ? <Text style={styles.sheetTranslation}>{line.translation}</Text> : null}
                 </View>
-              ) : null,
-            )}
-          </ScrollView>
-
+              </Pressable>
+            )
+          })}
+        </ScrollView>
+        <View style={styles.sheetFooter}>
+          <Text style={styles.sheetCount} accessibilityLiveRegion="polite">{selectedLines.length ? `已选 ${selectedLines.length} 句` : '请选择歌词'}</Text>
           <View style={styles.sheetActions}>
-            <Pressable
-              style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]}
-              onPress={copyAll}
-              accessibilityRole="button"
-              accessibilityLabel="复制全部歌词"
-            >
+            <Pressable style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed, (!selectedText || busy) && styles.sheetButtonDisabled]} onPress={() => void perform('copy')} disabled={!selectedText || busy} accessibilityRole="button" accessibilityLabel={copyLabel === '复制' ? '复制所选歌词' : copyLabel} accessibilityState={{ disabled: !selectedText || busy, busy }}>
               <Icon name="copy" size={iconSize.md} color={colors.textPrimary} />
-              <Text style={styles.sheetButtonLabel}>复制全部歌词</Text>
+              <Text style={styles.sheetButtonLabel} accessibilityLiveRegion="polite">{copyLabel}</Text>
             </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed]}
-              onPress={shareAll}
-              accessibilityRole="button"
-              accessibilityLabel="分享全部歌词"
-            >
-              <Icon name="share" size={iconSize.md} color={colors.textPrimary} />
-              <Text style={styles.sheetButtonLabel}>分享</Text>
+            <Pressable style={({ pressed }) => [styles.sheetButton, styles.sheetShareButton, pressed && styles.sheetButtonPressed, (!selectedText || busy) && styles.sheetButtonDisabled]} onPress={() => void perform('share')} disabled={!selectedText || busy} accessibilityRole="button" accessibilityLabel="分享所选歌词" accessibilityState={{ disabled: !selectedText || busy, busy }}>
+              <Icon name="share" size={iconSize.md} color={colors.textOnAccent} />
+              <Text style={[styles.sheetButtonLabel, styles.sheetShareLabel]}>分享</Text>
             </Pressable>
           </View>
+          {shareError ? <Text style={styles.sheetFeedback} accessibilityRole="alert">{shareError}</Text> : null}
         </View>
       </View>
     </Modal>
@@ -846,7 +916,10 @@ function LyricsSheetModal({
 }
 
 const useStyles = createThemedStyles((colors) => ({
+  sheetFeedback: { ...typography.footnote, color: colors.textSecondary, textAlign: 'center', paddingBottom: spacing.md },
   wrapper: { flex: 1 },
+  unsyncedHint: { ...typography.footnote, color: colors.textSecondary, paddingVertical: spacing.xs },
+  maskContainer: { flex: 1 },
   scroll: { flex: 1 },
   content: {
     paddingTop: spacing.sm,
@@ -873,6 +946,8 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  metadataRow: { paddingVertical: spacing.xs },
+  metadataLine: { ...typography.callout, color: colors.textPrimary },
   rowSelected: {
     backgroundColor: colors.bgListItem,
     borderRadius: radius.lg,
@@ -917,49 +992,32 @@ const useStyles = createThemedStyles((colors) => ({
     marginTop: spacing.xs,
     color: colors.textSecondary,
   },
-  translationActive: { color: colors.textPrimary },
-  // —— 全部歌词面板 ——
-  sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.xl },
-  sheetCard: { backgroundColor: colors.bgModal, borderRadius: radius.xl, maxHeight: '78%', overflow: 'hidden' },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderSubtle,
-  },
-  sheetTitle: { ...typography.callout, color: colors.textPrimary, flex: 1, paddingRight: spacing.sm },
-  sheetList: { paddingVertical: spacing.lg, paddingHorizontal: spacing.lg, gap: spacing.md },
-  sheetLine: { ...typography.body, color: colors.textTertiary, lineHeight: 26 },
-  sheetLineSelected: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-    backgroundColor: colors.bgButtonSecondary,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    marginHorizontal: -spacing.sm,
-  },
-  sheetTranslation: { ...typography.footnote, color: colors.textQuaternary, marginTop: spacing.xs },
-  sheetActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.borderSubtle,
-  },
-  sheetButton: {
-    flex: 1,
-    minHeight: 46,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgButtonSecondary,
-  },
-  sheetButtonPressed: { backgroundColor: colors.bgCardHover },
+  // —— 歌词选择与分享 ——
+  sheetCard: { flex: 1, backgroundColor: colors.bgModal },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: spacing.xl, paddingRight: spacing.md, paddingTop: spacing.sm },
+  sheetTitle: { ...typography.headline, color: colors.textPrimary },
+  sheetIdentity: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.sm },
+  sheetSong: { ...typography.title3, color: colors.textPrimary },
+  sheetArtist: { ...typography.subhead, color: colors.textSecondary, marginTop: spacing.xs },
+  sheetSelectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl },
+  sheetHint: { ...typography.footnote, color: colors.textSecondary },
+  sheetSelectAll: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  sheetSelectAllLabel: { ...typography.subhead, color: colors.actionText },
+  sheetScroll: { flex: 1 },
+  sheetList: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
+  sheetRow: { flexDirection: 'row', alignItems: 'flex-start', minHeight: 48, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.md, gap: spacing.md },
+  sheetRowSelected: { backgroundColor: colors.bgButtonSecondary },
+  sheetRowText: { flex: 1 },
+  sheetLine: { ...typography.body, color: colors.textSecondary, lineHeight: 26 },
+  sheetLineSelected: { color: colors.textPrimary, fontWeight: '600' },
+  sheetTranslation: { ...typography.footnote, color: colors.textSecondary, marginTop: spacing.xs },
+  sheetFooter: { paddingTop: spacing.md, paddingHorizontal: spacing.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
+  sheetCount: { ...typography.footnote, color: colors.textSecondary, marginBottom: spacing.sm },
+  sheetActions: { flexDirection: 'row', gap: spacing.md },
+  sheetButton: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgButtonSecondary },
+  sheetShareButton: { backgroundColor: colors.primaryAction },
+  sheetShareLabel: { color: colors.textOnAccent },
+  sheetButtonPressed: { opacity: 0.65 },
+  sheetButtonDisabled: { opacity: 0.4 },
   sheetButtonLabel: { ...typography.callout, color: colors.textPrimary },
 }))

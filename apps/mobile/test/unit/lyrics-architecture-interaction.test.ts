@@ -24,10 +24,8 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(playerSource).toContain('lyricsContainerAnimatedStyle')
     expect(playerSource).toContain('coverListContainerAnimatedStyle')
     // 底部工具栏常驻在主视图下方
-    expect(playerSource).toContain('styles.toolbar')
-    expect(playerSource).toContain('accessibilityLabel="歌词"')
-    expect(playerSource).toContain('accessibilityLabel="隔空播放"')
-    expect(playerSource).toContain('accessibilityLabel="播放队列"')
+    expect(playerSource).toContain('<PlayerToolbar mode={mode} onModeChange={setMode}')
+    // 按钮与模式/路由状态的行为由 player-toolbar.test.tsx 的实际 React 渲染覆盖。
     // 不再包含浮动控制区样式或隐藏计时器
     expect(playerSource).not.toContain('floatingBottomControls')
     expect(playerSource).not.toContain('CHROME_HIDE_IDLE_MS')
@@ -50,7 +48,7 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(lyricViewSource).toContain('trackOffsetsCache')
     expect(lyricViewSource).toContain('justActivated')
     expect(lyricViewSource).toContain('animated: false')
-    expect(lyricViewSource).toContain('contentOffset={{')
+    // contentOffset 稳定性由 lyric-motion.test.tsx 的真实 React 渲染测试覆盖。
     expect(playerSource).toContain("active={mode === 'lyrics'}")
   })
 
@@ -64,15 +62,15 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(lyricViewSource).not.toContain('(pressed || selected) && styles.rowSelected')
     // 选中浅色矩形底板
     expect(lyricViewSource).toContain('rowSelected')
-    expect(lyricViewSource).toContain('backgroundColor: colors.bgCard')
+    expect(lyricViewSource).toContain('backgroundColor: colors.bgListItem')
   })
 
   it('手势与歌词动画防冲突：交互硬锁定、视口容差与宽容冷却期', () => {
     // 手指按住、拖动或惯性滚动期间硬锁定，绝不自动滚动
     expect(lyricViewSource).toContain('if (isInteractingRef.current) return')
-    // 松手后的宽容视口判定：若新行仍在舒适安全区（safeTop ~ safeBottom）内，跳过滚动，仅文字原地高亮
+    // 松手后的整个阅读保护期跳过滚动，即使当前行离屏也不抢回视口
     expect(lyricViewSource).toContain('userManualOverrideRef.current')
-    expect(lyricViewSource).toContain('targetY >= safeTop && targetY <= safeBottom')
+    expect(lyricViewSource).toContain('if (userManualOverrideRef.current && !forceCenter) return')
     // 移除废弃的多指/滑动甩动检测逻辑，保持简洁
     expect(lyricViewSource).not.toContain('checkFastScrollDownRealtime')
   })

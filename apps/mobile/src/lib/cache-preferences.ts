@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createHydrationQueue } from './hydration-queue'
 export type CacheLimitEnforcer = () => void | Promise<void>
 let cacheLimitEnforcer: CacheLimitEnforcer = () => undefined
 
@@ -60,6 +62,7 @@ interface CachePreferencesData {
 }
 
 interface CachePreferencesState extends CachePreferencesData {
+  hydrated: boolean
   setAutoCacheEnabled: (enabled: boolean) => void
   setSizeLimitKey: (key: CacheSizeKey) => void
   setCountLimitKey: (key: CacheCountKey) => void
@@ -67,37 +70,65 @@ interface CachePreferencesState extends CachePreferencesData {
 
 async function persist(state: CachePreferencesData) {
   try {
-    await SecureStore.setItemAsync(
-      KEY_CACHE_PREFS,
-      JSON.stringify({
-        autoCacheEnabled: state.autoCacheEnabled,
-        sizeLimitKey: state.sizeLimitKey,
-        countLimitKey: state.countLimitKey,
-      }),
+    await storageWrites.run(() =>
+      SecureStore.setItemAsync(
+        KEY_CACHE_PREFS,
+        JSON.stringify({
+          autoCacheEnabled: state.autoCacheEnabled,
+          sizeLimitKey: state.sizeLimitKey,
+          countLimitKey: state.countLimitKey,
+        }),
+      ),
     )
   } catch {
     // 忽略存储写入失败，内存中依然有效
   }
 }
 
+const storageWrites = new StorageMutationQueue()
+const hydration = createHydrationQueue<CachePreferencesData>()
+
+function ensureHydrated(): void {
+  void hydration.hydrate(async () => {
+    const raw = await SecureStore.getItemAsync(KEY_CACHE_PREFS)
+    const data = raw ? (JSON.parse(raw) as Partial<CachePreferencesData>) : {}
+    return {
+      autoCacheEnabled: typeof data.autoCacheEnabled === 'boolean' ? data.autoCacheEnabled : true,
+      sizeLimitKey: isCacheSizeKey(data.sizeLimitKey) ? data.sizeLimitKey : '2GB',
+      countLimitKey: isCacheCountKey(data.countLimitKey) ? data.countLimitKey : 'unlimited',
+    }
+  }, (data, replayed) => {
+    useCachePreferences.setState({ ...data, hydrated: true })
+    if (replayed) void persist(data)
+    void Promise.resolve(cacheLimitEnforcer()).catch((error: unknown) => console.warn('应用缓存容量上限失败', error))
+  })
+}
+
 export const useCachePreferences = create<CachePreferencesState>((set, get) => ({
+  hydrated: false,
   autoCacheEnabled: true,
   sizeLimitKey: '2GB',
   countLimitKey: 'unlimited',
   setAutoCacheEnabled: (autoCacheEnabled) => {
+    hydration.queue((data) => ({ ...data, autoCacheEnabled }))
     set({ autoCacheEnabled })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
   },
   setSizeLimitKey: (sizeLimitKey) => {
+    hydration.queue((data) => ({ ...data, sizeLimitKey }))
     set({ sizeLimitKey })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
     void Promise.resolve(cacheLimitEnforcer()).catch((error: unknown) => {
       console.warn('应用缓存容量上限失败', error)
     })
   },
   setCountLimitKey: (countLimitKey) => {
+    hydration.queue((data) => ({ ...data, countLimitKey }))
     set({ countLimitKey })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
     void Promise.resolve(cacheLimitEnforcer()).catch((error: unknown) => {
       console.warn('应用缓存歌曲数量上限失败', error)
     })
@@ -105,21 +136,7 @@ export const useCachePreferences = create<CachePreferencesState>((set, get) => (
 }))
 
 // 初始化：异步从本地 SecureStore 恢复上次设置
-void (async () => {
-  try {
-    const raw = await SecureStore.getItemAsync(KEY_CACHE_PREFS)
-    if (raw) {
-      const data = JSON.parse(raw) as Partial<CachePreferencesData>
-      useCachePreferences.setState({
-        ...(typeof data.autoCacheEnabled === 'boolean' ? { autoCacheEnabled: data.autoCacheEnabled } : {}),
-        ...(isCacheSizeKey(data.sizeLimitKey) ? { sizeLimitKey: data.sizeLimitKey } : {}),
-        ...(isCacheCountKey(data.countLimitKey) ? { countLimitKey: data.countLimitKey } : {}),
-      })
-    }
-  } catch {
-    // 忽略解析错误
-  }
-})()
+ensureHydrated()
 
 export function isAutoCacheEnabled(): boolean {
   return useCachePreferences.getState().autoCacheEnabled

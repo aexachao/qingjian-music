@@ -2,6 +2,7 @@ import { Tabs, useSegments } from 'expo-router'
 import { AuthGate } from '@/lib/auth-gate'
 import { Icon, iconSize } from '@/components/icon'
 import { MiniPlayerHost } from '@/components/mini-player-host'
+import { FloatingTabBar } from '@/components/floating-tab-bar'
 import { isTabBarHidden } from '@/lib/tab-bar-policy'
 import { tap } from '@/lib/haptics'
 import { useThemeColors } from '@/theme/theme-provider'
@@ -17,6 +18,7 @@ export default function TabsLayout() {
     <AuthGate group="protected">
       <>
         <Tabs
+          tabBar={(props) => <FloatingTabBar {...props} hidden={hideTabBar} />}
           screenListeners={{
             tabPress: () => {
               tap()

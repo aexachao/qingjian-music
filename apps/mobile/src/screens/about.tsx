@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConfirm } from '@/components/confirm-modal'
 import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
 import Constants from 'expo-constants'
@@ -17,7 +18,7 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useAppLogo } from '@/lib/appearance-preferences'
 import { EDITION_LABEL } from '@/lib/edition-policy'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 /**
  * 版本号**不硬编码**：从 app.json 读（构建期注入的 expoConfig）。
@@ -25,8 +26,12 @@ import { spacing, typography } from '@/theme/tokens'
  * 又一个「不报错、只是悄悄不对」。留兜底是为了拿不到 expoConfig 时仍能渲染。
  */
 const APP_VERSION = Constants.expoConfig?.version ?? '—'
-/** iOS 上架后回填数字 ID（App Store Connect → App 信息）。留空则「五星好评」只展示说明弹窗，不会点了报错 */
+const BUILD_NUMBER = Platform.OS === 'ios'
+  ? Constants.platform?.ios?.buildNumber ?? Constants.expoConfig?.ios?.buildNumber
+  : Constants.expoConfig?.android?.versionCode
+/** 正式商店页面上线后回填；未配置时不显示无法使用的评分入口。 */
 const APP_STORE_ID = ''
+const CAN_RATE = Platform.OS === 'android' || (Platform.OS === 'ios' && Boolean(APP_STORE_ID))
 /** Android 包名，与 app.json 的 android.package 保持一致 */
 const ANDROID_PACKAGE = 'com.chrisli.music'
 
@@ -35,7 +40,7 @@ const USER_AGREEMENT_TEXT = `一、服务说明与协议接受
 
 二、使用规范与知识产权
 1. 本应用仅作为播放控制与流媒体连接工具，本身不提供、不存储、不分发任何音乐版权音频资源。
-2. 您通过本应用访问并播放的所有音乐、封面、歌词等内容均来自您自行部署或经授权访问的私有 NAS 服务器。您应当确保对所存储和播放的内容拥有合法的版权或许可使用权。
+2. 您通过本应用访问的内容来自您配置并获授权访问的 NAS 服务器或外部数据源。您应当确保对所存储和播放的内容拥有合法的版权或许可使用权。
 3. 本应用之软件架构、界面设计、图标及客户端代码均受知识产权法律保护。
 
 三、服务变更与免责声明
@@ -46,27 +51,28 @@ const USER_AGREEMENT_TEXT = `一、服务说明与协议接受
 我们保留在必要时修改本协议的权利，更新后的协议将在应用内公布。`
 
 const PRIVACY_POLICY_TEXT = `一、我们的隐私承诺
-「轻简音乐」非常重视您的隐私。作为一款私有云 NAS 音乐客户端，我们的核心原则是：数据纯本地传输、零云端中转、零第三方追踪。
+「轻简音乐」非常重视您的隐私。作为一款私有云 NAS 音乐客户端，我们的核心原则是：由设备直接连接您配置的服务，不通过本应用的中转服务器传输音乐。
 
 二、信息处理与存储方式
 1. 服务器地址与认证凭据：
-   当您添加并连接飞牛音乐服务器时，输入的服务器地址、用户名及登录凭据（Token / 密码）将严格加密保存在您的设备本地安全存储中（iOS Keychain / Android 硬件级加密容器）。
+   当您添加并连接飞牛音乐服务器时，服务器配置和登录令牌保存在设备的系统安全存储中。选择记住密码时，密码也会保存在该处，用于登录过期后的重新认证。应用还会生成随机设备标识，并发送给您配置的 NAS，用于登录会话和漫游播放；它不是广告标识。
 2. 零外部中转服务器：
-   本应用没有部署任何中间代理云端服务器。您在应用内的所有网络请求（音频串流、曲库元数据、封面、歌词获取）均由您的设备直接向您配置的 NAS 服务器发起。
+   本应用没有部署任何中间代理云端服务器。音频播放和曲库访问由设备直接向您配置的 NAS 服务器发起。若您启用外部数据源，应用还会向该服务请求歌词或曲库信息，并发送匹配所需的歌曲、专辑或艺人名称，以及您为该服务配置的访问令牌。
 3. 音频与封面缓存：
-   为了优化弱网与断网环境下的播放体验，本应用会在您设备本地的缓存目录存储近期收听的音频片段与封面图片。您可以随时在「设置 - 自动缓存歌曲」中一键清除所有缓存文件。
+   为了优化弱网与断网环境下的播放体验，本应用会在您设备本地的缓存目录存储近期收听的音频片段与封面图片。您可以在「设置 → 缓存」中分别清理歌曲、封面和歌词缓存。主动下载的歌曲在「首页 → 已下载」中管理。
 
 三、权限使用说明
 1. 本地网络权限（Local Network）：用于在局域网内发现并连接您的飞牛 NAS 设备。
 2. 后台音频播放权限（Background Audio）：用于支持锁屏播放、控制中心控制与通知中心流媒体播放。
 
 四、第三方 SDK 与追踪
-本应用不包含任何商业广告 SDK，不植入任何第三方数据分析或用户行为追踪工具，不会收集或上传您的设备标识、位置信息或使用行为。`
+本应用不包含任何商业广告 SDK，不植入任何第三方数据分析或用户行为追踪工具，不采集广告标识或位置信息，也不向第三方分析平台上传使用行为。`
 
 export function AboutScreen() {
   const colors = useThemeColors()
   const styles = useStyles()
   const bottom = useBottomSpace()
+  const insets = useSafeAreaInsets()
   const { activeLogo } = useAppLogo()
   const confirm = useConfirm()
   const [policyType, setPolicyType] = useState<'agreement' | 'privacy' | null>(null)
@@ -89,8 +95,8 @@ export function AboutScreen() {
       }
     }
     confirm({
-      title: '五星好评',
-      message: '感谢您对「轻简音乐」的喜爱与支持！如果您觉得好用，欢迎向更多喜爱高品质音乐的 NAS 伙伴推荐分享。',
+      title: '暂时无法打开商店',
+      message: '请稍后重试。',
       confirmText: '好的',
       cancelText: '',
       onConfirm: () => {},
@@ -113,20 +119,19 @@ export function AboutScreen() {
           />
           <Text style={styles.appName}>轻简音乐</Text>
           <Text style={styles.appVersion}>
-            版本 {APP_VERSION} · {EDITION_LABEL}
+            版本 {APP_VERSION}{BUILD_NUMBER ? ` (${BUILD_NUMBER})` : ''}
           </Text>
-          <Text style={styles.appTagline}>为飞牛音乐精心打造的私有流媒体客户端</Text>
+          <Text style={styles.appTagline}>飞牛音乐的移动客户端 · {EDITION_LABEL}</Text>
         </View>
 
         {/* 卡片 1：互动与评价 */}
-        <View style={styles.card}>
+        {CAN_RATE ? <View style={styles.card}>
           <AboutRow
             icon="star"
-            label="五星好评"
-            value="去鼓励一下"
+            label="评价应用"
             onPress={() => void onRatePress()}
           />
-        </View>
+        </View> : null}
 
         {/* 卡片 2：法律与政策条款 */}
         <View style={styles.card}>
@@ -145,8 +150,7 @@ export function AboutScreen() {
 
         {/* 底部版权信息 */}
         <View style={styles.footerSection}>
-          <Text style={styles.footerText}>Copyright © 2026 Qingjian Music</Text>
-          <Text style={styles.footerSubText}>All rights reserved.</Text>
+          <Text style={styles.footerText}>© 2026 轻简音乐</Text>
         </View>
       </ScrollView>
 
@@ -173,11 +177,17 @@ export function AboutScreen() {
 
           <ScrollView
             style={styles.modalContent}
-            contentContainerStyle={[styles.modalScrollContent, { paddingBottom: bottom + 40 }]}
+            contentContainerStyle={[styles.modalScrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
           >
-            <Text style={styles.policyBody}>
-              {policyType === 'agreement' ? USER_AGREEMENT_TEXT : PRIVACY_POLICY_TEXT}
-            </Text>
+            {(policyType === 'agreement' ? USER_AGREEMENT_TEXT : PRIVACY_POLICY_TEXT).split('\n\n').map((section) => {
+              const [heading, ...body] = section.split('\n')
+              return (
+                <View key={heading} style={styles.policySection}>
+                  <Text accessibilityRole="header" style={styles.policyHeading}>{heading}</Text>
+                  <Text style={styles.policyBody} selectable>{body.join('\n')}</Text>
+                </View>
+              )
+            })}
           </ScrollView>
         </View>
       </Modal>
@@ -200,13 +210,13 @@ function AboutRow({
   const styles = useStyles()
   return (
     <Pressable
-      style={styles.row}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
       <Icon name={icon} size={22} color={colors.textSecondary} />
-      <Text numberOfLines={1} style={styles.rowLabel}>
+      <Text style={styles.rowLabel}>
         {label}
       </Text>
       {value ? (
@@ -227,7 +237,7 @@ const useStyles = createThemedStyles((colors) => ({
   content: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
-    gap: spacing.lg,
+    gap: spacing.xl,
   },
   heroSection: {
     alignItems: 'center',
@@ -237,40 +247,39 @@ const useStyles = createThemedStyles((colors) => ({
   appIcon: {
     width: 80,
     height: 80,
-    borderRadius: 18,
+    borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
     marginBottom: spacing.sm,
   },
   appName: {
-    fontSize: 22,
-    fontWeight: '700',
+    ...typography.title,
     color: colors.textPrimary,
-    letterSpacing: -0.4,
   },
   appVersion: {
-    fontSize: 14,
-    fontWeight: '500',
+    ...typography.footnote,
     color: colors.textSecondary,
   },
   appTagline: {
-    fontSize: 13,
+    ...typography.footnote,
     color: colors.textTertiary,
     marginTop: 2,
     textAlign: 'center',
   },
   card: {
     backgroundColor: colors.bgCard,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     minHeight: 56,
+    paddingVertical: spacing.md,
   },
+  rowPressed: { backgroundColor: colors.bgCardHover },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.borderSubtle,
@@ -278,13 +287,12 @@ const useStyles = createThemedStyles((colors) => ({
   },
   rowLabel: {
     ...typography.callout,
-    fontSize: 16,
     color: colors.textPrimary,
     flex: 1,
   },
   rowValue: {
     ...typography.caption,
-    fontSize: 14,
+    ...typography.footnote,
     color: colors.textTertiary,
     marginRight: 4,
   },
@@ -294,12 +302,8 @@ const useStyles = createThemedStyles((colors) => ({
     gap: 4,
   },
   footerText: {
-    fontSize: 12,
+    ...typography.caption,
     color: colors.textTertiary,
-  },
-  footerSubText: {
-    fontSize: 11,
-    color: colors.textQuaternary,
   },
   // 弹窗样式
   modalContainer: {
@@ -316,8 +320,7 @@ const useStyles = createThemedStyles((colors) => ({
     borderBottomColor: colors.borderDefault,
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
+    ...typography.headline,
     color: colors.textPrimary,
   },
   modalContent: {
@@ -325,11 +328,13 @@ const useStyles = createThemedStyles((colors) => ({
   },
   modalScrollContent: {
     padding: spacing.lg,
+    gap: spacing.xl,
   },
+  policySection: { gap: spacing.sm },
+  policyHeading: { ...typography.headline, color: colors.textPrimary },
   policyBody: {
-    fontSize: 14,
-    lineHeight: 22,
+    ...typography.subhead,
+    lineHeight: 24,
     color: colors.textSecondary,
-    letterSpacing: 0.2,
   },
 }))

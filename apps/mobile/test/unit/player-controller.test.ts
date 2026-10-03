@@ -1,3 +1,4 @@
+vi.mock('@/player/network-access', () => ({ requirePlaybackNetwork: vi.fn(async () => undefined), canUsePlaybackNetwork: () => true }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PlaySource, QueueItem, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
@@ -26,6 +27,8 @@ type AddedTrack = { id: string; url?: string }
 // 参数签名显式写出来：部分用例要读 `mock.calls` 里的实参（如 move 的 from/to），
 // 无参的 `vi.fn(async () => ...)` 会把 calls 推成空元组，读出来是 never。
 const rntp = vi.hoisted(() => ({
+  getActiveTrack: vi.fn<() => Promise<AddedTrack | undefined>>(async () => undefined),
+  getQueue: vi.fn<() => Promise<AddedTrack[]>>(async () => []),
   move: vi.fn<(from: number, to: number) => Promise<void>>(async () => undefined),
   remove: vi.fn<(indexes: number[]) => Promise<void>>(async () => undefined),
   reset: vi.fn<() => Promise<void>>(async () => undefined),
@@ -41,6 +44,7 @@ const rntp = vi.hoisted(() => ({
   play: vi.fn<() => Promise<void>>(async () => undefined),
   seekTo: vi.fn<(seconds: number) => Promise<void>>(async () => undefined),
   getActiveTrackIndex: vi.fn<() => Promise<number>>(async () => 0),
+  updateMetadataForTrack: vi.fn<(index: number, metadata: Record<string, unknown>) => Promise<void>>(async () => undefined),
 }))
 
 const setup = vi.hoisted(() => ({ ensurePlayer: vi.fn(async () => undefined) }))
@@ -54,6 +58,7 @@ vi.mock('react-native-track-player', () => ({
 vi.mock('expo-file-system', () => ({}))
 vi.mock('expo-secure-store', () => ({}))
 vi.mock('expo-network', () => ({}))
+vi.mock('expo/fetch', () => ({ fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) }))
 
 // ensurePlayer 会真的去 setupPlayer；单测里它只需要是个成功的空操作
 vi.mock('../../src/player/setup', () => setup)
@@ -95,6 +100,7 @@ const {
   playSingleTrack,
   playTrackList,
   rememberProvider,
+  refreshArtist,
   removeFromQueue,
   setShuffledOrder,
   shouldTranscode,
@@ -116,6 +122,16 @@ const { usePlayerStore } = await import('../../src/player/store')
  * 用唯一 qid 让每个用例互不干扰。
  */
 let seq = 0
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 function item(id: string, format?: string): QueueItem {
   seq += 1
@@ -253,10 +269,17 @@ beforeEach(() => {
     rntp.skipToNext,
     rntp.play,
     rntp.seekTo,
+    rntp.updateMetadataForTrack,
   ]) {
-    fn.mockResolvedValue(undefined)
+    fn.mockReset().mockResolvedValue(undefined)
   }
-  rntp.getActiveTrackIndex.mockResolvedValue(0)
+  rntp.getActiveTrackIndex.mockReset().mockResolvedValue(0)
+  rntp.getActiveTrack.mockReset().mockImplementation(async () => {
+    const { queue, index, pendingCurrent } = usePlayerStore.getState()
+    const item = pendingCurrent ?? queue[index]
+    return item ? { id: item.qid, url: 'https://example.test/audio' } : undefined
+  })
+  rntp.getQueue.mockReset().mockImplementation(async () => usePlayerStore.getState().queue.map((entry) => ({ id: entry.qid })))
 })
 
 // ── 转码判定 ────────────────────────────────────────────────────────────────
@@ -580,42 +603,75 @@ describe('skipToNextSafe 切下一首', () => {
     expect(rntp.play).not.toHaveBeenCalled()
   })
 
-  it('正常切歌：交给原生 skipToNext，再显式 play 兜住暂停态', async () => {
+  it('按目标 qid 定位原生下标，切歌后显式 play 兜住暂停态', async () => {
     loadQueue(0)
-
+    const target = usePlayerStore.getState().queue[1]!
     await skipToNextSafe()
-
-    expect(rntp.skipToNext).toHaveBeenCalled()
-    expect(rntp.skip).not.toHaveBeenCalled()
-    expect(rntp.play).toHaveBeenCalled()
-  })
-
-  it('skipToNext 失败（队尾）时回退到 skip(1)', async () => {
-    loadQueue(0)
-    rntp.skipToNext.mockRejectedValueOnce(new Error('已经在队尾'))
-
-    await skipToNextSafe()
-
     expect(rntp.skip).toHaveBeenCalledWith(1)
     expect(rntp.play).toHaveBeenCalled()
+    expect(usePlayerStore.getState().queue[0]?.qid).toBe(target.qid)
   })
 
-  it('回退也失败时不抛错，避免按钮点了没反应还崩', async () => {
+  it('原生队列已移位时仍然跳到点击时选中的曲目', async () => {
     loadQueue(0)
-    rntp.skipToNext.mockRejectedValueOnce(new Error('boom'))
+    const target = usePlayerStore.getState().queue[1]!
+    rntp.getQueue.mockResolvedValue([{ id: target.qid }])
+    await skipToNextSafe()
+    expect(rntp.skip).toHaveBeenCalledWith(0)
+    expect(usePlayerStore.getState().queue[0]?.qid).toBe(target.qid)
+  })
+
+  it('原生切换失败会反馈错误，不补 play，也不改已提交队列', async () => {
+    loadQueue(0)
+    const before = usePlayerStore.getState().queue
     rntp.skip.mockRejectedValueOnce(new Error('boom'))
-
-    await expect(skipToNextSafe()).resolves.toBeUndefined()
+    await expect(skipToNextSafe()).rejects.toThrow('boom')
+    expect(rntp.play).not.toHaveBeenCalled()
+    expect(usePlayerStore.getState().queue).toBe(before)
+    expect(usePlayerStore.getState().pendingCurrent).toBeUndefined()
   })
 
-  it('切歌后按播放器的实际下标回写 store', async () => {
+  it('无需等待原生激活事件就更新当前项，并保留离开项的历史', async () => {
     loadQueue(0)
-    rntp.getActiveTrackIndex.mockResolvedValueOnce(2)
+    const before = usePlayerStore.getState().queue
+    await skipToNextSafe()
+    expect(usePlayerStore.getState().index).toBe(0)
+    expect(usePlayerStore.getState().queue[0]?.qid).toBe(before[1]?.qid)
+    expect(usePlayerStore.getState().history.at(-1)?.trackId).toBe(before[0]?.trackId)
+  })
+
+  it('首个列表仍在加载时点击下一首，直接加载下一目标', async () => {
+    // 旧来源还有多首待播时也必须等待新列表，不能误切旧队列。
+    loadQueue(0)
+    const streamGate = deferred<{ url: string }>()
+    const slowProvider = {
+      ...provider,
+      stream: vi.fn(async (trackId: string) => {
+        if (trackId === 'a') return streamGate.promise
+        return { url: `stream://${trackId}` }
+      }),
+    } as unknown as MusicProvider
+
+    const start = playTrackList({
+      provider: slowProvider,
+      serverId: 'srv',
+      tracks: [makeTrack('a'), makeTrack('b')],
+      startIndex: 0,
+      source: { kind: 'tracks', label: '全部歌曲' },
+    })
+    await Promise.resolve()
+    expect(usePlayerStore.getState().isLoadingAudio).toBe(true)
 
     await skipToNextSafe()
+    expect(rntp.skip).not.toHaveBeenCalled()
 
-    expect(usePlayerStore.getState().index).toBe(2)
+    streamGate.resolve({ url: 'stream://a' })
+    await start
+
+    expect(queueIds()[0]).toBe('b')
+    expect(rntp.play).toHaveBeenCalled()
   })
+
 })
 
 // ── 切歌：待播列表点某一行 ──────────────────────────────────────────────────
@@ -684,10 +740,15 @@ describe('skipToPreviousSmart 上一首', () => {
     expect(rntp.add).not.toHaveBeenCalled()
   })
 
-  it('有历史 + provider：把上一首插到队首并切过去，同时登记待激活项', async () => {
+  it('有历史 + provider：不等缓冲事件就把上一首提交到队首', async () => {
     loadQueue(1)
     usePlayerStore.getState().appendHistoryItem(item('z'))
     rememberProvider(fakeProvider())
+    const nativeQueue = usePlayerStore.getState().queue.map((entry) => ({ id: entry.qid }))
+    rntp.getQueue.mockImplementation(async () => [...nativeQueue])
+    rntp.add.mockImplementation(async (tracks, position = nativeQueue.length) => {
+      nativeQueue.splice(position, 0, ...(Array.isArray(tracks) ? tracks : [tracks]))
+    })
 
     await skipToPreviousSmart()
 
@@ -696,22 +757,25 @@ describe('skipToPreviousSmart 上一首', () => {
     expect(addPosition()).toBe(0)
     expect(rntp.skip).toHaveBeenCalledWith(0)
     expect(rntp.play).toHaveBeenCalled()
-    // 待激活项必须与推给原生播放器的 id 对齐 —— bridge 就是靠这个 id 认领激活的
-    expect(takePendingPreviousActivation(track.id)).toMatchObject({ trackId: 'z' })
-    // 一次性的：认领过就没了，避免同一次切歌被处理两遍
+    expect(usePlayerStore.getState().queue[0]).toMatchObject({ qid: track.id, trackId: 'z' })
+    expect(usePlayerStore.getState().history).toHaveLength(0)
+    // 控制器已提交；迟到事件不能重复恢复同一历史项。
     expect(takePendingPreviousActivation(track.id)).toBeUndefined()
   })
 
-  it('原生插入失败时撤销待激活项并回本曲开头', async () => {
+  it('原生插入失败时撤销待激活项并反馈失败，保留历史和队列', async () => {
     loadQueue(1)
     usePlayerStore.getState().appendHistoryItem(item('z'))
     rememberProvider(fakeProvider())
     rntp.add.mockRejectedValueOnce(new Error('播放器没就绪'))
 
-    await skipToPreviousSmart()
+    const before = usePlayerStore.getState().queue
+    await expect(skipToPreviousSmart()).rejects.toThrow('播放器没就绪')
 
-    expect(rntp.seekTo).toHaveBeenCalledWith(0)
-    expect(rntp.play).toHaveBeenCalled()
+    expect(rntp.seekTo).not.toHaveBeenCalled()
+    expect(rntp.play).not.toHaveBeenCalled()
+    expect(usePlayerStore.getState().queue).toBe(before)
+    expect(usePlayerStore.getState().history).toHaveLength(1)
     // 不能留下悬挂的待激活项，否则下一次同 id 的切歌会被错误认领
     const attemptedId = addedSingleTrack().id
     expect(takePendingPreviousActivation(attemptedId)).toBeUndefined()
@@ -1150,6 +1214,53 @@ describe('toQueueItem 把领域曲目转成队列元素', () => {
     expect(toQueueItem({ ...makeTrack('b'), artists: [] }, provider, 'srv').artistText).toBe(
       '未知艺术家',
     )
+    expect(toQueueItem({ ...makeTrack('c'), artists: [{ id: 'ar-blank', name: '   ' }] }, provider, 'srv').artistText).toBe(
+      '未知艺术家',
+    )
+  })
+
+  it('列表缺少艺人名称时用艺人详情异步补齐，并同步系统播放器', async () => {
+    const artist = vi.fn(async (id: string) => ({ id, name: '许嵩' }))
+    rememberProvider({ ...fakeProvider(), artist } as MusicProvider)
+    const entry = toQueueItem({ ...makeTrack('a'), artists: [{ id: 'ar-1', name: ' ' }] }, fakeProvider(), 'srv')
+    usePlayerStore.getState().setQueue([entry], 0)
+
+    await refreshArtist(0)
+
+    expect(artist).toHaveBeenCalledWith('ar-1')
+    expect(usePlayerStore.getState().queue[0]?.artistText).toBe('许嵩')
+    expect(usePlayerStore.getState().queue[0]?.track?.artists[0]?.name).toBe('许嵩')
+    expect(rntp.updateMetadataForTrack).toHaveBeenCalledWith(0, expect.objectContaining({ artist: '许嵩' }))
+  })
+
+  it('艺人详情迟到时不把旧歌曲名称写到新歌曲上', async () => {
+    const pending = deferred<{ id: string; name: string }>()
+    rememberProvider({ ...fakeProvider(), artist: () => pending.promise } as MusicProvider)
+    const entry = toQueueItem({ ...makeTrack('a'), artists: [{ id: 'ar-1', name: '' }] }, fakeProvider(), 'srv')
+    usePlayerStore.getState().setQueue([entry], 0)
+    const refresh = refreshArtist(0)
+    usePlayerStore.getState().setQueue([item('b')], 0)
+
+    pending.resolve({ id: 'ar-1', name: '旧艺人' })
+    await refresh
+
+    expect(usePlayerStore.getState().queue[0]?.artistText).toBe('测试艺术家')
+    expect(rntp.updateMetadataForTrack).not.toHaveBeenCalled()
+  })
+
+  it('同一首歌的重复切歌事件只请求一次艺人详情', async () => {
+    const pending = deferred<{ id: string; name: string }>()
+    const artist = vi.fn(() => pending.promise)
+    rememberProvider({ ...fakeProvider(), artist } as MusicProvider)
+    const entry = toQueueItem({ ...makeTrack('a'), artists: [{ id: 'ar-1', name: '' }] }, fakeProvider(), 'srv')
+    usePlayerStore.getState().setQueue([entry], 0)
+
+    const first = refreshArtist(0)
+    const second = refreshArtist(0)
+    expect(artist).toHaveBeenCalledTimes(1)
+    pending.resolve({ id: 'ar-1', name: '许嵩' })
+    await Promise.all([first, second])
+    expect(usePlayerStore.getState().queue[0]?.artistText).toBe('许嵩')
   })
 
   it('同一首歌两次入队拿到不同 qid，队列里能区分两次出现', () => {

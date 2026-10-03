@@ -21,6 +21,10 @@ export interface LyricCacheRecord {
   fetchedAt: number
   /** 最近一次命中时间，LRU 淘汰用 */
   lastUsedAt: number
+  /** Stable, non-secret external source configuration identity. */
+  sourceIdentity?: string
+  /** Runtime revision catches edits that keep the same non-secret identity. */
+  sourceRevision?: number
 }
 
 /** 缓存键：一份歌词由「服务器 + 曲目 + 档位」唯一确定 */

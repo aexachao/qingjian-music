@@ -8,8 +8,10 @@ import android.content.IntentFilter
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.util.AtomicFile
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
 
 /**
  * Android 侧的后台下载会话（与 iOS 的 AudioDownloaderSession 同一份 JS 契约）。
@@ -50,9 +52,11 @@ object AudioDownloaderSession {
   private val store = mutableMapOf<String, Pending>()
   private var loaded = false
   private var receiver: BroadcastReceiver? = null
+  private val completionExecutor = Executors.newSingleThreadExecutor()
 
   // ---- 对外接口 ----
 
+  @Synchronized
   fun setListeners(
     context: Context,
     progress: (Progress) -> Unit,
@@ -66,6 +70,7 @@ object AudioDownloaderSession {
     ensureReceiver(context)
   }
 
+  @Synchronized
   fun clearListeners() {
     progressListener = null
     finishListener = null
@@ -77,6 +82,7 @@ object AudioDownloaderSession {
    * urls 只有一个（直连）→ 交给 DownloadManager，返回 true；
    * urls 有多个（转码分片）→ 返回 false，让 JS 走前台拼接。
    */
+  @Synchronized
   fun start(context: Context, job: Job): Boolean {
     if (job.urls.size != 1) return false
     ensureLoaded(context)
@@ -102,17 +108,21 @@ object AudioDownloaderSession {
     val downloadId = try {
       manager.enqueue(request)
     } catch (error: Exception) {
-      failureListener?.invoke(Failure(job.id, error.message ?: "无法加入下载队列"))
-      return false
+      throw error
     }
 
     store[job.id] = Pending(downloadId, job.destination, tempFile.absolutePath)
-    persist(context)
+    if (!persist(context)) {
+      manager.remove(downloadId)
+      store.remove(job.id)
+      throw IllegalStateException("无法保存下载任务记录")
+    }
     progressListener?.invoke(Progress(job.id, 0, 1))
     return true
   }
 
   /** 未完成作业（JS 启动时对账用） */
+  @Synchronized
   fun pendingJobs(context: Context): List<Map<String, Any>> {
     ensureLoaded(context)
     val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
@@ -121,17 +131,31 @@ object AudioDownloaderSession {
       val completed = if (status == DownloadManager.STATUS_SUCCESSFUL) 1 else 0
       // outstanding：系统队列里还没下完的任务数（1 = 还在下，0 = 已完成待搬）
       val outstanding = if (status == DownloadManager.STATUS_SUCCESSFUL) 0 else 1
+      val destination = File(pending.destination)
+      val marker = File(pending.destination + ".complete")
+      val markerValid = try {
+        destination.length() > 0 && marker.exists() && marker.readText().toLongOrNull() == destination.length()
+      } catch (_: Exception) {
+        false
+      }
       mapOf(
         "id" to id,
         "destination" to pending.destination,
         "completed" to completed,
         "total" to 1,
         "outstanding" to outstanding,
+        "status" to when {
+          status == DownloadManager.STATUS_FAILED -> "failed"
+          markerValid -> "completed"
+          else -> "pending"
+        },
+        "error" to if (status == DownloadManager.STATUS_FAILED) "系统下载失败" else "",
       )
     }
   }
 
   /** 下完但还没搬的作业就地搬运（对账路径：App 被杀期间系统下完了） */
+  @Synchronized
   fun assembleIfComplete(context: Context, jobId: String): Boolean {
     ensureLoaded(context)
     val pending = store[jobId] ?: return false
@@ -140,6 +164,7 @@ object AudioDownloaderSession {
     return moveToDestination(context, jobId, pending)
   }
 
+  @Synchronized
   fun assembleCompletedJobs(context: Context): Int {
     ensureLoaded(context)
     var assembled = 0
@@ -149,13 +174,17 @@ object AudioDownloaderSession {
     return assembled
   }
 
+  @Synchronized
   fun cancel(context: Context, jobId: String) {
     ensureLoaded(context)
-    val pending = store[jobId] ?: return
+    val pending = store.remove(jobId)
     val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
-    manager?.remove(pending.downloadId)
-    File(pending.tempPath).delete()
-    store.remove(jobId)
+    if (pending != null) {
+      manager?.remove(pending.downloadId)
+      File(pending.tempPath).delete()
+      File(pending.destination + ".partial").delete()
+      File(pending.destination + ".complete").delete()
+    }
     persist(context)
   }
 
@@ -167,20 +196,17 @@ object AudioDownloaderSession {
     val appContext = context.applicationContext
     val listener = object : BroadcastReceiver() {
       override fun onReceive(ctx: Context?, intent: Intent?) {
-        val id = intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
+        val event = intent ?: return
+        if (event.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+        val id = event.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
         if (id < 0) return
-        val entry = store.entries.firstOrNull { it.value.downloadId == id } ?: return
-        val manager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return
-        when (queryStatus(manager, id)) {
-          DownloadManager.STATUS_SUCCESSFUL -> moveToDestination(appContext, entry.key, entry.value)
-          DownloadManager.STATUS_FAILED -> {
-            failureListener?.invoke(Failure(entry.key, "系统下载失败"))
-            store.remove(entry.key)
-            persist(appContext)
-          }
-        }
+        // File copies can be large. Never hold the UI/broadcast thread for them.
+        // Pending metadata and the system temp file survive process interruption;
+        // startup reconciliation will retry an unfinished copy.
+        completionExecutor.execute { completeSystemDownload(appContext, id) }
       }
     }
+
     val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
     // Android 13+ 注册非系统广播必须声明导出性；这里收系统广播用 EXPORTED
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -192,23 +218,45 @@ object AudioDownloaderSession {
     receiver = listener
   }
 
+  @Synchronized
+  private fun completeSystemDownload(context: Context, id: Long) {
+    val entry = store.entries.firstOrNull { it.value.downloadId == id } ?: return
+    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return
+    when (queryStatus(manager, id)) {
+      DownloadManager.STATUS_SUCCESSFUL -> moveToDestination(context, entry.key, entry.value)
+      DownloadManager.STATUS_FAILED -> {
+        failureListener?.invoke(Failure(entry.key, "系统下载失败"))
+        store.remove(entry.key)
+        persist(context)
+      }
+    }
+  }
+
   /** 把临时文件搬到 JS 指定的内部 destination，成功后发 finished 事件 */
   private fun moveToDestination(context: Context, jobId: String, pending: Pending): Boolean {
     val temp = File(pending.tempPath)
-    if (!temp.exists()) return false
+    val expectedBytes = temp.length()
+    if (!temp.exists() || expectedBytes <= 0) return false
     val destination = File(pending.destination)
     destination.parentFile?.mkdirs()
-    if (destination.exists()) destination.delete()
+    val partial = File(destination.path + ".partial")
+    val marker = File(destination.path + ".complete")
+    partial.delete()
+    marker.delete()
     val moved = try {
-      // 跨挂载点 rename 会失败，用复制 + 删除兜底
-      if (temp.renameTo(destination)) {
-        true
-      } else {
-        temp.copyTo(destination, overwrite = true)
-        temp.delete()
-        true
-      }
+      temp.copyTo(partial, overwrite = true)
+      if (partial.length() != expectedBytes) throw IllegalStateException("下载文件长度校验失败")
+      if (destination.exists() && !destination.delete()) throw IllegalStateException("无法替换旧下载文件")
+      if (!partial.renameTo(destination)) throw IllegalStateException("无法提交下载文件")
+      if (destination.length() != expectedBytes) throw IllegalStateException("成品文件长度校验失败")
+      marker.writeText(expectedBytes.toString())
+      if (marker.readText() != expectedBytes.toString()) throw IllegalStateException("完成标记写入失败")
+      temp.delete()
+      true
     } catch (error: Exception) {
+      partial.delete()
+      destination.delete()
+      marker.delete()
       failureListener?.invoke(Failure(jobId, error.message ?: "搬运下载文件失败"))
       false
     }
@@ -251,9 +299,9 @@ object AudioDownloaderSession {
     if (loaded) return
     loaded = true
     val file = jobsFile(context)
-    if (!file.exists()) return
+    val atomicFile = AtomicFile(file)
     try {
-      val root = JSONObject(file.readText())
+      val root = JSONObject(atomicFile.openRead().bufferedReader().use { it.readText() })
       val keys = root.keys()
       while (keys.hasNext()) {
         val key = keys.next()
@@ -269,7 +317,9 @@ object AudioDownloaderSession {
     }
   }
 
-  private fun persist(context: Context) {
+  private fun persist(context: Context): Boolean {
+    val atomicFile = AtomicFile(jobsFile(context))
+    var output: java.io.FileOutputStream? = null
     try {
       val root = JSONObject()
       for ((id, pending) in store) {
@@ -282,9 +332,13 @@ object AudioDownloaderSession {
           },
         )
       }
-      jobsFile(context).writeText(root.toString())
+      output = atomicFile.startWrite()
+      output.write(root.toString().toByteArray(Charsets.UTF_8))
+      atomicFile.finishWrite(output)
+      return true
     } catch (error: Exception) {
-      // 写失败只影响对账精度
+      if (output != null) atomicFile.failWrite(output)
+      return false
     }
   }
 

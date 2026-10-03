@@ -1,7 +1,7 @@
 import type { Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
-import { blendWithPrior, buildRoamingQueue, libraryCompositionOf, profileFromLibrary } from '@qj/core-domain'
-import { playTrackList } from '@/player/controller'
+import { blendWithPrior, buildRoamingQueue, isMusicError, libraryCompositionOf, profileFromLibrary } from '@qj/core-domain'
+import { playTrackList, startRadio } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { useTasteProfileStore } from '@/lib/taste-profile-store'
 
@@ -62,16 +62,44 @@ export async function buildLocalRadioQueue(
   return buildRoamingQueue(pool, profile, { size: options.size ?? 50, recentlyPlayedIds })
 }
 
-/** 生成并开始播放本地电台；返回是否成功起播（库为空时 false） */
-export async function playLocalRadio(provider: MusicProvider, serverId: string): Promise<boolean> {
-  const tracks = await buildLocalRadioQueue(provider, serverId, { size: 50 })
-  if (tracks.length === 0) return false
-  await playTrackList({
-    provider,
-    serverId,
-    tracks,
-    startIndex: 0,
-    source: { kind: 'tracks', label: '猜你喜欢' },
-  })
-  return true
+/** Keep selection failures separate from playback failures; never start a second queue after playback fails. */
+export async function startHomeRadio(provider: MusicProvider, serverId: string): Promise<void> {
+  let tracks: Track[] = []
+  let selectionError: unknown
+  try {
+    tracks = await buildLocalRadioQueue(provider, serverId, { size: 50 })
+  } catch (error) {
+    selectionError = error
+  }
+  if (tracks.length > 0) {
+    try {
+      await playTrackList({ provider, serverId, tracks, startIndex: 0, source: { kind: 'radio', label: '随心漫游' } })
+    } catch (error) {
+      throw new Error(`漫游播放失败：${radioFailureReason(error)}`)
+    }
+    return
+  }
+  if (!provider.radioStart) {
+    throw new Error(selectionError ? `漫游选曲失败：${radioFailureReason(selectionError)}` : '曲库中没有可供漫游的歌曲')
+  }
+  try {
+    await startRadio(provider, serverId)
+  } catch (error) {
+    const localReason = selectionError ? `选曲：${radioFailureReason(selectionError)}；` : ''
+    throw new Error(`漫游启动失败（${localReason}服务器漫游：${radioFailureReason(error)}）`)
+  }
+}
+
+/** Diagnostic text is bounded and contains no request URLs, tokens, or raw response payloads. */
+function radioFailureReason(error: unknown): string {
+  if (isMusicError(error)) {
+    const reasons = {
+      unauthorized: '登录已失效，请重新登录', forbidden: '服务器拒绝访问', notFound: '没有找到可播放的歌曲',
+      invalidArguments: '服务器不接受请求参数', unsupported: '服务器不支持此操作', network: '网络连接失败',
+      timeout: '请求超时', canceled: '操作已取消', protocol: '服务器返回的数据无法识别', server: '服务器内部错误',
+    }
+    return reasons[error.code]
+  }
+  if (error instanceof Error && error.name === 'PlaybackNetworkBlocked') return error.message
+  return '处理异常，请重试'
 }

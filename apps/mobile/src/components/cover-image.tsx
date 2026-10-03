@@ -25,31 +25,37 @@ interface CoverImageProps {
  * ② 记号**不用品牌红**，走中性灰（`coverPlaceholderMark`），否则一屏列表全是红的；
  * ③ 固定取**默认**图标样式，不跟随设置里切换的启动图标（见 brand-mark.tsx 注释）。
  */
-const PLACEHOLDER_MARK_RATIO = 0.46
+/**
+ * 占位图音符记号比例：
+ * 记号 viewBox 宽 382、高 676，属于瘦长型。
+ * 为使记号在正方形封面中居中呼吸感自然（高度约占封面的 42%），
+ * 记号高度设为 size * 0.42，对应宽度自动按比例缩放，避免占满整个封面。
+ */
+const PLACEHOLDER_MARK_HEIGHT_RATIO = 0.42
 
 /** 飞牛的封面接口需要鉴权头，所以统一走 provider.image() 拿 url + headers */
 export function CoverImage({ coverId, resource, size, borderRadius = radius.md }: CoverImageProps) {
   const colors = useThemeColors()
   const styles = useStyles()
-  const { provider } = useServerSession()
+  const { provider, connection } = useServerSession()
   const target = resource ?? (coverId && provider ? provider.image(coverId, Math.round(size * 2)) : null)
 
   if (!target) {
     return (
       <View style={[styles.placeholder, { width: size, height: size, borderRadius }]}>
-        <BrandMark width={Math.round(size * PLACEHOLDER_MARK_RATIO)} color={colors.coverPlaceholderMark} />
+        <BrandMark height={Math.max(12, Math.round(size * PLACEHOLDER_MARK_HEIGHT_RATIO))} color={colors.coverPlaceholderMark} />
       </View>
     )
   }
 
   return (
     <Image
-      source={{ uri: target.url, headers: target.headers }}
+      source={{ uri: target.url, headers: target.headers, cacheKey: `${connection?.id ?? 'local'}:${target.url}` }}
       style={{ width: size, height: size, borderRadius, backgroundColor: colors.skeleton2 }}
       contentFit="cover"
       transition={160}
       cachePolicy="memory-disk"
-      recyclingKey={target.url}
+      recyclingKey={`${connection?.id ?? 'local'}:${target.url}`}
       accessibilityIgnoresInvertColors
     />
   )

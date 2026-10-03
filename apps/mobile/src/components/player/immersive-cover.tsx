@@ -19,26 +19,30 @@ const IMMERSIVE_COVER_SIZE = 1200
 export function ViewportCover({
   artwork,
   coverId,
+  fill = false,
 }: {
   artwork?: HttpResource | undefined
   coverId?: string | undefined
+  fill?: boolean
 }) {
   const colors = useThemeColors()
   const { provider } = useServerSession()
   const hd = coverId && provider ? provider.image(coverId, IMMERSIVE_COVER_SIZE) : undefined
   const source = hd ?? artwork
 
+  const containerStyle = fill ? styles.cardContainerFill : styles.cardContainer
+
   if (!source) {
     return (
-      <View style={[styles.cardContainer, styles.placeholderBox, { backgroundColor: colors.coverPlaceholder }]}>
-        <BrandMark width={100} color={colors.coverPlaceholderMark} />
+      <View style={[containerStyle, styles.placeholderBox, { backgroundColor: colors.coverPlaceholder }]}>
+        <BrandMark height={fill ? 140 : 120} color={colors.coverPlaceholderMark} />
       </View>
     )
   }
 
   return (
-    <View style={styles.cardContainer}>
-      <View style={styles.cardInner}>
+    <View style={containerStyle}>
+      <View style={fill ? styles.cardInnerFill : styles.cardInner}>
         <Image
           source={{ uri: source.url, headers: source.headers }}
           style={StyleSheet.absoluteFill}
@@ -85,10 +89,26 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 12,
   },
+  cardContainerFill: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.38,
+    shadowRadius: 24,
+    elevation: 12,
+  },
   cardInner: {
     width: '100%',
     height: '100%',
     borderRadius: 14,
+    overflow: 'hidden',
+  },
+  cardInnerFill: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
     overflow: 'hidden',
   },
   placeholderBox: {

@@ -21,7 +21,7 @@ import { radius, spacing, typography } from '@/theme/tokens'
  * - 每张卡片：文件夹图标 + 库名 + 最近更新时间；右侧「···」→ 扫描本库
  *   （目前菜单只有这一条，编辑/删除不做，保留 ··· 形态便于将来扩展）。
  *
- * 扫描进度不在这个页显示 —— 触发后到首页右上角「正在扫描」图标看（见 ScanMonitorButton）。
+ * 页面读取已有任务快照显示扫描状态；详细进度仍可从首页查看。
  */
 export function LibraryManageScreen() {
   const styles = useStyles()
@@ -30,6 +30,7 @@ export function LibraryManageScreen() {
   const toast = useToast()
   const bottom = useBottomSpace()
   const { provider, me, isAdmin, libraries, tasks } = useScanMonitor()
+  const scanInProgress = hasActiveScan(tasks.data ?? [])
 
   // 卡片 ··· 菜单：记住点的是哪个库（null = 关闭）
   const [cardMenuLib, setCardMenuLib] = useState<{ id: string; name: string } | null>(null)
@@ -148,8 +149,12 @@ export function LibraryManageScreen() {
     <View style={styles.root}>
       {titleScreen}
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottom + spacing.xl }]}>
+        {scanInProgress && <View style={styles.scanStatus}>
+          <Icon name="recentlyPlayed" size={iconSize.md} color={colors.stateSelected} />
+          <Text style={styles.scanStatusText}>正在扫描音乐库</Text>
+        </View>}
         {items.length === 0 ? (
-          <EmptyState text="没有音乐库" />
+          <View style={styles.emptyWrap}><EmptyState text="没有音乐库" /></View>
         ) : (
           items.map((lib) => {
             const name = libraryDisplayName(lib.name, lib.path)
@@ -160,10 +165,10 @@ export function LibraryManageScreen() {
                   <Icon name="storage" size={iconSize.lg} color={colors.iconMid} />
                 </View>
                 <View style={styles.cardInfo}>
-                  <Text numberOfLines={1} style={styles.libName}>
+                  <Text style={styles.libName}>
                     {name}
                   </Text>
-                  <Text numberOfLines={1} style={styles.libMeta}>
+                  <Text style={styles.libMeta}>
                     {updated || lib.path}
                   </Text>
                 </View>
@@ -212,8 +217,8 @@ export function LibraryManageScreen() {
 
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.lg, gap: spacing.md },
-  navMore: { width: 32, height: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  content: { padding: spacing.pageMargin, gap: spacing.sectionGap },
+  navMore: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -230,21 +235,24 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardInfo: { flex: 1, gap: 3 },
-  libName: { ...typography.headline, color: colors.textPrimary },
-  libMeta: { ...typography.caption, color: colors.textTertiary },
+  cardInfo: { flex: 1, minWidth: 0, gap: spacing.xs },
+  libName: { ...typography.callout, color: colors.textPrimary, fontWeight: '600', flexWrap: 'wrap' },
+  libMeta: { ...typography.footnote, color: colors.textTertiary, flexWrap: 'wrap' },
   cardMore: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardMorePressed: { backgroundColor: colors.bgListItemHover },
   footNote: {
-    ...typography.caption,
+    ...typography.footnote,
     color: colors.textTertiary,
     marginTop: spacing.sm,
     paddingHorizontal: spacing.xs,
   },
+  scanStatus: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.bgCard, borderRadius: radius.lg, paddingHorizontal: spacing.md },
+  scanStatusText: { ...typography.footnote, color: colors.textPrimary },
+  emptyWrap: { backgroundColor: colors.bgPrimary, borderRadius: radius.lg, padding: spacing.md },
 }))

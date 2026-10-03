@@ -7,7 +7,7 @@ export function LoadingState() {
   const styles = useStyles()
   return (
     <View style={styles.center}>
-      <ActivityIndicator color={colors.brandTint} />
+      <ActivityIndicator color={colors.loadingIndicator} />
     </View>
   )
 }
@@ -44,7 +44,7 @@ export function PaginationFooter({
 }) {
   const colors = useThemeColors()
   const styles = useStyles()
-  if (loading) return <ActivityIndicator style={styles.footer} color={colors.brandTint} />
+  if (loading) return <ActivityIndicator style={styles.footer} color={colors.loadingIndicator} />
   if (!error || !onRetry) return null
   return (
     <Pressable onPress={onRetry} accessibilityRole="button" style={styles.footerRetry}>

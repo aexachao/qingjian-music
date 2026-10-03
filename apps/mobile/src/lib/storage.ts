@@ -14,6 +14,7 @@ const KEY_LAST_SERVER = 'qj.lastServer'
 const keySession = (serverId: string) => `qj.session.${serverId}`
 const keyPassword = (serverId: string) => `qj.password.${serverId}`
 const serverMutations = new StorageMutationQueue()
+const credentialMutations = new StorageMutationQueue()
 
 export interface LastServerInfo {
   serverId?: string
@@ -91,8 +92,9 @@ export async function getActiveServerId(): Promise<string | null> {
 }
 
 export async function setActiveServerId(serverId: string | null): Promise<void> {
-  if (serverId) await SecureStore.setItemAsync(KEY_ACTIVE, serverId)
-  else await SecureStore.deleteItemAsync(KEY_ACTIVE)
+  await credentialMutations.run(() => serverId
+    ? SecureStore.setItemAsync(KEY_ACTIVE, serverId)
+    : SecureStore.deleteItemAsync(KEY_ACTIVE))
 }
 
 export async function getSession(serverId: string): Promise<ProviderSession | null> {
@@ -100,15 +102,15 @@ export async function getSession(serverId: string): Promise<ProviderSession | nu
 }
 
 export async function saveSession(serverId: string, session: ProviderSession): Promise<void> {
-  await writeJson(keySession(serverId), session)
+  await credentialMutations.run(() => writeJson(keySession(serverId), session))
 }
 
 export async function clearSession(serverId: string): Promise<void> {
-  await SecureStore.deleteItemAsync(keySession(serverId))
+  await credentialMutations.run(() => SecureStore.deleteItemAsync(keySession(serverId)))
 }
 
 export async function savePassword(serverId: string, password: string): Promise<void> {
-  await SecureStore.setItemAsync(keyPassword(serverId), password)
+  await credentialMutations.run(() => SecureStore.setItemAsync(keyPassword(serverId), password))
 }
 
 export async function getPassword(serverId: string): Promise<string | null> {
@@ -116,11 +118,11 @@ export async function getPassword(serverId: string): Promise<string | null> {
 }
 
 export async function clearPassword(serverId: string): Promise<void> {
-  await SecureStore.deleteItemAsync(keyPassword(serverId))
+  await credentialMutations.run(() => SecureStore.deleteItemAsync(keyPassword(serverId)))
 }
 
 export async function saveLastServer(info: LastServerInfo): Promise<void> {
-  await writeJson(KEY_LAST_SERVER, info)
+  await credentialMutations.run(() => writeJson(KEY_LAST_SERVER, info))
 }
 
 export async function getLastServer(): Promise<LastServerInfo | null> {
@@ -146,15 +148,14 @@ export async function purgeIfFreshInstall(hasSentinel: () => Promise<boolean>, m
   if (await hasSentinel()) return
   // 全新安装：清掉 Keychain 里可能残留的上一份安装的凭据
   const servers = await listServers()
-  const ops: Promise<void>[] = [
-    SecureStore.deleteItemAsync(KEY_SERVERS),
-    SecureStore.deleteItemAsync(KEY_ACTIVE),
-    SecureStore.deleteItemAsync(KEY_LAST_SERVER),
-  ]
-  for (const s of servers) {
-    ops.push(SecureStore.deleteItemAsync(keySession(s.id)))
-    ops.push(SecureStore.deleteItemAsync(keyPassword(s.id)))
+  // Retain the server inventory until every credential is deleted; otherwise
+  // a partial failure would lose the keys needed to retry on next launch.
+  for (const server of servers) {
+    await clearSession(server.id)
+    await clearPassword(server.id)
   }
-  await Promise.all(ops.map((p) => p.catch(() => undefined)))
+  await SecureStore.deleteItemAsync(KEY_ACTIVE)
+  await SecureStore.deleteItemAsync(KEY_LAST_SERVER)
+  await SecureStore.deleteItemAsync(KEY_SERVERS)
   await markSentinel()
 }

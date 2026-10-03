@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { downloadKey } from '@/lib/download-policy'
-import { isDownloaded, listDownloads, subscribeDownloads } from '@/player/downloads'
+import { downloadJobStates, isDownloaded, listDownloads, subscribeDownloads } from '@/player/downloads'
 
 /**
  * 下载状态的响应式读取。
@@ -26,4 +26,14 @@ export function useDownloadedKeys(): ReadonlySet<string> {
     () => '',
   )
   return new Set(joined.length > 0 ? joined.split('|') : [])
+}
+
+/** Pending and active jobs expose cancellation through the same track menu. */
+export function useIsDownloading(serverId: string | undefined, trackId: string): boolean {
+  const key = serverId ? downloadKey(serverId, trackId) : ''
+  return useSyncExternalStore(
+    subscribeDownloads,
+    () => key.length > 0 && downloadJobStates().some((job) => job.key === key && job.state === 'downloading'),
+    () => false,
+  )
 }

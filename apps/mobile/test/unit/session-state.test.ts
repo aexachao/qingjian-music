@@ -7,7 +7,7 @@ describe('会话启动状态机', () => {
     expect(sessionAfterBootstrapFailure().status).toBe('signedOut')
   })
 
-  it('登出按播放域、查询域、凭证、退出态的顺序完成', async () => {
+  it('登出先发布本地退出态，再等待清理', async () => {
     const steps: string[] = []
     await teardownSession({
       clearPlayback: async () => {
@@ -24,6 +24,12 @@ describe('会话启动状态机', () => {
       },
     })
 
-    expect(steps).toEqual(['clear-playback', 'clear-query-cache', 'clear-credentials', 'publish-signed-out'])
+    expect(steps).toEqual(['clear-query-cache', 'publish-signed-out', 'clear-playback', 'clear-credentials'])
   })
+})
+
+it('凭据失败不能阻止本地退出态发布', async () => {
+  let signedOut = false
+  await expect(teardownSession({clearPlayback:async()=>{},clearQueryCache:()=>{},clearCredentials:async()=>{throw new Error('Keychain unavailable')},publishSignedOut:()=>{signedOut=true}})).rejects.toThrow('Keychain unavailable')
+  expect(signedOut).toBe(true)
 })

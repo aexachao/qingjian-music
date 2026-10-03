@@ -8,7 +8,15 @@ import { addRecentKeyword, removeRecentKeyword, sanitizeRecentKeywords } from '.
  */
 const KEY_RECENT_SEARCH = 'qj.recentSearch'
 
-export async function listRecentSearches(): Promise<string[]> {
+let transactionQueue: Promise<void> = Promise.resolve()
+
+function serialize<T>(operation: () => Promise<T>): Promise<T> {
+  const result = transactionQueue.then(operation)
+  transactionQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
+async function readRecentSearches(): Promise<string[]> {
   try {
     const raw = await SecureStore.getItemAsync(KEY_RECENT_SEARCH)
     if (!raw) return []
@@ -20,6 +28,10 @@ export async function listRecentSearches(): Promise<string[]> {
   }
 }
 
+export function listRecentSearches(): Promise<string[]> {
+  return serialize(readRecentSearches)
+}
+
 async function writeRecentSearches(list: string[]): Promise<string[]> {
   await SecureStore.setItemAsync(KEY_RECENT_SEARCH, JSON.stringify(list))
   return list
@@ -27,13 +39,13 @@ async function writeRecentSearches(list: string[]): Promise<string[]> {
 
 /** 记一条搜索历史并返回写入后的完整列表（调用方直接用返回值刷 UI） */
 export async function pushRecentSearch(keyword: string): Promise<string[]> {
-  return writeRecentSearches(addRecentKeyword(await listRecentSearches(), keyword))
+  return serialize(async () => writeRecentSearches(addRecentKeyword(await readRecentSearches(), keyword)))
 }
 
 export async function removeRecentSearch(keyword: string): Promise<string[]> {
-  return writeRecentSearches(removeRecentKeyword(await listRecentSearches(), keyword))
+  return serialize(async () => writeRecentSearches(removeRecentKeyword(await readRecentSearches(), keyword)))
 }
 
 export async function clearRecentSearches(): Promise<void> {
-  await SecureStore.deleteItemAsync(KEY_RECENT_SEARCH)
+  await serialize(() => SecureStore.deleteItemAsync(KEY_RECENT_SEARCH))
 }

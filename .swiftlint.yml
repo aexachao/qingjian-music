@@ -10,5 +10,6 @@ excluded:
   - node_modules
   - reference
   - .cache
+  - .asc
   - .pnpm-store
   - .workbuddy-ai

@@ -166,16 +166,6 @@ export function PlaylistDetailScreen() {
     }
   })
 
-  const navPlayAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      scrollY.value,
-      [190, 240],
-      [0, 1],
-      Extrapolation.CLAMP,
-    )
-    return { opacity }
-  })
-
   // 播放整张歌单
   async function play(startIndex: number, shuffle = false) {
     if (!provider || !connection || items.length === 0) return
@@ -352,7 +342,7 @@ export function PlaylistDetailScreen() {
           ),
           headerRight: () => (
             <View style={styles.navRightRow}>
-              <Animated.View style={navPlayAnimatedStyle}>
+              {pinned ? (
                 <Pressable
                   hitSlop={8}
                   style={styles.navIconButton}
@@ -364,7 +354,7 @@ export function PlaylistDetailScreen() {
                 >
                   <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
-              </Animated.View>
+              ) : null}
               <MenuView
                 title={displayName}
                 themeVariant={mode === 'dark' ? 'dark' : 'light'}
@@ -388,7 +378,7 @@ export function PlaylistDetailScreen() {
       />
 
       {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} />
+      <AmbientHeaderBackground palette={palette} coverId={playlist?.coverId} />
 
       <Animated.FlatList
         data={items}
@@ -421,19 +411,21 @@ export function PlaylistDetailScreen() {
                 </Text>
               ) : null}
 
-              {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
+              {/* 核心双动作胶囊：icon + label 全宽双胶囊 */}
               <View style={styles.actions}>
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [styles.actionButton, pressed && styles.buttonPressed]}
                   onPress={() => void play(0)}
                   accessibilityRole="button"
                   accessibilityLabel="播放全部"
                 >
-                  <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
+                  <Icon name="play" size={16} color={colors.textPrimary} filled />
                   <Text style={styles.actionButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [
                     styles.actionButton,
                     isFavorited && styles.actionButtonActive,
@@ -445,7 +437,7 @@ export function PlaylistDetailScreen() {
                 >
                   <Icon
                     name="heart"
-                    size={iconSize.sm}
+                    size={16}
                     color={isFavorited ? colors.like : colors.textPrimary}
                     filled={isFavorited}
                   />
@@ -571,8 +563,9 @@ const useStyles = createThemedStyles((colors) => ({
   },
   actions: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: 20,
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 18,
     width: '100%',
   },
   actionButton: {
@@ -582,7 +575,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs + 2,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
@@ -591,15 +584,16 @@ const useStyles = createThemedStyles((colors) => ({
     borderColor: colors.borderEmphasis,
   },
   actionButtonLabel: {
-    ...typography.headline,
+    ...typography.subhead,
     fontSize: 15,
+    lineHeight: 20,
     fontFamily: fonts.medium,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.75,
+    transform: [{ scale: 0.96 }],
   },
   navIconButton: {
     width: 44,
@@ -648,6 +642,5 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginRight: -spacing.sm,
   },
 }))

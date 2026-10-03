@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native'
 import { Icon } from '@/components/icon'
 import { useToast } from '@/components/toast'
@@ -58,6 +59,8 @@ export function SupportScreen() {
   const colors = useThemeColors()
   const styles = useStyles()
   const bottom = useBottomSpace()
+  const { width, fontScale } = useWindowDimensions()
+  const stackedTiers = width < 360 || fontScale > 1.3
   const toast = useToast()
   const view = buildSupportView(EDITION)
 
@@ -119,22 +122,27 @@ export function SupportScreen() {
       {/* 头部：简洁真诚、无冗余说教 */}
       <View style={styles.hero}>
         <View style={styles.heroBadge}>
-          <Icon name="heartOutline" size={24} color={colors.like} />
+          <Icon name="heartOutline" size={24} color={colors.textSecondary} />
         </View>
         <Text style={styles.heroTitle}>支持轻简音乐</Text>
         <Text style={styles.heroSubtitle}>
-          完全开源且免费。如果它曾为你带来好心情，欢迎赞助支持日常维护与开发。
+          {view.showQrCodes
+            ? '轻简音乐免费且开源。你的支持将用于日常维护与开发。'
+            : '感谢你使用轻简音乐。每一条使用建议，都能帮助它变得更好。'}
         </Text>
       </View>
 
       {/* 档位：横向一排 3 个拟物小卡片 */}
-      <View style={styles.tierRow}>
+      {view.showQrCodes ? <View style={[styles.tierRow, stackedTiers && styles.tierRowStacked]}>
         {SUPPORT_TIERS.map((tier) => {
           const isSelected = selectedTierId === tier.id
           return (
             <Pressable
               key={tier.id}
-              style={[styles.tierCard, isSelected && styles.tierCardSelected]}
+              style={({ pressed }) => [styles.tierCard, stackedTiers && styles.tierCardStacked, isSelected && styles.tierCardSelected, pressed && styles.pressed]}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`${tier.label}，建议金额 ${tier.amountCny} 元`}
               onPress={() => {
                 tap()
                 setSelectedTierId(tier.id)
@@ -150,7 +158,6 @@ export function SupportScreen() {
                   styles.tierTitle,
                   isSelected && styles.tierTitleSelected,
                 ]}
-                numberOfLines={1}
               >
                 {TIER_SHORT_LABELS[tier.id]}
               </Text>
@@ -165,7 +172,7 @@ export function SupportScreen() {
             </Pressable>
           )
         })}
-      </View>
+      </View> : null}
 
       {/* 支付渠道与行动区 */}
       {view.showQrCodes ? (
@@ -177,6 +184,8 @@ export function SupportScreen() {
                 styles.segmentTab,
                 activeChannel === 'alipay' && styles.segmentTabActive,
               ]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeChannel === 'alipay' }}
               onPress={() => {
                 tap()
                 setActiveChannel('alipay')
@@ -188,7 +197,7 @@ export function SupportScreen() {
                   activeChannel === 'alipay' && styles.segmentTextActive,
                 ]}
               >
-                支付宝 (可直达)
+                支付宝
               </Text>
             </Pressable>
 
@@ -197,6 +206,8 @@ export function SupportScreen() {
                 styles.segmentTab,
                 activeChannel === 'wechat' && styles.segmentTabActive,
               ]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeChannel === 'wechat' }}
               onPress={() => {
                 tap()
                 setActiveChannel('wechat')
@@ -217,19 +228,22 @@ export function SupportScreen() {
           {activeChannel === 'alipay' ? (
             <View style={styles.actionBlock}>
               <Pressable
-                style={styles.primaryButton}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+                accessibilityRole="button"
                 onPress={() => void handleAlipay()}
               >
                 <Text style={styles.primaryButtonText}>
-                  前往支付宝支持 ¥{selectedTier.amountCny}
+                  前往支付宝
                 </Text>
               </Pressable>
               <Text style={styles.actionHint}>
-                免截图扫码 · 点击直接直达付款页面
+                建议支持 ¥{selectedTier.amountCny}，金额请在支付页填写
               </Text>
 
               <Pressable
                 style={styles.qrToggle}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showAlipayQr }}
                 onPress={() => {
                   tap()
                   setShowAlipayQr((prev) => !prev)
@@ -238,7 +252,7 @@ export function SupportScreen() {
                 <Text style={styles.qrToggleText}>
                   {showAlipayQr
                     ? '收起收款二维码'
-                    : '使用另一台设备扫码？查看收款码'}
+                    : '查看收款二维码'}
                 </Text>
               </Pressable>
 
@@ -265,12 +279,13 @@ export function SupportScreen() {
                   />
                 </View>
                 <Text style={styles.actionHint}>
-                  微信受官方限制无法直跳，可截图或长按识别
+                  保存截图后，在微信中识别二维码并填写金额
                 </Text>
               </View>
 
               <Pressable
-                style={styles.secondaryButton}
+                style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                accessibilityRole="button"
                 onPress={() => void handleWeChat()}
               >
                 <Text style={styles.secondaryButtonText}>打开微信</Text>
@@ -286,7 +301,7 @@ export function SupportScreen() {
         </View>
       ) : null}
 
-      {ALTERNATE_SUPPORT_URL ? (
+      {view.showQrCodes && ALTERNATE_SUPPORT_URL ? (
         <Pressable style={styles.alternate} onPress={() => void openAlternate()}>
           <Text style={styles.alternateText}>其他支持方式</Text>
           <Icon name="chevronRight" size={16} color={colors.textQuaternary} />
@@ -294,7 +309,7 @@ export function SupportScreen() {
       ) : null}
 
       <Text style={styles.footer}>
-        金额随意 · 感谢每一位陪伴轻简音乐的朋友 ❤️
+        感谢你的陪伴与支持
       </Text>
     </ScrollView>
   )
@@ -305,7 +320,7 @@ const useStyles = createThemedStyles((colors) => ({
   content: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    gap: spacing.lg,
+    gap: spacing.xl,
   },
 
   // 头部
@@ -317,7 +332,8 @@ const useStyles = createThemedStyles((colors) => ({
   },
   heroBadge: {
     width: 48,
-    height: 48,
+    minHeight: 48,
+    padding: spacing.md,
     borderRadius: 24,
     backgroundColor: colors.bgCard,
     borderWidth: StyleSheet.hairlineWidth,
@@ -331,10 +347,10 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   heroSubtitle: {
-    ...typography.callout,
+    ...typography.subhead,
     color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
     paddingHorizontal: spacing.md,
   },
 
@@ -343,6 +359,9 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  tierRowStacked: { flexDirection: 'column' },
+  tierCardStacked: { flexDirection: 'row', gap: spacing.md, paddingHorizontal: spacing.lg, justifyContent: 'space-between' },
+  pressed: { opacity: 0.7 },
   tierCard: {
     flex: 1,
     alignItems: 'center',
@@ -359,8 +378,8 @@ const useStyles = createThemedStyles((colors) => ({
     borderColor: colors.stateSelected,
   },
   tierImage: {
-    width: 56,
-    height: 56,
+    width: 40,
+    height: 40,
     marginBottom: 4,
   },
   tierTitle: {
@@ -377,7 +396,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   tierAmountSelected: {
-    color: colors.stateSelected,
+    color: colors.textPrimary,
   },
 
   // 渠道选择区
@@ -393,6 +412,7 @@ const useStyles = createThemedStyles((colors) => ({
   segmentTab: {
     flex: 1,
     paddingVertical: spacing.sm,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -420,8 +440,9 @@ const useStyles = createThemedStyles((colors) => ({
     gap: spacing.sm,
   },
   primaryButton: {
-    backgroundColor: colors.primaryAction,
-    height: 48,
+    backgroundColor: colors.ctaPrimaryBg,
+    minHeight: 48,
+    padding: spacing.md,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -429,11 +450,12 @@ const useStyles = createThemedStyles((colors) => ({
   primaryButtonText: {
     ...typography.callout,
     fontWeight: '600',
-    color: colors.textOnAccent,
+    color: colors.ctaPrimaryText,
   },
   secondaryButton: {
     backgroundColor: colors.bgCard,
-    height: 48,
+    minHeight: 48,
+    padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
@@ -446,7 +468,7 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textPrimary,
   },
   actionHint: {
-    ...typography.caption,
+    ...typography.footnote,
     color: colors.textTertiary,
     textAlign: 'center',
     paddingHorizontal: spacing.md,
@@ -455,10 +477,12 @@ const useStyles = createThemedStyles((colors) => ({
   // 二维码与切换
   qrToggle: {
     alignItems: 'center',
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
+    justifyContent: 'center',
+    minHeight: 44,
   },
   qrToggleText: {
-    ...typography.caption,
+    ...typography.footnote,
     color: colors.textTertiary,
   },
   qrCard: {
@@ -477,7 +501,7 @@ const useStyles = createThemedStyles((colors) => ({
 
   noticeBox: {
     backgroundColor: colors.bgCard,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.lg,
   },
   noticeText: { ...typography.callout, color: colors.textSecondary, textAlign: 'center' },
@@ -490,8 +514,8 @@ const useStyles = createThemedStyles((colors) => ({
   },
   alternateText: { ...typography.callout, color: colors.textTertiary },
   footer: {
-    ...typography.caption,
-    color: colors.textQuaternary,
+    ...typography.footnote,
+    color: colors.textTertiary,
     textAlign: 'center',
     marginTop: spacing.md,
   },

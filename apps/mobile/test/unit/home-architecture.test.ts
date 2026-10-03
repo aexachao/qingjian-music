@@ -34,21 +34,22 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
     expect(themeColors.light.surfaceGrouped).toBe('#f2f2f7')
   })
 
-  it('三等分功能瓷片采用原生 Pressable 实体背景色，去除副标题纯净呈现，并与上方漫游卡片紧凑组合', () => {
+  it('唱片抽屉右侧保留喜欢与下载，最近播放移到内容区', () => {
     const quickAsset = source('screens/home/QuickAssetRow.tsx')
     expect(quickAsset).not.toContain('<Link')
     expect(quickAsset).toContain('router.push')
-    expect(quickAsset).toContain('backgroundColor: colors.bgCard')
+    expect(quickAsset).toContain('backgroundColor: colors.surfaceCard')
     expect(quickAsset).toContain("key: 'downloaded'")
     expect(quickAsset).not.toContain('私房金曲')
     expect(quickAsset).not.toContain('听歌足迹')
     expect(quickAsset).not.toContain('本地音乐')
-    expect(quickAsset).toContain("width: '100%'")
+    expect(quickAsset).toContain("href: '/home/favorites'")
     expect(quickAsset).not.toContain('cachedFilesCount')
 
     const home = source('screens/home.tsx')
     expect(home).toContain('heroGroup')
-    expect(home).toContain('gap: 12')
+    expect(home).toContain('gap: 10')
+    expect(home).toContain('seeAllHref="/home/history"')
   })
 
   it('页签根页消除原生空白并由 CollapsibleHeader 承载深色背景，防止滚动内容穿透重叠', () => {
@@ -111,5 +112,22 @@ describe('首页 Apple Music 风格设计规范与架构契约', () => {
     expect(search).toContain('paddingHorizontal: spacing.lg')
     expect(library).toContain('paddingHorizontal: spacing.lg')
     expect(settings).toContain('paddingHorizontal: spacing.lg')
+  })
+
+  it('随心漫游使用 124pt 最小高度支持大字，双状态不与 MiniPlayer 重复', () => {
+    const card = source('screens/home/HeroStationCard.tsx')
+    expect(card).toContain('HERO_STATION_CARD_HEIGHT = 124')
+    expect(card).toContain('minHeight: HERO_STATION_CARD_HEIGHT')
+    expect(card).toContain('漫游中')
+    expect(card).toContain('未开启')
+    expect(card).not.toContain('重新漫游')
+    // 保证不与 MiniPlayer 重复：不出现单曲跑马灯或单曲封面
+    expect(card).not.toContain('<MarqueeText')
+    expect(card).not.toContain('<CoverImage')
+
+    const home = source('screens/home.tsx')
+    expect(home).toContain('isRoaming={isRoaming}')
+    expect(home).not.toContain('onReshuffle')
+    expect(home).not.toContain("onOpenPlayer")
   })
 })

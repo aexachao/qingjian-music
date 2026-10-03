@@ -99,7 +99,7 @@ export function buildSupportView(
       tiers: SUPPORT_TIERS,
       showQrCodes: false,
       showPurchaseButtons: skusConfigured,
-      notice: skusConfigured ? null : '内购尚未开通。你的支持我收到了，谢谢。',
+      notice: skusConfigured ? null : '当前版本暂不支持应用内赞助。你仍可在「设置 → 问题反馈」分享使用建议。',
     }
   }
 

@@ -1,6 +1,7 @@
 import type { LyricSheet } from '@qj/core-domain'
 import { lyricTier, parseLrc, parseYrc } from '@qj/core-domain'
-import { getLyricsSource, normalizeBaseUrl } from '@/lib/external-source'
+import { fetchBoundedText } from '@/lib/bounded-fetch'
+import { getLyricsSource, normalizeBaseUrl, type ResolvedSource } from '@/lib/external-source'
 
 /**
  * 外部歌词源适配器：把用户自填的国内服务(网易云 yrc / LrcAPI)取回并解析成 LyricSheet。
@@ -17,38 +18,39 @@ export interface LyricQueryMeta {
 }
 
 const TIMEOUT_MS = 8000
+const JSON_MAX_BYTES = 1024 * 1024
+const LRC_MAX_BYTES = 512 * 1024
 
-async function getJson(url: string, token?: string): Promise<unknown | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+async function getJson(url: string, token: string | undefined, signal?: AbortSignal): Promise<unknown | null> {
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: token ? { Authorization: token } : {},
+    const text = await fetchBoundedText(url, {
+      maxBytes: JSON_MAX_BYTES,
+      timeoutMs: TIMEOUT_MS,
+      signal,
+      headers: token ? { Authorization: token } : undefined,
     })
-    if (!res.ok) return null
-    return (await res.json()) as unknown
-  } catch {
+    return JSON.parse(text) as unknown
+  } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 
-async function getText(url: string, token?: string): Promise<string | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+async function getText(url: string, token: string | undefined, signal?: AbortSignal): Promise<string | null> {
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: token ? { Authorization: token } : {},
+    return await fetchBoundedText(url, {
+      maxBytes: LRC_MAX_BYTES,
+      timeoutMs: TIMEOUT_MS,
+      signal,
+      headers: token ? { Authorization: token } : undefined,
     })
-    if (!res.ok) return null
-    return await res.text()
-  } catch {
+  } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error
     return null
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -61,13 +63,19 @@ function cleanTitle(s: string): string {
 }
 
 // ── 网易云(yrc 逐字) ──────────────────────────────────────────────────────
-async function fetchNetease(base: string, token: string | undefined, meta: LyricQueryMeta): Promise<LyricSheet | null> {
+async function fetchNetease(
+  base: string,
+  token: string | undefined,
+  meta: LyricQueryMeta,
+  signal?: AbortSignal,
+): Promise<LyricSheet | null> {
   const title = (meta.title ?? '').trim()
   if (!title) return null
   const keywords = `${title} ${meta.artist ?? ''}`.trim()
   const search = (await getJson(
     `${base}/search?type=1&limit=5&keywords=${encodeURIComponent(keywords)}`,
     token,
+    signal,
   )) as { result?: { songs?: { id: number; name: string }[] } } | null
   const songs = search?.result?.songs ?? []
   if (songs.length === 0) return null
@@ -75,7 +83,7 @@ async function fetchNetease(base: string, token: string | undefined, meta: Lyric
   const wantClean = cleanTitle(title)
   const chosen = songs.find((s) => cleanTitle(s.name) === wantClean) ?? songs[0]!
 
-  const lyric = (await getJson(`${base}/lyric/new?id=${chosen.id}`, token)) as
+  const lyric = (await getJson(`${base}/lyric/new?id=${chosen.id}`, token, signal)) as
     | { yrc?: { lyric?: string }; lrc?: { lyric?: string } }
     | null
   if (!lyric) return null
@@ -84,7 +92,7 @@ async function fetchNetease(base: string, token: string | undefined, meta: Lyric
   const lrc = lyric.lrc?.lyric ?? ''
 
   const wordLines = yrc ? parseYrc(yrc) : []
-  if (wordLines.length > 0) {
+  if (wordLines.some((line) => line.atMs >= 0)) {
     return {
       synced: true,
       lines: wordLines,
@@ -95,7 +103,7 @@ async function fetchNetease(base: string, token: string | undefined, meta: Lyric
     }
   }
   const lineLines = lrc ? parseLrc(lrc) : []
-  if (lineLines.length > 0) {
+  if (lineLines.some((line) => line.atMs >= 0)) {
     return {
       synced: true,
       lines: lineLines,
@@ -109,17 +117,22 @@ async function fetchNetease(base: string, token: string | undefined, meta: Lyric
 }
 
 // ── LrcAPI(行级) ─────────────────────────────────────────────────────────
-async function fetchLrcApi(base: string, token: string | undefined, meta: LyricQueryMeta): Promise<LyricSheet | null> {
+async function fetchLrcApi(
+  base: string,
+  token: string | undefined,
+  meta: LyricQueryMeta,
+  signal?: AbortSignal,
+): Promise<LyricSheet | null> {
   const title = (meta.title ?? '').trim()
   if (!title) return null
   const params = new URLSearchParams()
   params.set('title', title)
   if (meta.artist) params.set('artist', meta.artist)
   if (meta.album) params.set('album', meta.album)
-  const text = await getText(`${base}/lyrics?${params.toString()}`, token)
+  const text = await getText(`${base}/lyrics?${params.toString()}`, token, signal)
   if (!text) return null
   const lines = parseLrc(text)
-  if (lines.length === 0) return null
+  if (!lines.some((line) => line.atMs >= 0)) return null
   return {
     synced: true,
     lines,
@@ -130,17 +143,34 @@ async function fetchLrcApi(base: string, token: string | undefined, meta: LyricQ
   }
 }
 
-/** 按用户配置的歌词源取一份歌词(取不到返回 null)。 */
-export async function fetchExternalLyricSheet(meta: LyricQueryMeta): Promise<LyricSheet | null> {
-  const config = getLyricsSource()
+/**
+ * 按指定的歌词源取一份歌词(取不到返回 null)。
+ *
+ * `config` is optional for legacy callers. Loaders should pass a snapshot captured
+ * before their first await so an in-flight request never switches to a newly-saved source.
+ */
+export async function fetchExternalLyricSheet(
+  meta: LyricQueryMeta,
+  config: ResolvedSource = getLyricsSource(),
+  signal?: AbortSignal,
+): Promise<LyricSheet | null> {
+  if (signal?.aborted) throw abortError(signal.reason)
   const base = normalizeBaseUrl(config.baseUrl)
   if (config.type === 'none' || !base) return null
   const token = config.token?.trim() || undefined
   try {
-    if (config.type === 'netease') return await fetchNetease(base, token, meta)
-    if (config.type === 'lrcapi') return await fetchLrcApi(base, token, meta)
-  } catch {
+    if (config.type === 'netease') return await fetchNetease(base, token, meta, signal)
+    if (config.type === 'lrcapi') return await fetchLrcApi(base, token, meta, signal)
+  } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error
     return null
   }
   return null
+}
+
+function abortError(reason: unknown): Error {
+  if (reason instanceof Error) return reason
+  const error = new Error('The operation was aborted')
+  error.name = 'AbortError'
+  return error
 }

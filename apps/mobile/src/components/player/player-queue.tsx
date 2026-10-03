@@ -2,6 +2,7 @@ import { useToast } from '@/components/toast'
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,7 +15,7 @@ import {
 import { useConfirm } from '@/components/confirm-modal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Swipeable from 'react-native-gesture-handler/Swipeable'
-import { GestureDetector, type PanGesture } from 'react-native-gesture-handler'
+import { Gesture, GestureDetector, type PanGesture } from 'react-native-gesture-handler'
 import ReorderableList, { useIsActive, useReorderableDrag, type ReorderableListReorderEvent } from 'react-native-reorderable-list'
 import MaskedView from '@react-native-masked-view/masked-view'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -54,7 +55,7 @@ import {
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
 import { CoverBackdrop } from './cover-backdrop'
-import type { AmbientPalette } from '@/theme/ambient-palette'
+import { resolveAmbientPalette, type AmbientPalette } from '@/theme/ambient-palette'
 import { usePlayerStore } from '@/player/store'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
@@ -64,6 +65,17 @@ import { DeckMoreButton } from '@/components/player/player-deck'
 const LONG_PRESS_MS = 350
 const TAP_SLOP = 12
 const RADIO_FETCH_MORE = 10
+const SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT = 104
+const SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE = 88
+const SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT = 64
+const SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE = 40
+
+function getSwipeDeleteHitWidth(tab: QueueTab, isLandscape: boolean): number {
+  if (tab === 'history') {
+    return isLandscape ? SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT
+  }
+  return isLandscape ? SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT
+}
 
 // 互斥的左滑删除引用
 let openSwipeableRef: Swipeable | null = null
@@ -91,6 +103,8 @@ export function PlayerQueue({
   bottomSpace,
   listAnim,
   stageTopOffset: propStageTopOffset,
+  stageLeftOffset: propStageLeftOffset,
+  stageWidth: propStageWidth,
   stageHeight: propStageHeight,
   onTopStateChange,
   onActionOpenChange,
@@ -101,11 +115,15 @@ export function PlayerQueue({
   cardDismissGesture,
   translateY,
   onDismiss,
+  hideCurrentTrack = false,
+  isLandscape = false,
 }: {
   palette?: AmbientPalette
   bottomSpace: number
   listAnim?: SharedValue<number>
   stageTopOffset?: number
+  stageLeftOffset?: number
+  stageWidth?: number
   stageHeight?: SharedValue<number>
   onTopStateChange?: (atTop: boolean) => void
   onActionOpenChange?: (open: boolean) => void
@@ -116,14 +134,19 @@ export function PlayerQueue({
   cardDismissGesture?: PanGesture
   translateY?: SharedValue<number>
   onDismiss?: () => void
+  hideCurrentTrack?: boolean
+  isLandscape?: boolean
 }) {
   const toast = useToast()
   const styles = useStyles()
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   const stageTopOffset = propStageTopOffset ?? (insets.top + spacing.sm + 50 + spacing.xs)
+  const stageLeftOffset = propStageLeftOffset ?? 0
   const [containerHeight, setContainerHeight] = useState(propStageHeight?.value || 0)
+  const [containerWidth, setContainerWidth] = useState(propStageWidth || 0)
   const queueViewportHeight = containerHeight || propStageHeight?.value || 350
+  const queueViewportWidth = containerWidth || propStageWidth || screenWidth
 
   const { provider, connection } = useServerSession()
   const queue = usePlayerStore((state) => state.queue)
@@ -172,8 +195,9 @@ export function PlayerQueue({
   }, [history])
 
   const currentItem = queue[index]
-  const modesContentOffset = currentItem ? 88 : 0
-  const headerHeight = currentItem ? 194 : 106
+  const showCurrentCard = !hideCurrentTrack && Boolean(currentItem)
+  const modesContentOffset = showCurrentCard ? 88 : 0
+  const headerHeight = showCurrentCard ? 194 : 106
   const scrollY = useSharedValue(0)
   const isAtTopRef = useSharedValue(true)
   const [isAtTop, setIsAtTop] = useState(true)
@@ -354,11 +378,16 @@ export function PlayerQueue({
     return consumed
   }, [setQueueActionOpen])
 
-  const pagerX = useSharedValue(0)
+  const pagerX = useSharedValue(tab === 'history' ? -queueViewportWidth : 0)
+  const currentTabShared = useSharedValue<QueueTab>(tab)
+  const startPagerX = useSharedValue(0)
+  const isPagerPanActive = useSharedValue(false)
+  const prevWidthRef = useRef(queueViewportWidth)
 
-  const onTabChange = useCallback((nextTab: QueueTab) => {
+  const onTabChange = useCallback((nextTab: QueueTab, fromGesture = false) => {
     if (consumeOpenAction() || nextTab === tab) return
     setTab(nextTab)
+    currentTabShared.value = nextTab
 
     const targetScrollY = Math.min(88, Math.max(0, scrollY.value))
     if (nextTab === 'history') {
@@ -372,11 +401,127 @@ export function PlayerQueue({
     setIsAtTop(isTop)
     onTopStateChange?.(isTop)
 
-    pagerX.value = withTiming(nextTab === 'history' ? -screenWidth : 0, {
-      duration: 320,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-    })
-  }, [consumeOpenAction, onTopStateChange, pagerX, screenWidth, scrollY, tab])
+    if (!fromGesture) {
+      pagerX.value = withTiming(nextTab === 'history' ? -queueViewportWidth : 0, {
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      })
+    }
+  }, [consumeOpenAction, currentTabShared, onTopStateChange, pagerX, queueViewportWidth, scrollY, tab])
+
+  const onTabChangeRef = useRef(onTabChange)
+  onTabChangeRef.current = onTabChange
+
+  const triggerTabChange = useCallback((nextTab: QueueTab) => {
+    onTabChangeRef.current(nextTab, true)
+  }, [])
+
+  const pagerPanGesture = useMemo(() =>
+    Gesture.Pan()
+      .enabled(!dragging)
+      .activeOffsetX([-18, 18])
+      .failOffsetY([-12, 12])
+      .onBegin(() => {
+        isPagerPanActive.value = false
+      })
+      .onStart((event) => {
+        // 在静态视口容器内，startTouchX 始终为 [0, queueViewportWidth]
+        const startTouchX = event.x - event.translationX
+        const isHistory = currentTabShared.value === 'history'
+        const hitWidth = isLandscape
+          ? (isHistory ? SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE)
+          : (isHistory ? SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT : SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT)
+        const rightBoundary = queueViewportWidth - hitWidth
+        if (startTouchX >= rightBoundary) {
+          isPagerPanActive.value = false
+          return
+        }
+        isPagerPanActive.value = true
+        startPagerX.value = pagerX.value
+      })
+      .onUpdate((event) => {
+        if (!isPagerPanActive.value) return
+        const raw = startPagerX.value + event.translationX
+        if (raw > 0) {
+          // 左边缘（继续播放继续往右拉）：橡皮筋阻尼
+          pagerX.value = raw * 0.25
+        } else if (raw < -queueViewportWidth) {
+          // 右边缘（历史记录继续往左拉）：橡皮筋阻尼
+          const overscroll = raw - (-queueViewportWidth)
+          pagerX.value = -queueViewportWidth + overscroll * 0.25
+        } else {
+          pagerX.value = raw
+        }
+      })
+      .onEnd((event) => {
+        if (!isPagerPanActive.value) return
+        const width = queueViewportWidth
+        const dx = event.translationX
+        const vx = event.velocityX
+        const current = currentTabShared.value
+
+        if (current === 'upcoming') {
+          // 在「继续播放」页，向左滑切换到「历史记录」
+          const shouldSwitch = dx < -width * 0.2 || (vx < -400 && dx < -15)
+          if (shouldSwitch) {
+            currentTabShared.value = 'history'
+            pagerX.value = withTiming(-width, {
+              duration: 280,
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            })
+            runOnJS(triggerTabChange)('history')
+          } else {
+            pagerX.value = withTiming(0, {
+              duration: 260,
+              easing: Easing.bezier(0.25, 1, 0.5, 1),
+            })
+          }
+        } else {
+          // 在「历史记录」页，向右滑切换到「继续播放」
+          const shouldSwitch = dx > width * 0.2 || (vx > 400 && dx > 15)
+          if (shouldSwitch) {
+            currentTabShared.value = 'upcoming'
+            pagerX.value = withTiming(0, {
+              duration: 280,
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            })
+            runOnJS(triggerTabChange)('upcoming')
+          } else {
+            pagerX.value = withTiming(-width, {
+              duration: 260,
+              easing: Easing.bezier(0.25, 1, 0.5, 1),
+            })
+          }
+        }
+      })
+      .onFinalize((_, success) => {
+        if (!success && isPagerPanActive.value) {
+          const target = currentTabShared.value === 'history' ? -queueViewportWidth : 0
+          pagerX.value = withTiming(target, {
+            duration: 260,
+            easing: Easing.bezier(0.25, 1, 0.5, 1),
+          })
+        }
+        isPagerPanActive.value = false
+      }),
+    [
+      currentTabShared,
+      dragging,
+      isLandscape,
+      isPagerPanActive,
+      pagerX,
+      queueViewportWidth,
+      startPagerX,
+      triggerTabChange,
+    ],
+  )
+
+  useEffect(() => {
+    if (prevWidthRef.current !== queueViewportWidth) {
+      prevWidthRef.current = queueViewportWidth
+      pagerX.value = currentTabShared.value === 'history' ? -queueViewportWidth : 0
+    }
+  }, [currentTabShared, pagerX, queueViewportWidth])
 
   const confirmClearHistory = useCallback(() => {
     if (consumeOpenAction()) return
@@ -444,13 +589,14 @@ export function PlayerQueue({
           playing={false} 
           isGloballyPlaying={!!isGloballyPlaying}
           isHistory={false}
+          isLandscape={isLandscape}
           onSelect={() => void skipToIndex(item.index).catch((error: unknown) => toast(error instanceof Error ? error.message : '切换歌曲失败，请重试'))}
           swipeEnabled={!dragging}
           onActionOpenChange={setQueueActionOpen}
         />
       </Animated.View>
     )
-  }, [autoplay, dragging, isGloballyPlaying, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, toast, upcomingCount])
+  }, [autoplay, dragging, isGloballyPlaying, isLandscape, minContentHeight, onToggleAutoplay, provider, rowAnimatedStyle, scrollY, setQueueActionOpen, toast, upcomingCount])
 
   const renderHistoryItem = useCallback(({ item }: { item: HistoryRowData }) => {
     if (item.type === 'emptyState') {
@@ -477,13 +623,14 @@ export function PlayerQueue({
           playing={false}
           isGloballyPlaying={!!isGloballyPlaying}
           isHistory
+          isLandscape={isLandscape}
           onSelect={() => void playHistoryItem(item.item)}
           swipeEnabled={!dragging}
           onActionOpenChange={setQueueActionOpen}
         />
       </Animated.View>
     )
-  }, [minContentHeight, playHistoryItem, rowAnimatedStyle, scrollY])
+  }, [dragging, isGloballyPlaying, isLandscape, minContentHeight, playHistoryItem, rowAnimatedStyle, scrollY, setQueueActionOpen])
 
   const isDismissEnabled = !isMenuOpen && !dragging && isAtTop
 
@@ -493,7 +640,7 @@ export function PlayerQueue({
   )
 
   const headerAnimatedStyle = useAnimatedStyle(() => {
-    const maxShift = currentItem ? 88 : 0
+    const maxShift = showCurrentCard ? 88 : 0
     const translateY = scrollY.value < 0 ? 0 : -Math.min(maxShift, scrollY.value)
     return {
       transform: [{ translateY }],
@@ -506,19 +653,26 @@ export function PlayerQueue({
 
   const hasUpcomingTracks = queue.length > 1
 
+  const activePalette = useMemo(() => {
+    if (palette) return palette
+    return resolveAmbientPalette(currentItem?.artwork?.url)
+  }, [palette, currentItem?.artwork?.url])
+
   return (
     <View
       style={[styles.container, { paddingBottom: bottomSpace }]}
       onLayout={(e) => {
         const h = Math.round(e.nativeEvent.layout.height)
+        const w = Math.round(e.nativeEvent.layout.width)
         setContainerHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev))
+        setContainerWidth((prev) => (Math.abs(prev - w) > 2 ? w : prev))
       }}
     >
       <Animated.View style={[styles.headerOverlay, headerAnimatedStyle]} pointerEvents="box-none">
         {headerOverlayDismissGesture ? (
           <GestureDetector gesture={headerOverlayDismissGesture}>
             <View>
-              {currentItem ? (
+              {showCurrentCard && currentItem ? (
                 <CurrentTrackCard
                   item={currentItem}
                   listAnim={listAnim}
@@ -528,9 +682,10 @@ export function PlayerQueue({
                 />
               ) : null}
               <ModesHeader
-                palette={palette}
-                artwork={queue[index]?.artwork}
+                palette={activePalette}
+                artwork={currentItem?.artwork ?? queue[index]?.artwork}
                 stageTopOffset={stageTopOffset}
+                stageLeftOffset={stageLeftOffset}
                 modesContentOffset={modesContentOffset}
                 scrollY={scrollY}
                 screenWidth={screenWidth}
@@ -546,12 +701,13 @@ export function PlayerQueue({
                 onClearHistory={confirmClearHistory}
                 onClearUpcoming={confirmClearUpcoming}
                 onToggleAutoplay={onToggleAutoplay}
+                isLandscape={isLandscape}
               />
             </View>
           </GestureDetector>
         ) : (
           <View>
-            {currentItem ? (
+            {showCurrentCard && currentItem ? (
               <CurrentTrackCard
                 item={currentItem}
                 listAnim={listAnim}
@@ -561,9 +717,10 @@ export function PlayerQueue({
               />
             ) : null}
             <ModesHeader
-              palette={palette}
-              artwork={queue[index]?.artwork}
+              palette={activePalette}
+              artwork={currentItem?.artwork ?? queue[index]?.artwork}
               stageTopOffset={stageTopOffset}
+              stageLeftOffset={stageLeftOffset}
               modesContentOffset={modesContentOffset}
               scrollY={scrollY}
               screenWidth={screenWidth}
@@ -579,6 +736,7 @@ export function PlayerQueue({
               onClearHistory={confirmClearHistory}
               onClearUpcoming={confirmClearUpcoming}
               onToggleAutoplay={onToggleAutoplay}
+              isLandscape={isLandscape}
             />
           </View>
         )}
@@ -600,71 +758,76 @@ export function PlayerQueue({
           />
         }
       >
-        <Animated.View style={[styles.pagerTrack, { width: screenWidth * 2 }, pagerAnimatedStyle]}>
-          <View style={[styles.page, { width: screenWidth }]}>
-            <ReorderableList
-              ref={upcomingListRef as any}
-              data={upcomingData}
-              keyExtractor={(item) => item.id}
-              ListHeaderComponent={<View style={{ height: headerHeight }} />}
-              contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
-              onReorder={onReorder}
-              onEndReached={onEndReached}
-              onEndReachedThreshold={0.5}
-              panActivateAfterLongPress={LONG_PRESS_MS}
-              dragEnabled={hasUpcomingTracks}
-              getItemLayout={getUpcomingItemLayout}
-              initialNumToRender={8}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              onScroll={scrollHandler}
-              onScrollBeginDrag={() => {
-                if (closeOpenQueueAction()) setQueueActionOpen(false)
-              }}
-              shouldUpdateActiveItem={true}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-              onIndexChange={onIndexChange}
-              cellAnimations={{ transform: [] }}
-              renderItem={renderUpcomingItem}
-              bounces={true}
-              alwaysBounceVertical={true}
-              decelerationRate="normal"
-              showsVerticalScrollIndicator={false}
-            />
-          </View>
+        <GestureDetector gesture={pagerPanGesture}>
+          <View style={styles.pagerViewportContainer}>
+            <Animated.View style={[styles.pagerTrack, { width: queueViewportWidth * 2 }, pagerAnimatedStyle]}>
+            <View style={[styles.page, { width: queueViewportWidth }]}>
+              <ReorderableList
+                ref={upcomingListRef as any}
+                data={upcomingData}
+                keyExtractor={(item) => item.id}
+                ListHeaderComponent={<View style={{ height: headerHeight }} />}
+                contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
+                onReorder={onReorder}
+                onEndReached={onEndReached}
+                onEndReachedThreshold={0.5}
+                panActivateAfterLongPress={LONG_PRESS_MS}
+                dragEnabled={hasUpcomingTracks}
+                getItemLayout={getUpcomingItemLayout}
+                initialNumToRender={8}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                onScroll={scrollHandler}
+                onScrollBeginDrag={() => {
+                  if (closeOpenQueueAction()) setQueueActionOpen(false)
+                }}
+                shouldUpdateActiveItem={true}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onIndexChange={onIndexChange}
+                cellAnimations={{ transform: [] }}
+                renderItem={renderUpcomingItem}
+                bounces={true}
+                alwaysBounceVertical={true}
+                decelerationRate="normal"
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
 
-          <View style={[styles.page, { width: screenWidth }]}>
-            {/*
-              历史列表也用 ReorderableList：行组件 QueueRow 内部要 useIsActive / useReorderableDrag
-              的上下文（拖拽把手只在待播行出现，所以这里 dragEnabled=false、onReorder 空实现）。
-              这样两种列表**共用同一个行组件** —— 菜单守卫（点空白关菜单不触发播放）、
-              左右物理隔离、左滑删除都只有一份实现，不会再各写一套然后漂移。
-            */}
-            <ReorderableList
-              ref={historyListRef as any}
-              data={historyData}
-              keyExtractor={(item) => item.id}
-              ListHeaderComponent={<View style={{ height: headerHeight }} />}
-              contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
-              onReorder={() => {}}
-              dragEnabled={false}
-              getItemLayout={getHistoryItemLayout}
-              initialNumToRender={8}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              onScroll={scrollHandler}
-              onScrollBeginDrag={() => {
-                if (closeOpenQueueAction()) setQueueActionOpen(false)
-              }}
-              renderItem={renderHistoryItem}
-              bounces={true}
-              alwaysBounceVertical={true}
-              decelerationRate="normal"
-              showsVerticalScrollIndicator={false}
-            />
+            <View style={[styles.page, { width: queueViewportWidth }]}>
+              {/*
+                历史列表也用 ReorderableList：行组件 QueueRow 内部要 useIsActive / useReorderableDrag
+                的上下文（拖拽把手只在待播行出现，所以这里 dragEnabled=false、onReorder 空实现）。
+                这样两种列表**共用同一个行组件** —— 菜单守卫（点空白关菜单不触发播放）、
+                左右物理隔离、左滑删除都只有一份实现，不会再各写一套然后漂移。
+              */}
+              <ReorderableList
+                ref={historyListRef as any}
+                data={historyData}
+                keyExtractor={(item) => item.id}
+                ListHeaderComponent={<View style={{ height: headerHeight }} />}
+                contentContainerStyle={[styles.list, { minHeight: minListHeight }]}
+                onReorder={() => {}}
+                dragEnabled={false}
+                panEnabled={false}
+                getItemLayout={getHistoryItemLayout}
+                initialNumToRender={8}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                onScroll={scrollHandler}
+                onScrollBeginDrag={() => {
+                  if (closeOpenQueueAction()) setQueueActionOpen(false)
+                }}
+                renderItem={renderHistoryItem}
+                bounces={true}
+                alwaysBounceVertical={true}
+                decelerationRate="normal"
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+            </Animated.View>
           </View>
-        </Animated.View>
+        </GestureDetector>
       </MaskedView>
     </View>
   )
@@ -723,6 +886,7 @@ function ModesHeader({
   palette,
   artwork,
   stageTopOffset,
+  stageLeftOffset = 0,
   modesContentOffset,
   scrollY,
   screenWidth,
@@ -738,10 +902,12 @@ function ModesHeader({
   onClearHistory,
   onClearUpcoming,
   onToggleAutoplay,
+  isLandscape = false,
 }: {
   palette?: AmbientPalette
   artwork?: any
   stageTopOffset: number
+  stageLeftOffset?: number
   modesContentOffset: number
   scrollY: SharedValue<number>
   screenWidth: number
@@ -757,10 +923,11 @@ function ModesHeader({
   onClearHistory: () => void
   onClearUpcoming: () => void
   onToggleAutoplay: () => void
+  isLandscape?: boolean
 }) {
   const styles = useStyles()
   const tabLayouts = useRef<{ upcoming?: LayoutRectangle; history?: LayoutRectangle }>({})
-  const indicatorX = useSharedValue(24)
+  const indicatorX = useSharedValue(isLandscape ? 16 : 24)
   const indicatorOpacity = useSharedValue(1)
 
   const updateIndicator = useCallback((activeTab: QueueTab, animate = true) => {
@@ -776,7 +943,7 @@ function ModesHeader({
       indicatorX.value = targetX
     }
     indicatorOpacity.value = 1
-  }, [indicatorOpacity, indicatorX])
+  }, [])
 
   useEffect(() => {
     updateIndicator(tab, true)
@@ -797,18 +964,22 @@ function ModesHeader({
   const bgStyle = useAnimatedStyle(() => {
     const currentScreenY = stageTopOffset + Math.max(0, modesContentOffset - scrollY.value)
     return {
-      transform: [{ translateY: -currentScreenY }],
+      transform: [
+        { translateX: -stageLeftOffset },
+        { translateY: -currentScreenY },
+      ],
     }
   })
 
   const bgContainerStyle = useAnimatedStyle(() => {
-    // scrollY == 0 时背景透明（完全显示屏幕根背景，0色差）；滚动吸顶过程中淡入到 1，遮挡下方滚动上来的歌曲
-    const opacity = interpolate(scrollY.value, [0, modesContentOffset], [0, 1], Extrapolation.CLAMP)
+    // scrollY == 0 时背景透明（完全显示屏幕根背景，0色差）；滚动吸顶过程中平滑淡入到 1，作为全屏大背景的严密切片遮挡下方穿透上来的歌曲
+    const offset = modesContentOffset > 0 ? modesContentOffset : 24
+    const opacity = interpolate(scrollY.value, [0, offset], [0, 1], Extrapolation.CLAMP)
     return { opacity }
   })
 
   return (
-    <View style={styles.modesHeader}>
+    <View style={[styles.modesHeader, isLandscape && styles.modesHeaderLandscape]}>
       <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, bgContainerStyle]} pointerEvents="none">
         <Animated.View
           style={[
@@ -1009,6 +1180,7 @@ function QueueRow({
   onSelect,
   swipeEnabled,
   onActionOpenChange,
+  isLandscape = false,
 }: {
   item: QueueItem
   queueIndex: number
@@ -1020,6 +1192,7 @@ function QueueRow({
   onSelect: () => void
   swipeEnabled: boolean
   onActionOpenChange?: (open: boolean) => void
+  isLandscape?: boolean
 }) {
   const colors = useThemeColors()
   const styles = useStyles()
@@ -1089,14 +1262,8 @@ function QueueRow({
   }
 
 
-  const content = (
-    <Animated.View style={animatedStyle}>
-    {/*
-      左右物理隔离：主触控区（点按播放）与右侧控件区（播放键 / 「···」菜单 / 拖动把手）
-      是兄弟节点而非嵌套，避免「···」的点击被外层 Pressable 抢走。
-      与 PagedTrackCarousel / TrackRow 的规范一致。
-    */}
-    <View style={styles.rowWrapper}>
+  const rowInner = (
+    <>
       <Pressable
         onTouchStart={(event) => {
           startX.current = event.nativeEvent.pageX
@@ -1206,16 +1373,43 @@ function QueueRow({
           </Pressable>
         )}
       </View>
-    </View>
+    </>
+  )
+
+  const content = (
+    <Animated.View style={animatedStyle}>
+      {/*
+        左右物理隔离：主触控区（点按播放）与右侧控件区（播放键 / 「···」菜单 / 拖动把手）
+        是兄弟节点而非嵌套，避免「···」的点击被外层 Pressable 抢走。
+        与 PagedTrackCarousel / TrackRow 的规范一致。
+      */}
+      {isLandscape ? (
+        <View style={[styles.rowWrapper, styles.rowWrapperLandscape]}>
+          {rowInner}
+        </View>
+      ) : (
+        <View style={styles.rowWrapper}>
+          {rowInner}
+        </View>
+      )}
     </Animated.View>
   )
+
+  const swipeHitSlop = useMemo(() => ({
+    right: 0,
+    width: isLandscape
+      ? (isHistory ? SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE)
+      : (isHistory ? SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT : SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT),
+  }), [isLandscape, isHistory])
 
   // 两种模式都要左滑删除：待播行删队列、历史行删这条历史
   return (
     <Swipeable 
       ref={swipeableRef}
+      hitSlop={swipeHitSlop}
       enabled={swipeEnabled && !dragHandlePressed}
       dragOffsetFromRightEdge={20}
+      dragOffsetFromLeftEdge={9999}
       renderRightActions={renderRightActions} 
       overshootRight={false}
       friction={2}
@@ -1241,6 +1435,10 @@ const useStyles = createThemedStyles((colors) => ({
   pagerViewport: {
     flex: 1,
   },
+  pagerViewportContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
   pagerTrack: {
     flex: 1,
     flexDirection: 'row',
@@ -1258,6 +1456,9 @@ const useStyles = createThemedStyles((colors) => ({
     paddingBottom: spacing.sm,
     backgroundColor: 'transparent',
     overflow: 'hidden',
+  },
+  modesHeaderLandscape: {
+    paddingHorizontal: 0,
   },
   modes: {
     flexDirection: 'row',
@@ -1381,6 +1582,9 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
+  },
+  rowWrapperLandscape: {
+    paddingHorizontal: 0,
   },
   rowMain: {
     flex: 1,

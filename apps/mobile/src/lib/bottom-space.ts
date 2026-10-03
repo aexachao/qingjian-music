@@ -1,11 +1,10 @@
-import { Platform } from 'react-native'
 import { useSegments } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { isTabBarHidden } from '@/lib/tab-bar-policy'
 import { usePlayerStore } from '@/player/store'
 import { spacing } from '@/theme/tokens'
 
-const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 49 : 56
+export const TAB_BAR_HEIGHT = 64
 export const MINI_PLAYER_HEIGHT = 68
 
 /** 当前是不是在四个页签里面（二级页面如播放页、队列页没有 Tab 栏） */
@@ -23,7 +22,7 @@ function useInTabs(): boolean {
 export function useOverlayBottom(): number {
   const insets = useSafeAreaInsets()
   const inTabs = useInTabs()
-  return insets.bottom + (inTabs ? TAB_BAR_HEIGHT : 0) + spacing.xs
+  return insets.bottom + (inTabs ? TAB_BAR_HEIGHT : 0) + spacing.sm
 }
 
 /** 列表底部要给 Tab 栏和迷你播放条留位置 */

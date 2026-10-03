@@ -18,6 +18,15 @@ import type {
 } from '@qj/core-domain'
 import type { Credentials, ProviderId, ProviderSession, ServerConnection } from './connection'
 
+/** 已登录服务器的多线路控制面。实现方只会在确认同一会话用户后切换地址。 */
+export interface ProviderRouting {
+  getActiveBaseUrl(): string
+  validate(baseUrl: string): Promise<void>
+  setAlternates(urls: string[]): void
+  recover(failedUrl?: string): Promise<boolean>
+  subscribe(listener: () => void): () => void
+}
+
 export interface SearchSuggestion {
   tracks: Track[]
   albums: Album[]
@@ -92,6 +101,8 @@ export interface MusicProvider {
   readonly providerId: ProviderId
   readonly connection: ServerConnection
   readonly capabilities: Capabilities
+  /** 后端支持多线路时提供；没有备用线路的实现可以省略。 */
+  readonly routing?: ProviderRouting
 
   // ---- 认证 ----
   login(credentials: Credentials): Promise<ProviderSession>
@@ -144,7 +155,7 @@ export interface MusicProvider {
   stream(trackId: string, options: StreamOptions): Promise<StreamRequest>
   /** 封面同样需要鉴权头 */
   image(coverId: string, sizePx?: number): HttpResource
-  lyrics?(trackId: string): Promise<LyricSheet | null>
+  lyrics?(trackId: string, options?: { signal?: AbortSignal }): Promise<LyricSheet | null>
   audioSpec?(trackId: string): Promise<AudioSpec | null>
 
   // ---- 电台 ----

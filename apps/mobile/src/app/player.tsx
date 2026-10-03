@@ -1,7 +1,7 @@
 import { useToast } from '@/components/toast'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useActiveTrack, useIsPlaying, useProgress } from 'react-native-track-player'
@@ -19,7 +19,10 @@ import Animated, {
 } from 'react-native-reanimated'
 
 import { StatusBar } from 'expo-status-bar'
+import * as ScreenOrientation from 'expo-screen-orientation'
 import { PlayerToolbar } from '@/components/player/player-toolbar'
+import { PlayerLandscapeView } from '@/components/player/player-landscape-view'
+import { LyricPage } from '@/components/player/lyric-page'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { ImmersiveDarkOverlay, ViewportCover } from '@/components/player/immersive-cover'
@@ -44,7 +47,23 @@ type PlayerMode = 'cover' | 'lyrics' | 'list'
 export default function PlayerScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { height } = useWindowDimensions()
+  const { width, height } = useWindowDimensions()
+  const [screenOrient, setScreenOrient] = useState<ScreenOrientation.Orientation | null>(null)
+
+  // 播放页方向管理：进入播放页解锁重力感应全向旋转；离开时恢复并锁定为竖屏
+  useEffect(() => {
+    void ScreenOrientation.unlockAsync().catch(() => {})
+    void ScreenOrientation.getOrientationAsync().then(setScreenOrient).catch(() => {})
+    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      setScreenOrient(evt.orientationInfo.orientation)
+    })
+    return () => {
+      ScreenOrientation.removeOrientationChangeListener(sub)
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {})
+    }
+  }, [])
+
+  const isLandscape = width > height
   
   const current = usePlayerStore(selectCurrent)
   const { playing } = useIsPlaying()
@@ -53,8 +72,17 @@ export default function PlayerScreen() {
     [current?.trackId, current?.coverId],
   )
 
-  const [mode, setMode] = useState<PlayerMode>('cover')
+  const params = useLocalSearchParams<{ mode?: PlayerMode }>()
+  const [mode, setMode] = useState<PlayerMode>(
+    params.mode === 'lyrics' || params.mode === 'list' ? params.mode : 'cover',
+  )
   const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    if (params.mode === 'lyrics' || params.mode === 'list' || params.mode === 'cover') {
+      setMode(params.mode)
+    }
+  }, [params.mode])
 
   // 1. 同步预估舞台高度，确保首帧计算出的封面尺寸与测量后 100% 一致，避免入场中途 setState 触发重渲染
   const initialStageHeight = useMemo(() => {
@@ -334,6 +362,44 @@ export default function PlayerScreen() {
     )
   }
 
+  if (isLandscape) {
+    return (
+      <DarkThemeScope>
+        <StatusBar hidden={true} />
+        <AuthGate group="protected">
+          <GestureDetector gesture={dismissGesture}>
+            <Animated.View style={[styles.root, rootAnimatedStyle]}>
+              <CoverBackdrop artwork={current.artwork} palette={palette} />
+              <ImmersiveDarkOverlay />
+              <PlayerLandscapeView
+                current={current}
+                palette={palette}
+                mode={mode}
+                onModeChange={setMode}
+                onDismiss={dismiss}
+                onDismissWithAction={dismissWithAction}
+                onMenuOpenChange={setMenuOpen}
+                isMenuOpen={menuOpen}
+                coverScaleStyle={coverScaleStyle}
+                handleDismissGesture={handleDismissGesture}
+                coverDismissGesture={handleDismissGesture}
+                translateY={translateY}
+                playing={playing}
+                onListTopStateChange={setIsListAtTop}
+              />
+              {menuOpen ? (
+                <Pressable
+                  style={[StyleSheet.absoluteFill, styles.menuScrim]}
+                  onPress={() => setMenuOpen(false)}
+                />
+              ) : null}
+            </Animated.View>
+          </GestureDetector>
+        </AuthGate>
+      </DarkThemeScope>
+    )
+  }
+
   return (
     <DarkThemeScope>
       <StatusBar style="light" />
@@ -461,6 +527,7 @@ export default function PlayerScreen() {
                     active={mode === 'lyrics'}
                     translateY={translateY}
                     onDismiss={dismiss}
+                    playing={playing}
                   />
                 ) : null}
               </View>
@@ -493,70 +560,6 @@ function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
         color={colors.iconMid}
         onPress={onDismiss}
         accessibilityLabel="收起播放页"
-      />
-    </View>
-  )
-}
-
-function LyricPage({
-  trackId,
-  bottomSpace,
-  onTopStateChange,
-  active,
-  translateY,
-  onDismiss,
-}: {
-  trackId: string
-  bottomSpace?: number
-  onTopStateChange?: (atTop: boolean) => void
-  active?: boolean
-  translateY?: SharedValue<number>
-  onDismiss?: () => void
-}) {
-  const toast = useToast()
-  const { playing } = useIsPlaying()
-  const progress = useProgress(active ? LYRIC_TICK_MS : LYRIC_IDLE_TICK_MS)
-  const activeTrack = useActiveTrack()
-  const current = usePlayerStore(selectCurrent)
-  const lyricOffset = useLyricOffset(trackId)
-  const [adjustOpen, setAdjustOpen] = useState(false)
-  const seekAndPlay = useCallback((seconds: number) => {
-    void seekLyricAndPlay(seconds).catch((error: unknown) => toast(error instanceof Error ? error.message : '歌词跳转失败'))
-  }, [toast])
-  return (
-    <View style={styles.stageFill}>
-      <LyricView
-        key={trackId}
-        trackId={trackId}
-        positionMs={activeTrack?.id === current?.qid ? progress.position * 1000 : Number.NEGATIVE_INFINITY}
-        offsetMs={lyricOffset.offsetMs}
-        onSeek={seekAndPlay}
-        songTitle={current?.title}
-        songArtist={current?.artistText}
-        bottomSpace={bottomSpace}
-        onTopStateChange={onTopStateChange}
-        active={active}
-        translateY={translateY}
-        onDismiss={onDismiss}
-        playing={playing}
-      />
-      {active ? (
-        <View style={styles.lyricActions}>
-          <IconButton
-            name="lyricAdjust"
-            size={iconSize.lg}
-            color={darkColors.iconMid}
-            disabled={!lyricOffset.canAdjust}
-            onPress={() => setAdjustOpen(true)}
-            accessibilityLabel="调整歌词时间"
-          />
-        </View>
-      ) : null}
-      <LyricAdjustmentSheet
-        visible={adjustOpen}
-        offsetMs={lyricOffset.offsetMs}
-        onAdjust={lyricOffset.adjust}
-        onClose={() => setAdjustOpen(false)}
       />
     </View>
   )

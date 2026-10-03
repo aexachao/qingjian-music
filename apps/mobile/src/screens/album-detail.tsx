@@ -33,13 +33,15 @@ import { useIsMenuOpen } from '@/lib/menu-guard'
 import { useLocalFavoritesStore } from '@/lib/local-favorites'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
+import { useExternalSourcesStore } from '@/lib/external-source'
+import { externalSourceCacheIdentity } from '@/lib/external-source-cache-key'
 import { tap } from '@/lib/haptics'
 import { formatAlbumYear, getAlbumAudioSpecBadge } from '@/lib/album-meta'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
-import { fonts, spacing, typography } from '@/theme/tokens'
+import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
 /**
  * 专辑详情页 (AlbumDetailScreen):
@@ -58,6 +60,9 @@ export function AlbumDetailScreen() {
   const topHeaderOffset = Math.max(insets.top, 20) + 44
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
+  const sourceRevision = useExternalSourcesStore((state) => state.revision)
+  const sourceServices = useExternalSourcesStore((state) => state.services)
+  const sourceIdentity = externalSourceCacheIdentity(sourceServices)
   const router = useRouter()
   const href = useDetailHref()
   const toast = useToast()
@@ -149,16 +154,6 @@ export function AlbumDetailScreen() {
     }
   })
 
-  const navPlayAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      scrollY.value,
-      [190, 240],
-      [0, 1],
-      Extrapolation.CLAMP,
-    )
-    return { opacity }
-  })
-
   // 播放整张专辑
   async function play(startIndex: number, shuffle = false) {
     if (!provider || !connection || items.length === 0) return
@@ -237,7 +232,7 @@ export function AlbumDetailScreen() {
   // 完整度：配了音乐信息源就拉规范曲目表，与本地对齐标缺失；否则用曲目号推断缺口
   const [showMissing, setShowMissing] = useState(true)
   const canonicalQuery = useQuery({
-    queryKey: ['canonical-album-tracks', album?.name, artistText],
+    queryKey: ['canonical-album-tracks', sourceRevision, sourceIdentity, album?.name, artistText],
     enabled: Boolean(hasMusicInfoSource() && album?.name && items.length > 0),
     staleTime: 1000 * 60 * 60 * 24,
     queryFn: () => fetchCanonicalAlbumTracks(artistText, album?.name ?? ''),
@@ -316,7 +311,7 @@ export function AlbumDetailScreen() {
           ),
           headerRight: () => (
             <View style={styles.navRightRow}>
-              <Animated.View style={navPlayAnimatedStyle}>
+              {pinned ? (
                 <Pressable
                   hitSlop={8}
                   style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
@@ -329,7 +324,7 @@ export function AlbumDetailScreen() {
                 >
                   <Icon name="play" size={18} color={colors.textPrimary} filled />
                 </Pressable>
-              </Animated.View>
+              ) : null}
               <MenuView
                 title={album.name}
                 themeVariant={mode === 'dark' ? 'dark' : 'light'}
@@ -353,7 +348,7 @@ export function AlbumDetailScreen() {
       />
 
       {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} />
+      <AmbientHeaderBackground palette={palette} coverId={album.coverId} />
 
       <Animated.FlatList
         data={items}
@@ -392,7 +387,9 @@ export function AlbumDetailScreen() {
                   <Text style={styles.artistText} numberOfLines={1}>
                     {artistText}
                   </Text>
-                  <Icon name="chevronRight" size={13} color={colors.textTertiary} />
+                  <View style={styles.artistChevron}>
+                    <Icon name="chevronRight" size={13} color={colors.textTertiary} />
+                  </View>
                 </Pressable>
               ) : (
                 <Text style={styles.artistText} numberOfLines={1}>
@@ -413,22 +410,24 @@ export function AlbumDetailScreen() {
                 </View>
               ) : null}
 
-              {/* 核心双动作胶囊：同级等权半透微质感磨砂胶囊 */}
+              {/* 核心双动作胶囊：icon + label 全宽双胶囊 */}
               <View style={styles.actions}>
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [styles.actionButton, pressed && styles.buttonPressed]}
                   onPress={() => {
                     tap()
                     void play(0)
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="播放专辑全部歌曲"
+                  accessibilityLabel="播放全部"
                 >
                   <Icon name="play" size={16} color={colors.textPrimary} filled />
                   <Text style={styles.actionButtonLabel}>播放全部</Text>
                 </Pressable>
 
                 <Pressable
+                  hitSlop={8}
                   style={({ pressed }) => [
                     styles.actionButton,
                     isFavorited && styles.actionButtonActive,
@@ -591,6 +590,7 @@ const useStyles = createThemedStyles((colors) => ({
     marginTop: 6,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
+    maxWidth: '90%',
   },
   artistLinkPressed: {
     opacity: 0.7,
@@ -602,6 +602,10 @@ const useStyles = createThemedStyles((colors) => ({
     fontWeight: '500',
     color: colors.textSecondary,
     textAlign: 'center',
+    flexShrink: 1,
+  },
+  artistChevron: {
+    flexShrink: 0,
   },
   metaRow: {
     flexDirection: 'row',
@@ -639,8 +643,9 @@ const useStyles = createThemedStyles((colors) => ({
   },
   actions: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: 20,
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 18,
     width: '100%',
   },
   actionButton: {
@@ -650,7 +655,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs + 2,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderDefault,
@@ -659,15 +664,16 @@ const useStyles = createThemedStyles((colors) => ({
     borderColor: colors.borderEmphasis,
   },
   actionButtonLabel: {
-    ...typography.headline,
+    ...typography.subhead,
     fontSize: 15,
+    lineHeight: 20,
     fontFamily: fonts.medium,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.textPrimary,
   },
   buttonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.75,
+    transform: [{ scale: 0.96 }],
   },
   navIconButton: {
     width: 44,
@@ -739,6 +745,5 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginRight: -spacing.sm,
   },
 }))

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -8,12 +7,13 @@ import {
   View,
 } from 'react-native'
 import { BlurView } from 'expo-blur'
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, runOnJS } from 'react-native-reanimated'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Link, Stack, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery } from '@tanstack/react-query'
-import type { Artist, Track } from '@qj/core-domain'
+import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { FormatBadge } from '@/components/format-badge'
@@ -37,6 +37,8 @@ import { computeArtistCompleteness } from '@qj/core-domain'
 import { fetchCanonicalArtistAlbums, hasMusicInfoSource } from '@/lib/external-music-info'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
+import { useExternalSourcesStore } from '@/lib/external-source'
+import { externalSourceCacheIdentity } from '@/lib/external-source-cache-key'
 import { playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme, useThemeColors } from '@/theme/theme-provider'
@@ -65,6 +67,9 @@ export function ArtistDetailScreen() {
   const styles = useStyles()
   const { id } = useLocalSearchParams<{ id: string }>()
   const { provider, connection } = useServerSession()
+  const sourceRevision = useExternalSourcesStore((state) => state.revision)
+  const sourceServices = useExternalSourcesStore((state) => state.services)
+  const sourceIdentity = externalSourceCacheIdentity(sourceServices)
   const { width } = useWindowDimensions()
   const bottom = useBottomSpace()
   const href = useDetailHref()
@@ -78,14 +83,23 @@ export function ArtistDetailScreen() {
   const [tracksHeaderHeight, setTracksHeaderHeight] = useState(0)
   const [toolbarHeight, setToolbarHeight] = useState(0)
   const [isToolbarPinned, setIsToolbarPinned] = useState(false)
-  const pinAt = Math.max(0, tracksHeaderHeight - toolbarHeight - topHeaderOffset)
+  const [tabsHeight, setTabsHeight] = useState(48)
+  const pinAt = Math.max(0, tracksHeaderHeight - toolbarHeight - (topHeaderOffset + tabsHeight))
 
   const [tab, setTab] = useState<ArtistTab>('overview')
   const activeTabIndex = Math.max(0, TABS.findIndex((t) => t.key === tab))
-  const overviewListRef = useRef<FlatList>(null)
-  const albumsListRef = useRef<FlatList>(null)
-  const tracksListRef = useRef<FlatList>(null)
+  const overviewListRef = useRef<Animated.FlatList>(null)
+  const albumsListRef = useRef<Animated.FlatList>(null)
+  const tracksListRef = useRef<Animated.FlatList>(null)
   const scrollYRef = useRef(0)
+  const [headerHeight, setHeaderHeight] = useState(420)
+  const [tabsY, setTabsY] = useState(380)
+    const scrollYAnim = useSharedValue(0)
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: -Math.max(0, scrollYAnim.value) }]
+    }
+  })
   const [pinned, setPinned] = useState(false)
 
   // 1. 本地专辑分页查询
@@ -141,7 +155,7 @@ export function ArtistDetailScreen() {
 
   // 完整度：配了音乐信息源就拉规范作品集，标出未入库专辑
   const canonicalAlbumsQuery = useQuery({
-    queryKey: ['canonical-artist-albums', artistName],
+    queryKey: ['canonical-artist-albums', sourceRevision, sourceIdentity, artistName],
     enabled: Boolean(hasMusicInfoSource() && artistName),
     staleTime: 1000 * 60 * 60 * 24,
     queryFn: () => fetchCanonicalArtistAlbums(artistName!),
@@ -202,25 +216,30 @@ export function ArtistDetailScreen() {
   const heroImageUri = backdropResource?.url
 
   // 滚动监听：触碰阈值折叠吸顶（滚动越过宽幅巨幕 220pt 时平滑过渡为吸顶栏，全部歌曲 tab 下越过 pinAt 时固定工具条）
-  const handleScroll = useCallback(
-    (eventY: number) => {
-      scrollYRef.current = eventY
-      const isPast = eventY > 220
-      setPinned((prev) => (prev === isPast ? prev : isPast))
+  const handleScrollJS = useCallback((eventY: number) => {
+    scrollYRef.current = eventY
+    const isPast = Math.min(220, eventY) === 220
+    setPinned((prev) => (prev === isPast ? prev : isPast))
 
-      if (tab === 'tracks' && pinAt > 0) {
-        const isToolbarPast = eventY >= pinAt
-        setIsToolbarPinned((prev) => (prev === isToolbarPast ? prev : isToolbarPast))
-      } else if (tab !== 'tracks') {
-        setIsToolbarPinned((prev) => (prev ? false : prev))
-      }
+    if (tab === 'tracks' && pinAt > 0) {
+      const isToolbarPast = eventY >= pinAt
+      setIsToolbarPinned((prev) => (prev === isToolbarPast ? prev : isToolbarPast))
+    } else if (tab !== 'tracks') {
+      setIsToolbarPinned((prev) => (prev ? false : prev))
+    }
+  }, [tab, pinAt])
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollYAnim.value = e.contentOffset.y
+      runOnJS(handleScrollJS)(e.contentOffset.y)
     },
-    [tab, pinAt],
-  )
+  })
 
   const handleTabChange = useCallback((nextTab: ArtistTab) => {
     const currentY = scrollYRef.current
-    const targetY = Math.min(220, Math.max(0, currentY))
+    const maxScroll = Math.max(0, tabsY - (insets.top + 44))
+    const targetY = Math.min(maxScroll, Math.max(0, currentY))
 
     if (nextTab === 'overview') {
       overviewListRef.current?.scrollToOffset({ offset: targetY, animated: false })
@@ -232,7 +251,7 @@ export function ArtistDetailScreen() {
 
     setTab(nextTab)
     setIsToolbarPinned(false)
-  }, [])
+  }, [tabsY, insets.top])
 
   const handleToggleFavorite = () => {
     if (!connection || !id) return
@@ -389,19 +408,21 @@ export function ArtistDetailScreen() {
 
           {/* 悬浮微拟物操作胶囊群 */}
           <View style={styles.heroActionsRow}>
-            {/* 核心大号播放胶囊 */}
+            {/* 核心播放胶囊 */}
             <Pressable
+              hitSlop={8}
               style={({ pressed }) => [styles.actionButton, styles.buttonSecondary, pressed && styles.buttonPressed]}
               onPress={() => void playArtistTracks(0)}
               accessibilityRole="button"
               accessibilityLabel="播放全部"
             >
-              <Icon name="play" size={iconSize.sm} color={colors.textPrimary} filled />
-              <Text style={styles.actionButtonText}>播放全部</Text>
+              <Icon name="play" size={16} color={colors.textPrimary} filled />
+              <Text style={styles.actionButtonLabel}>播放全部</Text>
             </Pressable>
 
             {/* 喜欢 / 取消喜欢胶囊 */}
             <Pressable
+              hitSlop={8}
               style={({ pressed }) => [
                 styles.actionButton,
                 styles.buttonSecondary,
@@ -414,11 +435,11 @@ export function ArtistDetailScreen() {
             >
               <Icon
                 name="heart"
-                size={iconSize.sm}
+                size={16}
                 color={isFavorited ? colors.like : colors.textPrimary}
                 filled={isFavorited}
               />
-              <Text style={[styles.actionButtonText, isFavorited && { color: colors.like }]}>
+              <Text style={[styles.actionButtonLabel, isFavorited && { color: colors.like }]}>
                 {isFavorited ? '取消喜欢' : '喜欢'}
               </Text>
             </Pressable>
@@ -427,7 +448,7 @@ export function ArtistDetailScreen() {
       </View>
 
       {/* 3. 随页面自然滚动的分类页签（精选 | 专辑 | 全部歌曲） */}
-      <View style={styles.tabsWrapper}>
+      <View style={styles.tabsWrapper} onLayout={(e) => { setTabsY(e.nativeEvent.layout.y); setTabsHeight(e.nativeEvent.layout.height); }}>
         <SegmentedTabs items={TABS} value={tab} onChange={handleTabChange} accessibilityLabel="音乐人内容分类" />
       </View>
     </View>
@@ -437,19 +458,23 @@ export function ArtistDetailScreen() {
     <View style={styles.root}>
       {titleScreen}
 
+      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }, headerAnimatedStyle]} onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}>
+        {headerComponent}
+      </Animated.View>
+
       <TabPager activeIndex={activeTabIndex} lazy={false} style={styles.flex}>
         {/* ========== TAB 1: 精选 (Overview) ========== */}
         <View style={styles.flex}>
-          <FlatList
+          <Animated.FlatList
             ref={overviewListRef}
             data={popularTracks}
             keyExtractor={(item) => `pop-${item.id}`}
             contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
             scrollEventThrottle={16}
-            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
+            onScroll={scrollHandler}
             ListHeaderComponent={
               <View>
-                {headerComponent}
+                <View style={{ height: headerHeight }} />
 
                 {/* 分区 1：热门歌曲 Top 5 */}
                 <View style={styles.sectionHeaderWrap}>
@@ -568,7 +593,7 @@ export function ArtistDetailScreen() {
                         <Icon name="chevronRight" size={13} color={colors.textTertiary} />
                       </Pressable>
                     </View>
-                    <FlatList
+                    <Animated.FlatList
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       data={albums.items}
@@ -600,7 +625,7 @@ export function ArtistDetailScreen() {
 
         {/* ========== TAB 2: 专辑网格 (Albums Wall) ========== */}
         <View style={styles.flex}>
-          <FlatList
+          <Animated.FlatList
             ref={albumsListRef}
             data={albums.items}
             key={columns}
@@ -609,8 +634,8 @@ export function ArtistDetailScreen() {
             contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
             columnWrapperStyle={{ gap, paddingHorizontal: spacing.lg }}
             scrollEventThrottle={16}
-            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
-            ListHeaderComponent={headerComponent}
+            onScroll={scrollHandler}
+            ListHeaderComponent={<View style={{ height: headerHeight }} />}
             ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
             renderItem={({ item }) => (
               <Link href={href.album(item.id)} asChild>
@@ -654,16 +679,16 @@ export function ArtistDetailScreen() {
 
         {/* ========== TAB 3: 全部歌曲 (All Tracks) ========== */}
         <View style={styles.flex}>
-          <FlatList
+          <Animated.FlatList
             ref={tracksListRef}
             data={allTracks.items}
             keyExtractor={(item) => `all-${item.id}`}
             contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
             scrollEventThrottle={16}
-            onScroll={(e) => handleScroll(e.nativeEvent.contentOffset.y)}
+            onScroll={scrollHandler}
             ListHeaderComponent={
               <View onLayout={(e) => setTracksHeaderHeight(e.nativeEvent.layout.height)}>
-                {headerComponent}
+                <View style={{ height: headerHeight }} />
                 <View
                   style={styles.toolbarSlot}
                   onLayout={(e) => setToolbarHeight(e.nativeEvent.layout.height)}
@@ -708,7 +733,7 @@ export function ArtistDetailScreen() {
 
       {/* 滚动过头部后吸附顶部的精简工具条 */}
       {tab === 'tracks' && isToolbarPinned && allTracks.total > 0 ? (
-        <DetailPinnedToolbar top={topHeaderOffset}>
+        <DetailPinnedToolbar top={topHeaderOffset + tabsHeight}>
           {toolbar}
         </DetailPinnedToolbar>
       ) : null}
@@ -748,6 +773,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   heroRoot: {
     paddingBottom: spacing.sm,
+    backgroundColor: colors.bgPrimary,
   },
   billboardContainer: {
     width: '100%',
@@ -818,20 +844,18 @@ const useStyles = createThemedStyles((colors) => ({
   heroActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginTop: 2,
+    gap: 15,
+    marginTop: 4,
+    paddingHorizontal: 16,
     width: '100%',
-    paddingHorizontal: spacing.sm,
   },
   actionButton: {
     flex: 1,
-    maxWidth: 180,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs + 2,
-    height: 44,
     borderRadius: radius.pill,
   },
   buttonSecondary: {
@@ -842,14 +866,17 @@ const useStyles = createThemedStyles((colors) => ({
   buttonFavoriteActive: {
     borderColor: colors.borderEmphasis,
   },
-  buttonPressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.98 }],
-  },
-  actionButtonText: {
-    ...typography.callout,
+  actionButtonLabel: {
+    ...typography.subhead,
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: colors.textPrimary,
+  },
+  buttonPressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.96 }],
   },
   tabsWrapper: {
     marginTop: spacing.md,

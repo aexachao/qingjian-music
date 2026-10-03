@@ -1,0 +1,16 @@
+diff --git a/ios/NetworkType.swift b/ios/NetworkType.swift
+index 3cfa163..b1069ad 100644
+--- a/ios/NetworkType.swift
++++ b/ios/NetworkType.swift
+@@ -3,9 +3,9 @@
+ extension NWInterface.InterfaceType: CaseIterable {
+   public static var allCases: [NWInterface.InterfaceType] = [
+-    .other,
+     .wifi,
++    .wiredEthernet,
+     .cellular,
+     .loopback,
+-    .wiredEthernet
++    .other
+   ]
+ }

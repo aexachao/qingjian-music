@@ -48,8 +48,10 @@ public class AudioDownloaderModule: Module {
     }
 
     /// 未完成作业（JS 启动时对账：谁还在下、谁已经可以拼装了）
-    AsyncFunction("pendingJobs") {
-      AudioDownloaderSession.shared.pendingJobs()
+    AsyncFunction("pendingJobs") { (promise: Promise) in
+      AudioDownloaderSession.shared.pendingJobs { jobs in
+        promise.resolve(jobs)
+      }
     }
 
     /// 分片齐了就地拼装（对账路径用；返回是否真的拼了）

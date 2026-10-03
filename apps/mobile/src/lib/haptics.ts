@@ -19,10 +19,10 @@ import * as Haptics from 'expo-haptics'
 
 /** 普通按钮点击 */
 export function tap(): void {
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
 }
 
 /** 连续控件滑动 */
 export function select(): void {
-  void Haptics.selectionAsync()
+  void Haptics.selectionAsync().catch(() => {})
 }

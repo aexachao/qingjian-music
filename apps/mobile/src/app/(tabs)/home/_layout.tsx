@@ -10,7 +10,7 @@ export default function StackLayout() {
       <Stack.Screen name="album/[id]" options={detailScreenOptions} />
       <Stack.Screen name="playlist/[id]" options={detailScreenOptions} />
       <Stack.Screen name="artist/[id]" options={detailScreenOptions} />
-      <Stack.Screen name="favorites" options={detailScreenOptions} />
+      <Stack.Screen name="favorites" options={{ title: '我喜欢的音乐' }} />
     </Stack>
   )
 }

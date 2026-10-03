@@ -1,107 +1,99 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { LyricSheet } from '@qj/core-domain'
-import { LYRIC_TIER_RANK } from '@qj/core-domain'
-import type { MusicProvider } from '@qj/provider-api'
 import { useServerSession } from '@/lib/server-session'
-import { readCachedLyric, writeCachedLyric } from '@/lib/lyric-cache'
-import { fetchExternalLyricSheet, type LyricQueryMeta } from '@/lib/external-lyrics'
+import { lyricQueryOptions, type LyricQueryMeta } from '@/lib/lyric-loader'
+import { externalSourceCacheIdentity } from '@/lib/external-source-cache-key'
+import { useExternalSourcesStore } from '@/lib/external-source'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 
-/** 每次调整多少毫秒 */
-export const OFFSET_STEP_MS = 500
+export {
+  fetchLyricSheet,
+  loadLyricSheet,
+  lyricQueryKey,
+  lyricQueryOptions,
+  LYRIC_RETRY_STALE_MS,
+  LYRIC_STALE_MS,
+} from '@/lib/lyric-loader'
+
+/** 每次调整多少毫秒（0.1 秒精细微调） */
+export const OFFSET_STEP_MS = 100
 /** 写回防抖：与 web 端一致的 700ms，避免连点时把每一次都发出去 */
 const WRITEBACK_DELAY_MS = 700
 
-/** 把偏移毫秒显示成「+0.5 秒」这种人话 */
+/** 歌词进度状态文案（对齐 Apple 规范）：如「歌词进度 正常」或「歌词进度 提前 0.1 秒」 */
+export function formatProgressStatus(offsetMs: number): string {
+  if (Math.abs(offsetMs) < 10) return '歌词进度 正常'
+  const seconds = (Math.abs(offsetMs) / 1000).toFixed(1)
+  const action = offsetMs > 0 ? '提前' : '延后'
+  return `歌词进度 ${action} ${seconds} 秒`
+}
+
+/** 把偏移毫秒显示成「+0.1 秒」这种人话 */
 export function formatOffset(offsetMs: number): string {
-  if (offsetMs === 0) return '0 秒'
+  if (Math.abs(offsetMs) < 10) return '0 秒'
   const sign = offsetMs > 0 ? '+' : '-'
   return `${sign}${(Math.abs(offsetMs) / 1000).toFixed(1)} 秒`
-}
-
-/** 歌词几乎不变，缓存久一点省请求 */
-export const LYRIC_STALE_MS = 30 * 60_000
-
-/** 歌词查询 key。hook 与「分享歌词」这类命令式读取共用，避免两处 key 漂移 */
-export function lyricQueryKey(serverId: string | undefined, trackId: string) {
-  return ['lyrics', serverId, trackId] as const
-}
-
-/** lyrics 是能力可选方法：后端不支持时直接当作没有歌词 */
-export function fetchLyricSheet(
-  provider: Pick<MusicProvider, 'lyrics'> | null | undefined,
-  trackId: string,
-): Promise<LyricSheet | null> {
-  return provider?.lyrics ? provider.lyrics(trackId) : Promise.resolve(null)
-}
-
-/**
- * 取歌词：**本地优先**，其次飞牛，最后外部源。
- * 本地命中（按「逐字 > 整行 > 纯文本」取最好的一份）就直接返回；
- * 未命中才打飞牛；若飞牛不是逐字且用户配了外部源，再试外部源拿逐字，按档位择优。
- */
-export async function loadLyricSheet(
-  provider: Pick<MusicProvider, 'lyrics'> | null | undefined,
-  serverId: string | undefined,
-  trackId: string,
-  meta?: LyricQueryMeta,
-): Promise<LyricSheet | null> {
-  if (serverId) {
-    const cached = readCachedLyric(serverId, trackId)
-    if (cached) return cached
-  }
-  let best = await fetchLyricSheet(provider, trackId)
-  // 飞牛 非逐字（或无）+ 用户配了外部源 → 试拿更好的（尤其逐字）
-  if ((!best || best.tier !== 'word') && meta?.title) {
-    const external = await fetchExternalLyricSheet(meta)
-    if (external && (!best || LYRIC_TIER_RANK[external.tier] < LYRIC_TIER_RANK[best.tier])) {
-      best = external
-    }
-  }
-  if (best && serverId) writeCachedLyric(serverId, trackId, best)
-  return best
 }
 
 /** 当前曲目的歌词。歌词页、播放页「···」菜单、分享歌词共用同一份缓存 */
 export function useLyricSheet(trackId: string) {
   const { provider, connection } = useServerSession()
+  const sourceRevision = useExternalSourcesStore((state) => state.revision)
+  const services = useExternalSourcesStore((state) => state.services)
+  const sourceIdentity = externalSourceCacheIdentity(services)
   // 外部歌词源（网易云/LrcAPI）靠歌名+艺人搜索，从当前队列项拿元数据
   const current = usePlayerStore(selectCurrent)
   const meta: LyricQueryMeta | undefined =
     current && current.trackId === trackId
       ? { title: current.title, artist: current.artistText, album: current.albumText }
       : undefined
-  return useQuery<LyricSheet | null>({
-    queryKey: lyricQueryKey(connection?.id, trackId),
-    enabled: Boolean(provider && trackId),
-    queryFn: () => loadLyricSheet(provider, connection?.id, trackId, meta),
-    staleTime: LYRIC_STALE_MS,
+  return useQuery({
+    ...lyricQueryOptions(provider, connection?.id, trackId, meta, sourceRevision, sourceIdentity),
+    // The player can temporarily point at a track before its title/artist arrives.
+    // Wait so this query is not cached as a metadata-less null result.
+    enabled: Boolean(provider && trackId && meta?.title),
   })
 }
 
 /**
  * 歌词偏移：调整、防抖写回服务端、换歌时用服务端保存的值作初值。
  *
- * 偏移入口放在播放页的「···」菜单里，歌词页只负责显示，
- * 这样歌词页和播放器页下方的组件位置完全一致，也方便做歌词全屏。
+ * 歌词页的调整面板与时间轴共用这一份偏移状态。
  */
 export function useLyricOffset(trackId: string) {
   const { provider } = useServerSession()
   const { data: sheet } = useLyricSheet(trackId)
-  const offsetMs = usePlayerStore((state) => state.lyricOffsetMs)
+  const sourceRevision = useExternalSourcesStore((state) => state.revision)
+  const services = useExternalSourcesStore((state) => state.services)
+  const sourceIdentity = externalSourceCacheIdentity(services)
+  const offsetMs = usePlayerStore((state) => state.lyricOffsetTrackId === trackId ? state.lyricOffsetMs : 0)
   const setLyricOffsetMs = usePlayerStore((state) => state.setLyricOffsetMs)
 
   const lyricId = sheet?.id
   const canWriteback = Boolean(provider?.setLyricOffset && provider.capabilities.lyricOffsetWriteback && lyricId)
 
   // 换歌后用服务端保存的偏移作为初值（store 里的偏移是全局单值）
-  const seededTrackId = useRef<string | null>(null)
+  const seeded = useRef<{ trackId: string; sourceRevision: number; sourceIdentity: string; hasSheet: boolean; lyricId?: string } | null>(null)
   useEffect(() => {
-    if (!sheet || seededTrackId.current === trackId) return
-    seededTrackId.current = trackId
-    setLyricOffsetMs(sheet.offsetMs)
-  }, [sheet, trackId, setLyricOffsetMs])
+    if (seeded.current?.trackId !== trackId || seeded.current.sourceRevision !== sourceRevision || seeded.current.sourceIdentity !== sourceIdentity) {
+      const saved = usePlayerStore.getState()
+      const initialOffset = sheet?.offsetMs
+        ?? (seeded.current === null && saved.lyricOffsetTrackId === trackId ? saved.lyricOffsetMs : 0)
+      seeded.current = { trackId, sourceRevision, sourceIdentity, hasSheet: Boolean(sheet), lyricId: sheet?.id }
+      setLyricOffsetMs(initialOffset, trackId)
+      return
+    }
+    if (!sheet) {
+      if (seeded.current.hasSheet) {
+        seeded.current = { trackId, sourceRevision, sourceIdentity, hasSheet: false }
+        setLyricOffsetMs(0, trackId)
+      }
+      return
+    }
+    if (seeded.current.hasSheet && seeded.current.lyricId === sheet.id) return
+    seeded.current = { trackId, sourceRevision, sourceIdentity, hasSheet: true, lyricId: sheet.id }
+    setLyricOffsetMs(sheet.offsetMs, trackId)
+  }, [sheet, sourceRevision, sourceIdentity, trackId, setLyricOffsetMs])
 
   const pending = useRef<{ trackId: string; lyricId: string; offsetMs: number } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -125,14 +117,15 @@ export function useLyricOffset(trackId: string) {
 
   const adjust = useCallback(
     (deltaMs: number) => {
-      const next = offsetMs + deltaMs
-      setLyricOffsetMs(next)
+      const state = usePlayerStore.getState()
+      const next = (state.lyricOffsetTrackId === trackId ? state.lyricOffsetMs : 0) + deltaMs
+      setLyricOffsetMs(next, trackId)
       if (!canWriteback || !lyricId) return
       pending.current = { trackId, lyricId, offsetMs: next }
       if (timer.current !== null) clearTimeout(timer.current)
       timer.current = setTimeout(flush, WRITEBACK_DELAY_MS)
     },
-    [canWriteback, flush, lyricId, offsetMs, setLyricOffsetMs, trackId],
+    [canWriteback, flush, lyricId, setLyricOffsetMs, trackId],
   )
 
   return {

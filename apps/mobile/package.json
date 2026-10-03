@@ -42,6 +42,7 @@
     "expo-linking": "~57.0.9",
     "expo-network": "~57.0.2",
     "expo-router": "~57.0.19",
+    "expo-screen-orientation": "~57.0.2",
     "expo-secure-store": "~57.0.3",
     "expo-splash-screen": "~57.0.8",
     "expo-status-bar": "~57.0.1",
@@ -67,6 +68,8 @@
   "devDependencies": {
     "@types/node": "22.20.1",
     "@types/react": "~19.2.2",
+    "@types/react-test-renderer": "19.1.0",
+    "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3",
     "vitest": "^5.0.0"
   }

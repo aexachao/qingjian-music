@@ -267,7 +267,8 @@ export function IconButton({
       style={({ pressed }) => [
         styles.button,
         isActive && styles.buttonActive,
-        pressed && styles.buttonPressed,
+        pressed && !disabled && styles.buttonPressed,
+        disabled && styles.buttonDisabled,
         style,
       ]}
       accessibilityRole="button"
@@ -280,7 +281,7 @@ export function IconButton({
           color={colors.loadingIndicator}
         />
       ) : icon.name ? (
-        <Icon name={icon.name} {...icon} />
+        <Icon name={icon.name} {...icon} color={disabled ? (icon.color ? icon.color : colors.textTertiary) : icon.color} />
       ) : null}
     </Pressable>
   )
@@ -290,4 +291,5 @@ const useStyles = createThemedStyles((colors) => ({
   button: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
   buttonActive: { backgroundColor: colors.bgListItemActive },
   buttonPressed: { backgroundColor: colors.bgListItemHover },
+  buttonDisabled: { opacity: 0.32 },
 }))

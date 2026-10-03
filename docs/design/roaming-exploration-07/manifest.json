@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "project": "轻简音乐 · 随心漫游",
+  "brief": "07 轮：当前手机首页中的卡片探索。比较现状与三个新方向；顶部灰条仅为预览工具，可切换两种状态、暂停动效、深浅色。图片为 AI 生成，列表为本地演示内容，未接真实播放；App 文件未修改。",
+  "round": "07",
+  "candidates": [
+    {
+      "id": "baseline",
+      "name": "柔和细环 · 现状",
+      "concept": "半露黑胶留下唱片的触感，保留最熟悉的首页。",
+      "typography": "沿用 iOS 系统字体：标题 18–20pt / 600，状态 12pt；保持现有 App 文字规范。",
+      "palette": [
+        "#101010",
+        "#1b1b1b",
+        "#ad6675"
+      ],
+      "traits": [
+        "半露裁切",
+        "16 秒慢旋转",
+        "小圆孔，无封面",
+        "无重复曲名、无重新漫游按钮"
+      ],
+      "kind": "html",
+      "source": "baseline.html",
+      "interactive": true,
+      "baseline": true
+    },
+    {
+      "id": "turntable",
+      "name": "桌面唱机",
+      "concept": "把漫游变成放下一枚唱针，器物从卡片底部探出。",
+      "typography": "沿用 iOS 系统字体：标题 18–20pt / 600，状态 12pt；保持现有 App 文字规范。",
+      "palette": [
+        "#161618",
+        "#55565a",
+        "#ad6675"
+      ],
+      "traits": [
+        "大物件裁切，标题上置",
+        "炭灰铝与银色唱臂",
+        "播放时转盘光影缓慢流动",
+        "无重复曲名、无重新漫游按钮"
+      ],
+      "kind": "html",
+      "source": "turntable.html",
+      "interactive": true
+    },
+    {
+      "id": "radio",
+      "name": "口袋电台",
+      "concept": "像打开随身电台，让下一首自然抵达。",
+      "typography": "沿用 iOS 系统字体：标题 18–20pt / 600，状态 12pt；保持现有 App 文字规范。",
+      "palette": [
+        "#242323",
+        "#b6b1a9",
+        "#ad6675"
+      ],
+      "traits": [
+        "居中实物，标题下置",
+        "暖银色扬声器网孔",
+        "播放时向外扩散微弱信号",
+        "无重复曲名、无重新漫游按钮"
+      ],
+      "kind": "html",
+      "source": "radio.html",
+      "interactive": true
+    },
+    {
+      "id": "signal",
+      "name": "声音轨道",
+      "concept": "让漫游成为一条没有终点的声音路线。",
+      "typography": "沿用 iOS 系统字体：标题 18–20pt / 600，状态 12pt；保持现有 App 文字规范。",
+      "palette": [
+        "#1a2020",
+        "#78918b",
+        "#b57783"
+      ],
+      "traits": [
+        "全幅曲线，标题靠下",
+        "灰绿卡片与低饱和游标",
+        "播放时光点沿轨道缓行",
+        "无重复曲名、无重新漫游按钮"
+      ],
+      "kind": "html",
+      "source": "signal.html",
+      "interactive": true
+    }
+  ]
+}

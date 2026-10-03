@@ -16,6 +16,22 @@ export interface FnosClientOptions {
    * 错误会原样抛给上层，由 UI 决定是否退到登录页。
    */
   reauthorize?: () => Promise<string | undefined>
+  /** GET 遇到可切线的网络错误后，协调器验证备用地址并切换时返回 true。 */
+  recoverRoute?: (failedBaseUrl: string) => Promise<boolean>
+  /** 同一 provider 的路线快照共享 token 与 401 刷新单飞状态。 */
+  authState?: FnosAuthState
+}
+
+export interface FnosAuthState {
+  token?: string
+  refreshing?: Promise<string | undefined>
+}
+
+/** 认证生命周期请求不能递归触发静默重登。 */
+export interface FnosRequestOptions extends RequestOptions {
+  skipReauth?: boolean
+  /** 对不理会 abort 的 fetch 也强制返回；只用于故障恢复预检等有明确上限的读请求。 */
+  hardTimeoutMs?: number
 }
 
 /**
@@ -23,16 +39,24 @@ export interface FnosClientOptions {
  * 鉴权用 `authorization: <token>`（裸 token，不是 Bearer），实测 query token 不被接受。
  */
 export class FnosClient {
-  private token: string | undefined
-  private readonly http: HttpClient
+  private readonly authState: FnosAuthState
+  private http: HttpClient
+  private root: string
+  private readonly timeoutMs: number | undefined
+  private readonly fetchImpl: typeof fetch | undefined
   private readonly reauthorize: (() => Promise<string | undefined>) | undefined
-  /** 单飞：并发请求同时 401 时只重登一次 */
-  private refreshing: Promise<string | undefined> | null = null
-
+  private readonly recoverRoute: ((failedBaseUrl: string) => Promise<boolean>) | undefined
   constructor(options: FnosClientOptions) {
-    this.token = options.token
+    this.authState = options.authState ?? { token: options.token }
     this.reauthorize = options.reauthorize
-    const root = options.baseUrl.replace(/\/+$/, '')
+    this.recoverRoute = options.recoverRoute
+    this.timeoutMs = options.timeoutMs
+    this.fetchImpl = options.fetchImpl
+    this.root = options.baseUrl.replace(/\/+$/, '')
+    this.http = this.makeHttp(this.root)
+  }
+
+  private makeHttp(root: string): HttpClient {
     /**
      * FN ID 走的是 `https://<fnid>.fnos.net` 中继。这个域名同时也是浏览器门户，
      * 不带 `Cookie: mode=relay` 时 nginx 会把**所有**请求 302 到 `https://fnos.net/<fnid>/`
@@ -43,24 +67,44 @@ export class FnosClient {
      * 不会出现「某个入口忘了带」的漏网。
      */
     const relayHeaders = relayHeadersFor(root)
-    this.http = new HttpClient({
+    return new HttpClient({
       baseUrl: `${root}${FNOS_API_PREFIX}`,
-      timeoutMs: options.timeoutMs,
-      fetchImpl: options.fetchImpl,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
       headers: () => {
         const headers: Record<string, string> = {}
-        if (this.token) headers['authorization'] = this.token
+        if (this.authState.token) headers['authorization'] = this.authState.token
         return { ...headers, ...relayHeaders }
       },
     })
   }
 
+  setBaseUrl(baseUrl: string): void {
+    this.root = baseUrl.replace(/\/+$/, '')
+    this.http = this.makeHttp(this.root)
+  }
+
+  getBaseUrl(): string {
+    return this.root
+  }
+
+  /** 用创建时路线固定转码会话，避免旧会话的 quit 误伤新线路上的同 guid 会话。 */
+  snapshot(): FnosClient {
+    return new FnosClient({
+      baseUrl: this.root,
+      authState: this.authState,
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
+      ...(this.reauthorize ? { reauthorize: this.reauthorize } : {}),
+    })
+  }
+
   setToken(token: string | undefined): void {
-    this.token = token
+    this.authState.token = token
   }
 
   hasToken(): boolean {
-    return Boolean(this.token)
+    return Boolean(this.authState.token)
   }
 
   /** 音频与封面直接给播放器 / 图片组件用，所以要能单独拿到 url 和 headers */
@@ -72,39 +116,83 @@ export class FnosClient {
     return this.http.authHeaders()
   }
 
-  async get<T>(path: string, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
-    return this.withReauth(path, schema, () => this.http.getJson(path, options))
+  async get<T>(path: string, schema: z.ZodType<T>, options: FnosRequestOptions = {}): Promise<T> {
+    const { skipReauth, hardTimeoutMs, ...requestOptions } = options
+    // 请求开始时所在的线路不能在 await 后从 this.root 反推：别的并发请求可能已
+    // 切线，晚到的旧线路错误必须被识别为旧错误而不是触发一次反向切换。
+    let attemptedBaseUrl = this.root
+    const run = () => {
+      attemptedBaseUrl = this.root
+      const request = this.http.getJson(path, requestOptions)
+      return hardTimeoutMs === undefined ? request : this.withDeadline(request, hardTimeoutMs)
+    }
+    try {
+      return await this.withReauth(path, schema, run, !skipReauth)
+    } catch (error) {
+      // 切歌或页面卸载导致的取消不是网络故障；即使 HTTP 层刚好给出了 5xx，
+      // 也不能再去探测备用线路，更不能在切线后重放这个已放弃的 GET。
+      if (requestOptions.signal?.aborted) throw error
+      if (!this.recoverRoute || !isRouteFailure(error)) throw error
+      if (!await this.recoverRoute(attemptedBaseUrl) || requestOptions.signal?.aborted) throw error
+      return this.withReauth(path, schema, run, !skipReauth)
+    }
   }
 
-  async post<T>(path: string, body: unknown, schema: z.ZodType<T>, options: RequestOptions = {}): Promise<T> {
-    return this.withReauth(path, schema, () => this.http.postJson(path, body, options))
+  async post<T>(path: string, body: unknown, schema: z.ZodType<T>, options: FnosRequestOptions = {}): Promise<T> {
+    const { skipReauth, hardTimeoutMs: _hardTimeoutMs, ...requestOptions } = options
+    return this.withReauth(path, schema, () => this.http.postJson(path, body, requestOptions), !skipReauth)
   }
 
   /** 请求一次；若因 token 失效被拒，静默重登后再试一次 */
-  private async withReauth<T>(path: string, schema: z.ZodType<T>, run: () => Promise<unknown>): Promise<T> {
+  private async withReauth<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    run: () => Promise<unknown>,
+    allowReauth = true,
+  ): Promise<T> {
     try {
       return this.unwrap(await run(), schema, path)
     } catch (error) {
       const expired = isMusicError(error) && error.code === 'unauthorized'
       // 重登过程中自身的请求（login）不再触发重登，避免递归
-      if (!expired || !this.reauthorize) throw error
+      if (!allowReauth || !expired || !this.reauthorize) throw error
       const token = await this.refreshToken()
       if (!token) throw error
+      // snapshot client（转码会话固定线路）也要更新自己的 token；provider 的
+      // restoreSession 只会更新主 client，直接重试快照会继续带旧 token。
+      this.setToken(token)
       return this.unwrap(await run(), schema, path)
     }
   }
 
+  private withDeadline<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false
+      const finish = (callback: () => void) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        callback()
+      }
+      const timer = setTimeout(() => finish(() => reject(new MusicError({ code: 'timeout', message: `请求超时（${timeoutMs}ms）` }))), timeoutMs)
+      void request.then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      )
+    })
+  }
+
   private async refreshToken(): Promise<string | undefined> {
     if (!this.reauthorize) return undefined
-    if (this.refreshing) return this.refreshing
+    if (this.authState.refreshing) return this.authState.refreshing
     const refresh = this.reauthorize()
-    this.refreshing = refresh
+    this.authState.refreshing = refresh
     try {
       return await refresh
     } catch {
       return undefined
     } finally {
-      if (this.refreshing === refresh) this.refreshing = null
+      if (this.authState.refreshing === refresh) this.authState.refreshing = undefined
     }
   }
 
@@ -128,6 +216,12 @@ export class FnosClient {
     }
     return parsed.data
   }
+}
+
+function isRouteFailure(error: unknown): boolean {
+  if (!isMusicError(error)) return false
+  if (error.code === 'network' || error.code === 'timeout') return true
+  return error.code === 'server' && (error.status === 502 || error.status === 503 || error.status === 504)
 }
 
 export function translateCode(code: number, msg: string, path: string): MusicError {

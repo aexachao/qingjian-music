@@ -66,7 +66,7 @@ describe('播放器队列 Tab 交互', () => {
     expect(playerSource).toContain('const [isListAtTop, setIsListAtTop] = useState(true)')
     expect(playerSource).toContain("if (mode === 'list') { setIsListAtTop(true)")
     expect(playerSource).toContain('createDismissPan={createDismissPan}')
-    expect(playerSource).toContain("mode !== 'list' || isListAtTop")
+    expect(playerSource).toContain("mode === 'cover' || isListAtTop")
     expect(queueSource).toContain('bounces={true}')
     expect(queueSource).toContain('alwaysBounceVertical={true}')
     expect(queueSource).toContain('gesture={headerOverlayDismissGesture}')
@@ -97,13 +97,9 @@ describe('播放器队列 Tab 交互', () => {
     expect(controllerSource).toContain('pendingPreviousActivation')
     expect(bridgeSource).toContain('takePendingPreviousActivation')
     expect(bridgeSource).toContain('restorePreviousTrack')
-    // 上一首恢复走 restorePreviousTrack 并保留待播队列；remove([1]) 只允许出现在历史点播分支里，
-    // 所以它的位置必须排在 restorePreviousTrack 之后。
-    expect(bridgeSource).toContain('usePlayerStore.getState().restorePreviousTrack(previousItem)')
-    expect(bridgeSource).toContain('void TrackPlayer.remove([1])')
-    expect(bridgeSource.indexOf('restorePreviousTrack(previousItem)')).toBeLessThan(
-      bridgeSource.indexOf('void TrackPlayer.remove([1])'),
-    )
+    // Native cleanup resolves the consumed occurrence by qid; stale numeric indexes are unsafe.
+    expect(bridgeSource).toContain('usePlayerStore.getState().restorePreviousTracks(previousItem.items, previousItem.historyIds)')
+    expect(bridgeSource).toContain('void removeConsumedNativeTrack(oldCurrent.qid)')
   })
 
   it('待播行「···」菜单接上共享菜单组件，且与主触控区物理隔离', () => {
@@ -124,5 +120,20 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('if (isGlobalMenuInteracting()) return')
     // 待播行数只允许有一个定义
     expect(queueSource).toContain('const upcomingCount = Math.max(0, queue.length - 1)')
+  })
+
+  it('队列列表区域支持左右滑动手势切换 Tab，并与右侧左滑删除物理隔离避免冲突', () => {
+    // 列表区域手势切换
+    expect(queueSource).toContain('Gesture.Pan()')
+    expect(queueSource).toContain('gesture={pagerPanGesture}')
+    expect(queueSource).toContain('.activeOffsetX([-18, 18])')
+    expect(queueSource).toContain('.failOffsetY([-12, 12])')
+    // 物理隔离左滑删除范围与切 Tab 手势
+    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT = 104')
+    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE = 88')
+    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT = 64')
+    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE = 40')
+    expect(queueSource).toContain('hitSlop={swipeHitSlop}')
+    expect(queueSource).toContain('const swipeHitSlop = useMemo(')
   })
 })

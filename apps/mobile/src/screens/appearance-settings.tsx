@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { Icon, iconSize } from '@/components/icon'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -11,7 +11,7 @@ import {
   type ThemeMode,
 } from '@/lib/appearance-preferences'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { fonts, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
 import { supportsAlternateIcons } from '../../modules/app-icon'
 
 /**
@@ -23,6 +23,8 @@ export function AppearanceSettingsScreen() {
   const colors = useThemeColors()
   const styles = useStyles()
   const bottom = useBottomSpace()
+  const { width, fontScale } = useWindowDimensions()
+  const logoColumns = width < 380 || fontScale > 1.2 ? 2 : 4
   const { themeMode, activeLogoId, setThemeMode, setActiveLogoId } = useAppearancePreferences()
   const [pendingLogoId, setPendingLogoId] = useState<AppLogoOption['id'] | null>(null)
   /** 平台是否支持更换桌面图标。原生侧是异步方法，所以取一次存进 state */
@@ -81,12 +83,12 @@ export function AppearanceSettingsScreen() {
                     style={({ pressed }) => [styles.themeRow, pressed && styles.rowPressed]}
                     onPress={() => onSelectTheme(option.value)}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: isSelected }}
+                    accessibilityState={{ checked: isSelected }}
                     accessibilityLabel={`${option.label}，${option.description}`}
                   >
                     <View style={styles.themeInfo}>
                       <Text style={styles.themeLabel}>{option.label}</Text>
-                      <Text style={styles.themeDescription}>{option.description}</Text>
+                      {option.value === 'system' ? <Text style={styles.themeDescription}>{option.description}</Text> : null}
                     </View>
                     {isSelected ? (
                       <Icon name="check" size={iconSize.md} color={colors.stateSelected} />
@@ -118,11 +120,11 @@ export function AppearanceSettingsScreen() {
                 return (
                   <Pressable
                     key={logo.id}
-                    style={({ pressed }) => [styles.logoItem, pressed && styles.logoItemPressed]}
+                    style={({ pressed }) => [styles.logoItem, { width: `${100 / logoColumns}%` }, pressed && styles.logoItemPressed]}
                     onPress={() => void onSelectLogo(logo)}
                     disabled={pendingLogoId !== null}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: isSelected, disabled: pendingLogoId !== null }}
+                    accessibilityState={{ checked: isSelected, disabled: pendingLogoId !== null }}
                     accessibilityLabel={`${logo.name}${logo.isDefault ? '，默认图标' : ''}`}
                   >
                     {/*
@@ -134,7 +136,7 @@ export function AppearanceSettingsScreen() {
                     <View style={[styles.logoRing, isSelected && styles.logoRingSelected]}>
                       <Image source={logo.source} style={styles.logoImage} resizeMode="cover" />
                     </View>
-                    <Text numberOfLines={1} style={[styles.logoName, isSelected && styles.logoNameActive]}>
+                    <Text style={[styles.logoName, isSelected && styles.logoNameActive]}>
                       {logo.name}
                     </Text>
                   </Pressable>
@@ -165,26 +167,24 @@ const useStyles = createThemedStyles((colors) => ({
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     justifyContent: 'space-between',
     paddingHorizontal: 4,
   },
   sectionTitle: {
-    ...typography.subhead,
-    fontSize: 14,
+    ...typography.footnote,
     fontWeight: '600',
     color: colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
     paddingHorizontal: 4,
   },
   sectionSubtitle: {
-    ...typography.caption,
-    fontSize: 12,
+    ...typography.footnote,
     color: colors.textQuaternary,
   },
   card: {
     backgroundColor: colors.bgCard,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
   },
   themeRow: {
@@ -192,8 +192,8 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: 14,
-    minHeight: 60,
+    paddingVertical: spacing.md,
+    minHeight: 56,
   },
   rowPressed: {
     backgroundColor: colors.bgCardHover,
@@ -204,14 +204,12 @@ const useStyles = createThemedStyles((colors) => ({
     paddingRight: spacing.md,
   },
   themeLabel: {
-    ...typography.body,
-    fontSize: 16,
+    ...typography.callout,
     fontWeight: '500',
     color: colors.textPrimary,
   },
   themeDescription: {
-    ...typography.caption,
-    fontSize: 13,
+    ...typography.footnote,
     color: colors.textTertiary,
   },
   checkPlaceholder: {
@@ -225,14 +223,9 @@ const useStyles = createThemedStyles((colors) => ({
   },
   logoGridCard: {
     backgroundColor: colors.bgCard,
-    borderRadius: 20,
+    borderRadius: radius.lg,
     padding: spacing.sm,
   },
-  /**
-   * 一行固定 4 个。用 `width: '25%'` 而不是 `flexGrow` + `gap`：
-   * 后者会把 3 个图标拉伸铺满整行，第 4 格就不存在了 —— 而需求是
-   * 「只有 3 个也按 4 个排」，第 4 格必须留白。
-   */
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -271,13 +264,12 @@ const useStyles = createThemedStyles((colors) => ({
     borderRadius: 16,
   },
   logoName: {
-    ...typography.caption,
+    ...typography.footnote,
     color: colors.textSecondary,
     textAlign: 'center',
   },
   logoNameActive: {
-    fontFamily: fonts.medium,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.stateSelected,
   },
 }))

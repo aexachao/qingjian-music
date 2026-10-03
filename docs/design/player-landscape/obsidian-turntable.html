@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>黑曜典藏 · 机械唱机</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0c10;
+      --panel-bg: #14161d;
+      --metal-border: rgba(255, 255, 255, 0.09);
+      --amber: #e5a950;
+      --text-pri: #ececed;
+      --text-sec: #8c8f9b;
+      --text-muted: #535663;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text-pri);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .preview-bar {
+      height: 38px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #111318;
+      border-bottom: 1px solid var(--metal-border);
+      font-size: 12px;
+      color: var(--text-sec);
+      z-index: 100;
+    }
+    .preview-bar button {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: inherit;
+      padding: 3px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      transition: all 0.2s;
+    }
+    .preview-bar button:hover, .preview-bar button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .preview-bar .sep { width: 1px; height: 14px; background: rgba(255,255,255,0.15); }
+
+    .landscape-stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 40px;
+      background: radial-gradient(ellipse at 50% 30%, #151821 0%, #090a0d 100%);
+    }
+
+    .content-split {
+      width: 100%;
+      height: 100%;
+      max-width: 960px;
+      display: grid;
+      grid-template-columns: 5fr 5fr;
+      gap: 32px;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* 左侧：黑曜石唱片机与拟物唱针 */
+    .turntable-deck {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      position: relative;
+    }
+    .platter-chassis {
+      position: relative;
+      width: min(280px, 58vh);
+      height: min(280px, 58vh);
+      background: radial-gradient(circle, #1c1e28 0%, #101218 80%);
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 
+        0 24px 50px -15px rgba(0, 0, 0, 0.9),
+        inset 0 0 0 6px #0b0c10,
+        inset 0 0 0 8px rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .vinyl-disc {
+      width: 90%;
+      height: 90%;
+      position: relative;
+      border-radius: 50%;
+      background-image: url('assets/vinyl.png');
+      background-size: cover;
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.85);
+      animation: vinylSpin 16s linear infinite;
+    }
+    @keyframes vinylSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .center-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 36%;
+      height: 36%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background-image: url('assets/cover.jpg');
+      background-size: cover;
+      border: 3px solid #000;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+    }
+    .center-spindle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: #silver;
+      background: linear-gradient(135deg, #e0e0e0, #404040);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+
+    /* 机械唱针与转臂 */
+    .tone-arm-anchor {
+      position: absolute;
+      top: -12px;
+      right: 4px;
+      width: 76px;
+      height: 160px;
+      pointer-events: none;
+      transform-origin: 38px 24px;
+      transition: transform 0.8s cubic-bezier(0.2, 0.9, 0.3, 1);
+      transform: rotate(24deg); /* 播放中压在唱片上 */
+    }
+    .paused .tone-arm-anchor {
+      transform: rotate(-12deg); /* 暂停时抬针归位 */
+    }
+    .tone-arm-base {
+      position: absolute;
+      top: 14px;
+      left: 28px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #444, #111);
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+    }
+    .tone-arm-pole {
+      position: absolute;
+      top: 24px;
+      left: 36px;
+      width: 3px;
+      height: 110px;
+      background: linear-gradient(to right, #ccc, #777);
+      border-radius: 2px;
+      transform-origin: top center;
+      transform: rotate(-6deg);
+    }
+    .tone-arm-cartridge {
+      position: absolute;
+      bottom: 22px;
+      left: 21px;
+      width: 14px;
+      height: 22px;
+      background: #e5a950;
+      border-radius: 2px;
+      border: 1px solid #111;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    }
+
+    /* 右侧：专业台机面板 + 动态频谱 + 歌词 */
+    .right-console {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 88%;
+      padding: 10px 14px;
+      background: rgba(20, 22, 29, 0.55);
+      border: 1px solid var(--metal-border);
+      border-radius: 20px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 16px 40px -15px rgba(0, 0, 0, 0.6);
+    }
+
+    .console-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 12px;
+    }
+    .meta-title-box {
+      max-width: 70%;
+    }
+    .console-title {
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .console-artist {
+      font-size: 13px;
+      color: var(--text-sec);
+      margin-top: 3px;
+    }
+
+    /* 模拟动态频谱表 */
+    .spectrum-box {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 22px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .spectrum-bar {
+      width: 3px;
+      background: var(--amber);
+      border-radius: 1px;
+      height: 8px;
+      animation: spectrumJump 0.8s ease-in-out infinite alternate;
+    }
+    .spectrum-bar:nth-child(2) { animation-delay: 0.15s; height: 16px; }
+    .spectrum-bar:nth-child(3) { animation-delay: 0.3s; height: 12px; }
+    .spectrum-bar:nth-child(4) { animation-delay: 0.45s; height: 18px; }
+    .spectrum-bar:nth-child(5) { animation-delay: 0.1s; height: 9px; }
+    @keyframes spectrumJump {
+      0% { height: 4px; opacity: 0.5; }
+      100% { height: 19px; opacity: 1; }
+    }
+
+    /* 中段：紧凑居中双语歌词 */
+    .console-lyrics {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 8px;
+      padding: 10px 0;
+    }
+    .lyric-prev {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .lyric-now {
+      font-size: 17px;
+      font-weight: 600;
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(229, 169, 80, 0.3);
+    }
+    .lyric-now-sub {
+      font-size: 12px;
+      color: rgba(229, 169, 80, 0.85);
+      margin-top: 2px;
+    }
+    .lyric-next {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* 刻度进度与实体按钮面板 */
+    .console-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 10px;
+    }
+    .ruler-progress {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ruler-track {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      position: relative;
+      cursor: pointer;
+    }
+    .ruler-fill {
+      width: 58%;
+      height: 100%;
+      background: var(--amber);
+      border-radius: 2px;
+    }
+    .ruler-thumb {
+      position: absolute;
+      top: 50%;
+      left: 58%;
+      transform: translate(-50%, -50%);
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(229, 169, 80, 0.8);
+    }
+    .ruler-time {
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text-sec);
+    }
+
+    .hardware-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+    .hw-btn {
+      background: #1c1f28;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-pri);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+      transition: all 0.15s;
+    }
+    .hw-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .hw-btn.main-play {
+      width: 48px;
+      height: 38px;
+      background: linear-gradient(180deg, #2a2d39 0%, #1a1c24 100%);
+      border-color: rgba(229, 169, 80, 0.4);
+    }
+    .hw-btn.main-play svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--amber);
+    }
+    .hw-btn.sub-btn {
+      width: 40px;
+      height: 34px;
+    }
+    .hw-btn.sub-btn svg {
+      width: 15px;
+      height: 15px;
+      fill: var(--text-sec);
+    }
+
+    .paused .vinyl-disc,
+    .paused .spectrum-bar {
+      animation-play-state: paused !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="preview-bar">
+    <span>横屏探索 · 02 黑曜典藏唱机</span>
+    <div class="sep"></div>
+    <button id="toggle-play" aria-pressed="true">旋转播放中</button>
+    <button id="toggle-spec" aria-pressed="true">电平跳动 开</button>
+  </div>
+
+  <div class="landscape-stage">
+    <div class="content-split">
+      <!-- 左栏：机械转盘与联动唱针 -->
+      <div class="turntable-deck">
+        <div class="platter-chassis">
+          <div class="vinyl-disc">
+            <div class="center-label"></div>
+            <div class="center-spindle"></div>
+          </div>
+          <div class="tone-arm-anchor">
+            <div class="tone-arm-base"></div>
+            <div class="tone-arm-pole"></div>
+            <div class="tone-arm-cartridge"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右栏：专业 Hi-Fi 监控台 -->
+      <div class="right-console">
+        <div class="console-header">
+          <div class="meta-title-box">
+            <div class="console-title">夜航星 (Night Navigation)</div>
+            <div class="console-artist">不鸟万如一 / 纯白 · 三体广播剧原声</div>
+          </div>
+          <div class="spectrum-box" id="spectrum">
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+          </div>
+        </div>
+
+        <div class="console-lyrics">
+          <div class="lyric-prev">在重力沉沦的边缘捕获微光</div>
+          <div class="lyric-now">我们是银河静默的航海者</div>
+          <div class="lyric-now-sub">We are the silent sailors of the galaxy</div>
+          <div class="lyric-next">等待下一束信号自深空降临</div>
+        </div>
+
+        <div class="console-bottom">
+          <div class="ruler-progress">
+            <span class="ruler-time">02:44</span>
+            <div class="ruler-track">
+              <div class="ruler-fill"></div>
+              <div class="ruler-thumb"></div>
+            </div>
+            <span class="ruler-time">04:46</span>
+          </div>
+
+          <div class="hardware-controls">
+            <!-- 模式/随机 -->
+            <button class="hw-btn sub-btn" title="随机播放">
+              <svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+            </button>
+
+            <!-- 上一曲 -->
+            <button class="hw-btn sub-btn" title="上一曲">
+              <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+
+            <!-- 播放/暂停 -->
+            <button class="hw-btn main-play" id="main-play-btn" title="播放/暂停">
+              <svg viewBox="0 0 24 24" id="play-glyph"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+
+            <!-- 下一曲 -->
+            <button class="hw-btn sub-btn" title="下一曲">
+              <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+
+            <!-- 队列列表 -->
+            <button class="hw-btn sub-btn" title="播放列表">
+              <svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const togglePlay = document.getElementById('toggle-play');
+    const mainPlayBtn = document.getElementById('main-play-btn');
+    const playGlyph = document.getElementById('play-glyph');
+    const toggleSpec = document.getElementById('toggle-spec');
+    const spectrum = document.getElementById('spectrum');
+
+    let playing = true;
+
+    function setPlaying(p) {
+      playing = p;
+      document.body.classList.toggle('paused', !p);
+      togglePlay.setAttribute('aria-pressed', p);
+      togglePlay.textContent = p ? '旋转播放中' : '抬针暂停';
+      playGlyph.innerHTML = p
+        ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
+        : '<path d="M8 5v14l11-7z"/>';
+    }
+
+    togglePlay.onclick = () => setPlaying(!playing);
+    mainPlayBtn.onclick = () => setPlaying(!playing);
+
+    toggleSpec.onclick = () => {
+      const isHidden = spectrum.style.visibility === 'hidden';
+      spectrum.style.visibility = isHidden ? 'visible' : 'hidden';
+      toggleSpec.setAttribute('aria-pressed', isHidden);
+      toggleSpec.textContent = isHidden ? '电平跳动 开' : '电平跳动 关';
+    };
+
+    setPlaying(true);
+  </script>
+</body>
+</html>

@@ -1,64 +1,29 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native'
+import Svg, { Defs, Ellipse, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg'
 import { useRouter } from 'expo-router'
 import { Icon, iconSize, type IconName } from '@/components/icon'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { fonts, radius, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
 
 interface QuickAssetRowProps {
-  favoritesCount?: number
   isInteracting?: () => boolean
 }
+const cards: { key: string; label: string; icon: IconName; href: '/home/favorites' | '/home/downloaded' }[] = [
+  { key: 'favorites', label: '我喜欢的', icon: 'heartOutline', href: '/home/favorites' },
+  { key: 'downloaded', label: '已下载', icon: 'download', href: '/home/downloaded' },
+]
 
-interface AssetCardItem {
-  key: string
-  label: string
-  icon: IconName
-  iconColor: string
-  href: '/home/favorites' | '/home/history' | '/home/downloaded'
-}
-
-/**
- * 三等分圆角矩形瓷片功能区 (Quick Asset Tiles):
- * - 「我喜欢的」、「最近播放」、「已下载」三等分并列，平分整个屏幕宽度；
- * - 采用原生 Pressable（避免 Link asChild 的 Slot 剥除样式），赋予实心底色与高光描边；
- * - 纯净图标 + 标题设计，不展示多余副标题；
- * - 快捷菜单打开或防误触期间阻断跳转。
- */
+/** 唱片抽屉右侧：喜欢的音乐与离线下载。 */
 export function QuickAssetRow({ isInteracting }: QuickAssetRowProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const router = useRouter()
-
-  const cards: AssetCardItem[] = [
-    {
-      key: 'favorites',
-      label: '我喜欢的',
-      icon: 'heart',
-      iconColor: colors.like,
-      href: '/home/favorites',
-    },
-    {
-      key: 'history',
-      label: '最近播放',
-      icon: 'recentlyPlayed',
-      iconColor: colors.textPrimary,
-      href: '/home/history',
-    },
-    {
-      key: 'downloaded',
-      label: '已下载',
-      icon: 'downloaded',
-      iconColor: colors.textPrimary,
-      href: '/home/downloaded',
-    },
-  ]
-
   return (
-    <View style={styles.row}>
+    <View style={styles.column}>
       {cards.map((card) => (
         <Pressable
           key={card.key}
-          style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
+          style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
           onPress={() => {
             if (isInteracting?.()) return
             router.push(card.href)
@@ -66,48 +31,45 @@ export function QuickAssetRow({ isInteracting }: QuickAssetRowProps) {
           accessibilityRole="button"
           accessibilityLabel={card.label}
         >
-          <View style={styles.iconSlot}>
-            <Icon name={card.icon} size={iconSize.md + 2} color={card.iconColor} />
+          <View style={styles.cornerGlow} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Svg width={140} height={100} viewBox="0 0 140 100">
+              <Defs><RadialGradient id={`assetGlow-${card.key}`}>
+                <Stop offset="0" stopColor={card.key === 'favorites' ? colors.homeFavoritesGlow : colors.homeDownloadsGlow} stopOpacity={0.22} />
+                <Stop offset="0.45" stopColor={card.key === 'favorites' ? colors.homeFavoritesGlow : colors.homeDownloadsGlow} stopOpacity={0.09} />
+                <Stop offset="1" stopColor={card.key === 'favorites' ? colors.homeFavoritesGlow : colors.homeDownloadsGlow} stopOpacity={0} />
+              </RadialGradient></Defs>
+              <Ellipse cx={70} cy={50} rx={70} ry={50} fill={`url(#assetGlow-${card.key})`} />
+            </Svg>
           </View>
-          <Text numberOfLines={1} style={styles.title}>
-            {card.label}
-          </Text>
+          <View style={styles.edgeLight} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Svg width="100%" height="100%">
+              <Defs><LinearGradient id={`assetEdge-${card.key}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <Stop offset="0" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0.4} />
+                <Stop offset="0.16" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0.15} />
+                <Stop offset="0.32" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0} />
+                <Stop offset="0.72" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0} />
+                <Stop offset="0.93" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0.18} />
+                <Stop offset="1" stopColor={card.key === 'favorites' ? colors.homeFavoritesEdge : colors.homeDownloadsEdge} stopOpacity={0.05} />
+              </LinearGradient></Defs>
+              <Rect width="100%" height="100%" rx={radius.lg - 1} fill="none" stroke={`url(#assetEdge-${card.key})`} strokeWidth={1.2} />
+            </Svg>
+          </View>
+          <Icon name={card.icon} size={iconSize.md} color={colors.actionText} />
+          <Text style={styles.title}>{card.label}</Text>
         </Pressable>
       ))}
     </View>
   )
 }
-
 const useStyles = createThemedStyles((colors) => ({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    gap: 10,
-  },
+  column: { flex: 1, minWidth: 0, gap: 10 },
   tile: {
-    flex: 1,
-    height: 74,
-    backgroundColor: colors.bgCard,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderEmphasis,
-    borderRadius: radius.lg,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    justifyContent: 'space-between',
+    flex: 1, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.surfaceCard, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.hairlineBorder, overflow: 'hidden', borderRadius: radius.lg, padding: spacing.md,
   },
-  tilePressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.96 }],
-  },
-  iconSlot: {
-    alignItems: 'flex-start',
-  },
-  title: {
-    ...typography.headline,
-    fontSize: 13,
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
+  cornerGlow: { opacity: 0.14, position: 'absolute', width: 140, height: 100, right: -40, bottom: -42 },
+  edgeLight: { opacity: 0.4, position: 'absolute', top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
+  pressed: { opacity: 0.78 },
+  title: { ...typography.footnote, fontSize: 14, fontWeight: '600', color: colors.textPrimary, flex: 1 },
 }))

@@ -16,11 +16,14 @@ describe('parseYrc（网易云逐字）', () => {
     expect(lyricTier({ lines, synced: true })).toBe('word')
   })
 
-  it('跳过顶部 JSON 元数据行', () => {
+  it('保留顶部 JSON 署名并保持正文时间轴', () => {
     const yrc = '{"t":0,"c":[{"tx":"作词: 某某"}]}\n[100,500](100,250,0)你(350,250,0)好'
     const lines = parseYrc(yrc)
-    expect(lines).toHaveLength(1)
-    expect(lines[0]!.text).toBe('你好')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]!.text).toBe('作词: 某某')
+    expect(lines[0]!.atMs).toBeLessThan(0)
+    expect(lines[1]!.text).toBe('你好')
+    expect(lines[1]!.atMs).toBe(100)
   })
 
   it('空输入返回空', () => {
@@ -43,9 +46,18 @@ describe('parseLrc（标准行级）', () => {
     expect(lines.every((l) => l.text === '副歌')).toBe(true)
   })
 
-  it('跳过无时间戳的元数据与空文本', () => {
+  it('解析元数据并赋予极小时间戳，跳过空文本', () => {
     const lines = parseLrc('[ar:周杰伦]\n[00:05.00]\n[00:06.00]有词')
-    expect(lines).toHaveLength(1)
-    expect(lines[0]!.text).toBe('有词')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]!.text).toBe('歌手：周杰伦')
+    expect(lines[0]!.atMs).toBeLessThan(0)
+    expect(lines[1]!.text).toBe('有词')
   })
 })
+
+ it('preserves credit tags, excludes file authors/technical tags, and tolerates malformed JSON', () => {
+  const lines = parseLrc('[作词:甲]\n[composer:乙]\n[ar:丙]\n[by:文件制作者]\n[offset:200]\n[00:01]正文')
+  expect(lines.map((line) => line.text)).toEqual(['作词：甲', '作曲：乙', '歌手：丙', '正文'])
+  const yrc = '{bad json}\n{"c":[{"tx":"演唱："},{"tx":"丙"},null,{}]}\n[100,400](100,200,0)正(300,200,0)文'
+  expect(parseYrc(yrc).map((line) => line.text)).toEqual(['演唱：丙', '正文'])
+ })

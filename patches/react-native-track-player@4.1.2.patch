@@ -762,3 +762,157 @@ index 7741994191921ed86f7577f7ce589b3939d9dd49..776c09ec0ae450daa4dc9031ccd3ff4b
 -              rejecter:(RCTPromiseRejectBlock)reject);
 -
  @end
+diff --git a/ios/RNTrackPlayer/Models/Track.swift b/ios/RNTrackPlayer/Models/Track.swift
+index 0c4cc61..8e1a862 100644
+--- a/ios/RNTrackPlayer/Models/Track.swift
++++ b/ios/RNTrackPlayer/Models/Track.swift
+@@ -12,6 +12,8 @@ import AVFoundation
+ import SwiftAudioEx
+ 
+ class Track: AudioItem, TimePitching, AssetOptionsProviding {
++    static var allowsCellularAccess = false
++
+     let url: MediaURL
+ 
+     @objc var title: String?
+@@ -125,6 +127,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
+ 
+     func getAssetOptions() -> [String: Any] {
+         var options: [String: Any] = [:]
++        if !url.isLocal && !url.value.isFileURL {
++            options[AVURLAssetAllowsCellularAccessKey] = Track.allowsCellularAccess
++        }
+         if let headers = headers {
+             options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+         }
+diff --git a/ios/RNTrackPlayer/RNTrackPlayer.swift b/ios/RNTrackPlayer/RNTrackPlayer.swift
+index 3be1342..89470ab 100644
+--- a/ios/RNTrackPlayer/RNTrackPlayer.swift
++++ b/ios/RNTrackPlayer/RNTrackPlayer.swift
+@@ -322,6 +322,12 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+     public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+         if (rejectWhenNotInitialized(reject: reject)) { return }
+ 
++        if let allowsCellularAccess = options["allowsCellularAccess"] as? Bool,
++           Track.allowsCellularAccess != allowsCellularAccess {
++            Track.allowsCellularAccess = allowsCellularAccess
++            reloadCurrentRemoteTrackForCellularPolicy()
++        }
++
+         var capabilitiesStr = options["capabilities"] as? [String] ?? []
+         if (capabilitiesStr.contains("play") && capabilitiesStr.contains("pause")) {
+             capabilitiesStr.append("togglePlayPause");
+@@ -349,6 +355,20 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+         resolve(NSNull())
+     }
+ 
++    private func reloadCurrentRemoteTrackForCellularPolicy() {
++        guard let track = player.currentItem as? Track,
++              !track.url.isLocal,
++              !track.url.value.isFileURL else { return }
++
++        let position = player.currentTime
++        let playWhenReady = player.playWhenReady
++        player.load(item: track, playWhenReady: playWhenReady)
++
++        if position.isFinite && position >= 0 {
++            player.seek(to: position)
++        }
++    }
++
+     private func configureProgressUpdateEvent(interval: Double) {
+         shouldEmitProgressEvent = interval > 0
+         self.player.timeEventFrequency = shouldEmitProgressEvent
+diff --git a/src/interfaces/UpdateOptions.ts b/src/interfaces/UpdateOptions.ts
+index 9657cae..b35c680 100644
+--- a/src/interfaces/UpdateOptions.ts
++++ b/src/interfaces/UpdateOptions.ts
+@@ -11,6 +11,8 @@ export interface UpdateOptions {
+   progressUpdateEventInterval?: number; // in seconds
+ 
+   // ios
++  /** Whether iOS may load remote audio over a cellular connection. */
++  allowsCellularAccess?: boolean;
+   likeOptions?: FeedbackOptions;
+   dislikeOptions?: FeedbackOptions;
+   bookmarkOptions?: FeedbackOptions;
+diff --git a/lib/src/interfaces/UpdateOptions.d.ts b/lib/src/interfaces/UpdateOptions.d.ts
+index 7190c90..c7809b5 100644
+--- a/lib/src/interfaces/UpdateOptions.d.ts
++++ b/lib/src/interfaces/UpdateOptions.d.ts
+@@ -8,6 +8,8 @@ export interface UpdateOptions {
+     forwardJumpInterval?: number;
+     backwardJumpInterval?: number;
+     progressUpdateEventInterval?: number;
++    /** Whether iOS may load remote audio over a cellular connection. */
++    allowsCellularAccess?: boolean;
+     likeOptions?: FeedbackOptions;
+     dislikeOptions?: FeedbackOptions;
+     bookmarkOptions?: FeedbackOptions;
+diff --git a/ios/RNTrackPlayer/Models/Track.swift b/ios/RNTrackPlayer/Models/Track.swift
+--- a/ios/RNTrackPlayer/Models/Track.swift
++++ b/ios/RNTrackPlayer/Models/Track.swift
+@@ -9,4 +9,5 @@
+ import Foundation
+ import MediaPlayer
+ import AVFoundation
+ import SwiftAudioEx
++import SDWebImageWebPCoder
+@@ -90,4 +91,5 @@
+     func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
+         if let artworkURL = artworkURL?.value {
+             if(self.artworkURL?.isLocal ?? false){
+-                let image = UIImage.init(contentsOfFile: artworkURL.path);
++                let data = try? Data(contentsOf: artworkURL)
++                let image = data.flatMap { UIImage(data: $0) ?? SDImageWebPCoder.shared.decodedImage(with: $0, options: nil) }
+diff --git a/ios/RNTrackPlayer/Utils/Metadata.swift b/ios/RNTrackPlayer/Utils/Metadata.swift
+--- a/ios/RNTrackPlayer/Utils/Metadata.swift
++++ b/ios/RNTrackPlayer/Utils/Metadata.swift
+@@ -8,3 +8,4 @@
+ import Foundation
+ import MediaPlayer
+ import SwiftAudioEx
++import SDWebImageWebPCoder
+@@ -44,16 +45,25 @@
+         player.nowPlayingInfoController.set(keyValues: ret)
+         
+         if let artworkURL = MediaURL(object: metadata["artwork"]) {
+-            currentImageTask = URLSession.shared.dataTask(with: artworkURL.value, completionHandler: { [weak player] (data, _, error) in
+-                if let data = data, let image = UIImage(data: data), error == nil {
+-                    let artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { (size) -> UIImage in
+-                        return image
+-                    })
+-                    player?.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(artwork))
++            if artworkURL.isLocal {
++                let imageData = try? Data(contentsOf: artworkURL.value)
++                if let data = imageData,
++                   let image = UIImage(data: data) ?? SDImageWebPCoder.shared.decodedImage(with: data, options: nil) {
++                    let artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { _ in image })
++                    player.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(artwork))
++                } else {
++                    player.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(nil))
+                 }
+-            })
+-            
+-            currentImageTask?.resume()
++            } else {
++                currentImageTask = URLSession.shared.dataTask(with: artworkURL.value, completionHandler: { [weak player] (data, _, error) in
++                    if let data = data, let image = UIImage(data: data), error == nil {
++                        let artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { _ in image })
++                        player?.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(artwork))
++                    }
++                })
++
++                currentImageTask?.resume()
++            }
+         } else {
+             player.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(nil))
+         }
+diff --git a/react-native-track-player.podspec b/react-native-track-player.podspec
+--- a/react-native-track-player.podspec
++++ b/react-native-track-player.podspec
+@@ -19,3 +19,4 @@
+   s.dependency "React-Core"
+   s.dependency "SwiftAudioEx", "1.1.0"
++  s.dependency "SDWebImageWebPCoder", "~> 0.14.6"
+ end

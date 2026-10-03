@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>瑞士排版 · 录音室声学</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #060709;
+      --card-bg: #101115;
+      --line: rgba(255, 255, 255, 0.08);
+      --text-pri: #f5f5f7;
+      --text-sec: #9fa2b0;
+      --text-muted: #4e5160;
+      --accent: #00d26a;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text-pri);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .preview-bar {
+      height: 38px;
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: #0d0e12;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--text-sec);
+      z-index: 100;
+    }
+    .preview-bar button {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: inherit;
+      padding: 3px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      transition: all 0.2s;
+    }
+    .preview-bar button:hover, .preview-bar button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .preview-bar .sep { width: 1px; height: 14px; background: rgba(255,255,255,0.15); }
+
+    .landscape-stage {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 48px 24px;
+      background-image: 
+        linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    .content-split {
+      width: 100%;
+      height: 100%;
+      max-width: 980px;
+      display: grid;
+      grid-template-columns: 3.8fr 6.2fr;
+      gap: 40px;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* 左侧：冷感方正画幅 + 全局波形监视轨 */
+    .studio-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 90%;
+    }
+
+    .meta-block {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .square-cover {
+      width: min(130px, 32vh);
+      height: min(130px, 32vh);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .track-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .swiss-title {
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.25;
+      letter-spacing: -0.5px;
+    }
+    .swiss-artist {
+      font-size: 13px;
+      color: var(--text-sec);
+    }
+    .swiss-spec {
+      margin-top: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .swiss-spec .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: inline-block;
+    }
+
+    /* 声学全景波形交互区 */
+    .waveform-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .wave-timecode {
+      display: flex;
+      justify-content: space-between;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--text-sec);
+    }
+    .wave-canvas {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      cursor: pointer;
+    }
+    .wave-bar {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 1px;
+      transition: background 0.15s;
+    }
+    .wave-bar.played {
+      background: #ffffff;
+    }
+    .wave-bar.active-head {
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    /* 紧凑极简控制器 */
+    .minimal-control-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .min-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .min-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .min-btn.play {
+      width: 44px;
+      height: 36px;
+      background: #ffffff;
+      color: #000;
+    }
+    .min-btn.play svg {
+      fill: #000;
+      width: 18px;
+      height: 18px;
+    }
+    .min-btn.sub {
+      width: 36px;
+      height: 36px;
+    }
+    .min-btn.sub svg {
+      fill: var(--text-sec);
+      width: 16px;
+      height: 16px;
+    }
+
+    /* 右侧：瑞士网格大字歌词 */
+    .studio-right {
+      height: 90%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-left: 20px;
+      border-left: 1px solid var(--line);
+      position: relative;
+      overflow: hidden;
+      mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+    }
+
+    .swiss-lyrics-column {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .s-lyric {
+      font-size: 19px;
+      color: var(--text-muted);
+      line-height: 1.35;
+      font-weight: 400;
+      transition: all 0.4s ease;
+      cursor: pointer;
+    }
+    .s-lyric.active {
+      font-size: 28px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.25;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .s-lyric.active::before {
+      content: "—";
+      color: var(--accent);
+      font-size: 18px;
+      margin-bottom: -4px;
+    }
+    .s-lyric-en {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--text-sec);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="preview-bar">
+    <span>横屏探索 · 03 瑞士排版录音室</span>
+    <div class="sep"></div>
+    <button id="toggle-play" aria-pressed="true">播放中</button>
+    <button id="next-lyric">切下一句</button>
+  </div>
+
+  <div class="landscape-stage">
+    <div class="content-split">
+      <!-- 左栏：声学监测、方正封面与波形交互 -->
+      <div class="studio-left">
+        <div class="meta-block">
+          <img class="square-cover" src="assets/cover.jpg" alt="Cover">
+          <div class="track-details">
+            <div class="swiss-title">夜航星</div>
+            <div class="swiss-artist">不鸟万如一 / 纯白</div>
+            <div class="swiss-spec">
+              <span class="dot"></span>
+              <span>HI-RES • 24BIT 96KHZ</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 全局音频波形监视轨 -->
+        <div class="waveform-panel">
+          <div class="wave-timecode">
+            <span>02:18.42</span>
+            <span>04:46.00</span>
+          </div>
+          <div class="wave-canvas" id="waveform"></div>
+        </div>
+
+        <!-- 极简控制行 -->
+        <div class="minimal-control-row">
+          <button class="min-btn sub" title="喜欢">
+            <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          </button>
+          <button class="min-btn sub" title="上一曲">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <button class="min-btn play" id="play-btn" title="播放/暂停">
+            <svg viewBox="0 0 24 24" id="play-icon"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+          <button class="min-btn sub" title="下一曲">
+            <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+          <button class="min-btn sub" title="播放列表">
+            <svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 右栏：瑞士网格大字双语歌词 -->
+      <div class="studio-right">
+        <div class="swiss-lyrics-column" id="lyrics-col">
+          <div class="s-lyric" data-idx="0">穿过漫长寒夜与恒星残骸</div>
+          <div class="s-lyric" data-idx="1">在重力沉沦的边缘捕获微光</div>
+          <div class="s-lyric active" data-idx="2">
+            我们是银河静默的航海者
+            <span class="s-lyric-en">We are the silent sailors of the galaxy</span>
+          </div>
+          <div class="s-lyric" data-idx="3">等待下一束信号自深空降临</div>
+          <div class="s-lyric" data-idx="4">哪怕电波散作零落的光年尘埃</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 生成动态音频波形柱
+    const waveform = document.getElementById('waveform');
+    const barCount = 42;
+    const progressIndex = 19;
+    const heights = [14, 22, 34, 18, 28, 40, 32, 20, 16, 38, 44, 26, 30, 36, 22, 18, 40, 32, 28, 42, 36, 24, 16, 32, 38, 20, 28, 34, 18, 26, 30, 22, 16, 24, 32, 28, 20, 14, 22, 18, 12, 16];
+
+    for (let i = 0; i < barCount; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'wave-bar';
+      bar.style.height = `${heights[i % heights.length]}px`;
+      if (i < progressIndex) bar.classList.add('played');
+      if (i === progressIndex) bar.classList.add('active-head');
+      bar.onclick = () => {
+        document.querySelectorAll('.wave-bar').forEach((b, idx) => {
+          b.className = 'wave-bar';
+          if (idx < i) b.classList.add('played');
+          if (idx === i) b.classList.add('active-head');
+        });
+      };
+      waveform.appendChild(bar);
+    }
+
+    const togglePlay = document.getElementById('toggle-play');
+    const playBtn = document.getElementById('play-btn');
+    const playIcon = document.getElementById('play-icon');
+    let playing = true;
+
+    function setPlaying(p) {
+      playing = p;
+      togglePlay.setAttribute('aria-pressed', p);
+      togglePlay.textContent = p ? '播放中' : '已暂停';
+      playIcon.innerHTML = p
+        ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
+        : '<path d="M8 5v14l11-7z"/>';
+    }
+
+    togglePlay.onclick = () => setPlaying(!playing);
+    playBtn.onclick = () => setPlaying(!playing);
+
+    // 歌词切换
+    const lyricsCol = document.getElementById('lyrics-col');
+    const lyrics = Array.from(document.querySelectorAll('.s-lyric'));
+    let activeIdx = 2;
+
+    function setLyric(idx) {
+      activeIdx = idx;
+      lyrics.forEach((l, i) => {
+        l.className = 's-lyric';
+        if (i === idx) l.classList.add('active');
+      });
+    }
+
+    document.getElementById('next-lyric').onclick = () => {
+      setLyric((activeIdx + 1) % lyrics.length);
+    };
+
+    lyrics.forEach((l, i) => {
+      l.onclick = () => setLyric(i);
+    });
+
+    setPlaying(true);
+  </script>
+</body>
+</html>

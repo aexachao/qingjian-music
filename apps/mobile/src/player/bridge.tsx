@@ -1,3 +1,7 @@
+import { startLyricPrefetch } from './lyric-prefetch'
+import { getPlaybackIntent } from './playback-intent'
+import { handleNetworkPlaybackFailure, startPlaybackNetworkMonitor } from './network-recovery'
+import { startPlaybackConnectionMonitor } from './network-access'
 import { useCallback, useEffect, useRef } from 'react'
 import TrackPlayer, { Event, State, useTrackPlayerEvents } from 'react-native-track-player'
 import { useQueryClient } from '@tanstack/react-query'
@@ -17,7 +21,10 @@ import {
   hasPendingListFeed,
   isRestoringSession,
   markForcedTranscode,
+  pausePlayback,
+  refreshArtist,
   refreshArtwork,
+  removeConsumedNativeTrack,
   rememberProvider,
   restoreQueuedPlayback,
   schedulePrefetch,
@@ -55,6 +62,24 @@ export function PlayerBridge() {
   /** 最近几次「自动跳歌」的时间戳，用来发现「连着好几首都放不出来」 */
   const recentAutoSkips = useRef<number[]>([])
 
+  useEffect(() => {
+    let disposed = false
+    let stop: (() => void) | undefined
+    // Network classification must be available even while RNTP is still being
+    // initialised; otherwise a first-tap play can be rejected as "unknown".
+    let stopInitialConnectionMonitor: (() => void) | undefined = startPlaybackConnectionMonitor()
+    void ensurePlayer().then(() => {
+      if (!disposed) {
+        // startPlaybackNetworkMonitor installs its listener synchronously, so
+        // the hand-off never leaves a gap and never drops NWPathMonitor events.
+        stop = startPlaybackNetworkMonitor(toast)
+        stopInitialConnectionMonitor?.()
+        stopInitialConnectionMonitor = undefined
+      }
+    }).catch((error: unknown) => console.warn('初始化播放网络监听失败', error))
+    return () => { disposed = true; stopInitialConnectionMonitor?.(); stop?.() }
+  }, [toast])
+
   // 全局持续监听系统音量变化，确保进入播放页时能立即可用最新的真实系统音量
   useEffect(() => {
     const sub = addVolumeListener(() => {})
@@ -64,7 +89,7 @@ export function PlayerBridge() {
   // 启动对账：App 被杀死期间系统可能已经把下载下完（甚至拼好），
   // 这里把它们补登记进登记表，否则会出现「文件在磁盘上、App 里却显示未下载」。
   useEffect(() => {
-    void reconcileDownloads()
+    void reconcileDownloads().catch((error: unknown) => console.warn('下载恢复失败', error))
   }, [])
 
   // 当前曲目的收藏状态同步给系统播放控制，锁屏 / 车机上的心形按钮才有正确的开关态
@@ -77,6 +102,11 @@ export function PlayerBridge() {
   useEffect(() => {
     rememberProvider(provider)
   }, [provider])
+
+  useEffect(() => {
+    if (!provider || !connection?.id) return
+    return startLyricPrefetch(provider, connection.id, queryClient)
+  }, [provider, connection?.id, queryClient])
 
   /**
    * 上报起播。飞牛只认「起播」这一个事件（没有进度上报），
@@ -119,7 +149,7 @@ export function PlayerBridge() {
         recentAutoSkips.current = []
         console.warn('连续多首曲目播放失败，已停止自动跳歌')
         toast('多首曲目都无法播放，请检查网络或服务器后重试')
-        void TrackPlayer.pause().catch(() => undefined)
+        void pausePlayback().catch(() => undefined)
         return
       }
       recentAutoSkips.current = [...pruneAutoSkips(recentAutoSkips.current, now), now]
@@ -129,7 +159,14 @@ export function PlayerBridge() {
     [toast],
   )
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackQueueEnded, Event.PlaybackError, Event.PlaybackState, Event.RemoteLike], (event) => {
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged, Event.PlaybackQueueEnded, Event.PlaybackError, Event.PlaybackState, Event.RemoteLike], async (event) => {
+    // While a newer target is being prepared, old native events must not handle
+    // errors/end-of-queue against the newly displayed song or roll selection back.
+    const pending = usePlayerStore.getState().pendingCurrent
+    if (pending) {
+      if (event.type === Event.PlaybackError || event.type === Event.PlaybackQueueEnded || event.type === Event.PlaybackState) return
+      if (event.type === Event.PlaybackActiveTrackChanged && event.track?.id !== pending.qid) return
+    }
     // 真的放出来了：撤掉之前因失败打上的「强制转码」标记。
     // 标记是永久的，误打一次会把这首之后每次播放都钉在转码路径上，这里兜住。
     if (event.type === Event.PlaybackState && event.state === State.Playing) {
@@ -164,9 +201,15 @@ export function PlayerBridge() {
     if (event.type === Event.PlaybackActiveTrackChanged) {
       const qid = typeof event.track?.id === 'string' ? event.track.id : undefined
       const { queue, index: previousIndex, playMode } = usePlayerStore.getState()
+      const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
+      const previousItem = byId < 0 && qid ? takePendingPreviousActivation(qid) : undefined
+      const historyItem = byId < 0 && qid ? takePendingHistoryActivation(qid) : undefined
+      if (byId < 0 && !previousItem && !historyItem) return
       // 离开「正在播放」的那首：用 lastTrack + lastPosition 分类结果，喂给口味画像。
       // 恢复会话期间不记（重建队列会触发换歌事件，用户还没真听）。
       const lastQid = typeof event.lastTrack?.id === 'string' ? event.lastTrack.id : undefined
+      // Rebuilding the same native asset (network policy/recovery) is not a song change.
+      if (qid && lastQid === qid) return
       const leaving = lastQid ? queue.find((item) => item.qid === lastQid) : undefined
       if (leaving?.track && connection && !isRestoringSession()) {
         const lastPositionMs =
@@ -175,34 +218,32 @@ export function PlayerBridge() {
         if (outcome) recordTasteSignal(connection.id, leaving.track, outcome)
       }
       // 优先用曲目 id 反查下标：RNTP 换队列时下标会短暂漂移，光看 index 会跟错曲目
-      const byId = qid ? queue.findIndex((item) => item.qid === qid) : -1
-      const index = byId >= 0 ? byId : (event.index ?? -1)
+      const index = byId >= 0 ? byId : 0
       if (index < 0) return
       // 自然播完由 RNTP 先激活下一首：此时把旧当前追加历史并处理队列流转。
       if (index > 0 && previousIndex === 0) {
         const oldCurrent = queue[0]
         usePlayerStore.getState().activateIndex(index)
         if (playMode.repeat === 'queue' && oldCurrent) {
-          void cycleCurrentToQueueEnd(oldCurrent)
+          void cycleCurrentToQueueEnd(oldCurrent).catch((error: unknown) => console.warn('循环队列更新失败', error))
         } else {
-          void TrackPlayer.remove([0]).catch(() => undefined)
+          if (oldCurrent) void removeConsumedNativeTrack(oldCurrent.qid)
         }
       } else if (index === 0 && previousIndex === 0 && qid && queue[0]?.qid !== qid) {
-        const previousItem = takePendingPreviousActivation(qid)
         if (previousItem) {
-          usePlayerStore.getState().restorePreviousTrack(previousItem)
+          usePlayerStore.getState().restorePreviousTracks(previousItem.items, previousItem.historyIds)
           // 上一首恢复时，原当前曲目顺延到 index 1 作为待播曲目，保留在原生队列中，不得 remove([1])
         } else {
           // 历史点播会先把新 occurrence 插到 RNTP 队头；事件到达时再原子同步 store。
-          const historyItem = takePendingHistoryActivation(qid)
           if (historyItem) usePlayerStore.getState().activateHistoryItem(historyItem, qid)
-          void TrackPlayer.remove([1]).catch(() => undefined)
+          if (queue[0]) void removeConsumedNativeTrack(queue[0].qid)
         }
       } else {
         usePlayerStore.getState().setIndex(index)
       }
       const activeIndex = index > 0 && previousIndex === 0 ? 0 : index
       void refreshArtwork(activeIndex)
+      void refreshArtist(activeIndex)
       reportPlay(activeIndex, qid)
       schedulePrefetch(activeIndex)
       // 冷启动恢复永远保持暂停；正常切歌或播放错误重试才续播。
@@ -246,6 +287,10 @@ export function PlayerBridge() {
         raw: failure.raw,
       })
       if (!item) return
+      const errorRevision = getPlaybackIntent().revision
+      if (await handleNetworkPlaybackFailure(failure)) return
+      const latest = usePlayerStore.getState()
+      if (latest.pendingCurrent || latest.queue[latest.index]?.qid !== item.qid || getPlaybackIntent().revision !== errorRevision) return
 
       /**
        * 如果这首是从「转码产物缓存」播的，先作废缓存再走后面的重试逻辑。
@@ -302,7 +347,7 @@ export function PlayerBridge() {
       await ensurePlayer()
       const index = await TrackPlayer.getActiveTrackIndex()
       if (!cancelled && typeof index === 'number') usePlayerStore.getState().setIndex(index)
-    })()
+    })().catch((error: unknown) => console.warn('初始化播放器失败', error))
     return () => {
       cancelled = true
     }
@@ -324,7 +369,7 @@ export function PlayerBridge() {
         // 恢复失败就当新会话（转码 / 网络问题都别卡住启动）
         console.warn('恢复上次播放会话失败', error)
       })
-    })()
+    })().catch((error: unknown) => console.warn('初始化会话恢复失败', error))
     return () => {
       cancelled = true
     }

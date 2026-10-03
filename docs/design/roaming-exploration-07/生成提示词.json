@@ -1,0 +1,7 @@
+{
+  "mode": "built-in image_gen; model selector unavailable",
+  "prompts": [
+    "Use case: product-mockup. Create one exquisite miniature vinyl turntable product asset for a premium mobile music app card. Orthographic almost top-down three-quarter view, compact square smoke-black brushed aluminum plinth, circular black vinyl with very fine concentric grooves and a tiny muted burgundy center ring and central spindle, slender silver tonearm resting at right. Physical, convincingly detailed but legible at 180 pixels. Studio soft grazing light, controlled charcoal and silver materials, no luminous neon. Entire object visible centered with 8 percent padding. Transparent background, no backdrop, no typography, no branding, no UI, no cover artwork, no engraved words.",
+    "Use case: product-mockup. One collectible pocket FM radio product asset for a mobile music app. Front-facing with slight top perspective, softly rounded horizontal rectangular dark oxblood/burgundy body, brushed warm silver face, finely perforated speaker grille left, a narrow dark tuning window with fine ivory unlabeled tick marks above, one tactile small silver tuning knob right, tiny muted amber indicator, a short antenna angled up-right. Sophisticated actual industrial object not toy, premium restrained studio photography, low saturation, readable at 200 pixels. Entire object centered, 8 percent padding, transparent background. No text, no lettering, no logos, no numbers, no UI, no background."
+  ]
+}

@@ -17,7 +17,7 @@ import type {
   MusicLibrary,
   BackgroundTask,
 } from '@qj/core-domain'
-import { LYRIC_TIER_RANK, lyricTier } from '@qj/core-domain'
+import { LYRIC_TIER_RANK, lyricTier, extractLyricMetadata } from '@qj/core-domain'
 import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnSharedLibrary, FnTask, FnTrack, FnUser } from './schemas'
 
 /** null -> undefined，领域模型里统一只用 undefined 表示缺失 */
@@ -174,9 +174,16 @@ function timeFromGroups(minutesRaw: string, secondsRaw: string, fractionRaw: str
 export function parseLyrics(raw: string, source?: string): LyricSheet {
   const lines: LyricLine[] = []
   let synced = false
+  let metaIndex = -99999
   for (const rawLine of raw.split(/\r?\n/)) {
     const line = rawLine.trim()
     if (!line) continue
+    const metadata = extractLyricMetadata(line)
+    if (metadata) {
+      lines.push({ atMs: metaIndex++, text: metadata })
+      continue
+    }
+    if (line.startsWith('{')) continue
     const matched = LRC_LINE.exec(line)
     if (!matched) {
       if (!line.startsWith('[')) lines.push({ atMs: 0, text: line })
@@ -241,7 +248,8 @@ export function mapLyricSheet(entries: FnLyricEntry[], preferredGuid?: string | 
     // 服务端的 isLRC 覆盖解析结果（服务端把纯文本标成 LRC 时以它为准）
     const synced = entry.isLRC ?? sheet.synced
     return { entry, sheet, synced, tier: lyricTier({ lines: sheet.lines, synced }) }
-  })
+  }).filter((candidate) => candidate.sheet.lines.some((line) => line.atMs >= 0))
+  if (candidates.length === 0) return null
 
   const ranked = [...candidates].sort((a, b) => LYRIC_TIER_RANK[a.tier] - LYRIC_TIER_RANK[b.tier])
   const bestTier = ranked[0]!.tier

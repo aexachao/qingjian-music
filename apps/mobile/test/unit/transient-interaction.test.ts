@@ -28,12 +28,7 @@ describe('临时交互层手势优先级', () => {
     expect(queue).toContain('if (dismissedSwipeOnHandlePress.current) return')
   })
 
-  it('歌词弹层点击遮罩只关闭弹层，卡片内部阻止冒泡', () => {
-    const lyrics = source('components/lyric-view.tsx')
-    expect(lyrics).toContain('style={StyleSheet.absoluteFill}')
-    expect(lyrics).toContain('onPress={onClose}')
-    expect(lyrics).toContain('<View style={styles.sheetCard}>')
-  })
+  // 歌词分享使用原生 pageSheet；关闭与选择行为由 lyric-motion 实际渲染测试覆盖。
 
   it('快捷菜单包含歌曲选项分组，跳转二级页面时先收起播放器', () => {
     const btn = source('components/track-menu-button.tsx')
@@ -57,6 +52,33 @@ describe('临时交互层手势优先级', () => {
   it('专辑 / 艺术家 / 流派 / 歌单四个二级页头部显式配置返回按钮', () => {
     for (const path of ['album-detail', 'artist-detail', 'genre-detail', 'playlist-detail']) {
       expect(source(`screens/${path}.tsx`), path).toContain('headerLeft: () => <StackBackButton />')
+    }
+  })
+
+  it('透明的播放按钮不能继续占用原生导航胶囊或响应误触', () => {
+    for (const path of ['album-detail', 'genre-detail', 'playlist-detail']) {
+      const screen = source(`screens/${path}.tsx`)
+      const actions = screen.slice(screen.indexOf('headerRight:'), screen.indexOf('<MenuView', screen.indexOf('headerRight:')))
+      expect(actions, path).toContain('{pinned ? (')
+      expect(actions, path).toContain(') : null}')
+      expect(screen, path).not.toContain('navPlayAnimatedStyle')
+    }
+  })
+
+  it('原生导航内的图标不使用旧版负边距补偿', () => {
+    for (const path of ['screens/album-detail.tsx', 'screens/genre-detail.tsx', 'screens/playlist-detail.tsx', 'screens/favorites.tsx', 'screens/external-sources.tsx', 'components/stack-back-button.tsx']) {
+      expect(source(path), path).not.toMatch(/margin(?:Left|Right):\s*-/)
+    }
+  })
+
+  it('收藏页使用普通系统导航，分类栏不再猜测系统导航高度', () => {
+    const screen = source('screens/favorites.tsx')
+    expect(screen).toContain('headerTransparent: false')
+    expect(screen).not.toContain('headerBackground:')
+    expect(screen).not.toContain('topHeaderOffset')
+    expect(screen).not.toContain('<BlurView')
+    for (const area of ['home', 'library']) {
+      expect(source(`app/(tabs)/${area}/_layout.tsx`)).not.toContain('name="favorites" options={detailScreenOptions}')
     }
   })
 
@@ -107,15 +129,15 @@ describe('临时交互层手势优先级', () => {
 
     const about = source('screens/about.tsx')
     expect(about).toContain('轻简音乐')
-    expect(about).toContain('五星好评')
+    expect(about).toContain('评价应用')
     expect(about).toContain('用户协议')
     expect(about).toContain('隐私政策')
     expect(about).toContain('icon.png')
 
     const cacheScreen = source('screens/cache-settings.tsx')
-    expect(cacheScreen).toContain('自动缓存播放中的歌曲')
-    expect(cacheScreen).toContain('缓存容量上限')
-    expect(cacheScreen).toContain('缓存歌曲数量上限')
+    expect(cacheScreen).toContain('自动缓存歌曲')
+    expect(cacheScreen).toContain('容量上限')
+    expect(cacheScreen).toContain('歌曲数量上限')
     expect(cacheScreen).toContain('歌曲音频缓存')
     expect(cacheScreen).toContain('封面图片缓存')
 

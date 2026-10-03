@@ -19,7 +19,6 @@ const ALL: TrackMenuCapabilities = {
   canWritePlaylist: true,
   hasAlbum: true,
   hasArtist: true,
-  canAdjustLyricOffset: true,
   hasTrack: true,
   canDownload: true,
   isDownloaded: false,
@@ -31,7 +30,6 @@ const NONE: TrackMenuCapabilities = {
   canWritePlaylist: false,
   hasAlbum: false,
   hasArtist: false,
-  canAdjustLyricOffset: false,
   // hasTrack 不是「后端能力」，而是「手上有没有完整曲目」——列表行恒为 true，
   // 所以「能力全关」这套里它也照旧为 true；没有曲目的情况单独有用例。
   hasTrack: true,
@@ -91,7 +89,7 @@ describe('快捷菜单条目定义（按上下文）', () => {
     expect(ids[ids.length - 1]).toBe('remove-from-history')
   })
 
-  it('当前上下文：歌单 + 分享（含歌词）+ 信息 + 跳转 + 歌词偏移', () => {
+  it('当前上下文：歌单 + 分享（含歌词）+ 信息 + 跳转', () => {
     expect(idsOf('current')).toEqual([
       'add-to-playlist',
       'share-song',
@@ -99,15 +97,15 @@ describe('快捷菜单条目定义（按上下文）', () => {
       'song-info',
       'goto-album',
       'goto-artist',
-      'lyric-offset',
     ])
   })
 
-  it('当前上下文不出现排队/队列内操作（那些是列表与待播行的事）', () => {
+  it('当前上下文不出现排队/队列内操作与歌词偏移快捷项', () => {
     const ids = idsOf('current')
     expect(ids).not.toContain('play-next')
     expect(ids).not.toContain('add-to-queue')
     expect(ids).not.toContain('remove-from-queue')
+    expect(ids).not.toContain('lyric-offset')
   })
 
   it('能力全关时，可选项全部消失，只留无条件的条目', () => {
@@ -121,10 +119,6 @@ describe('快捷菜单条目定义（按上下文）', () => {
       'song-info',
       'remove-from-queue',
     ])
-  })
-
-  it('没有同步歌词时不出现歌词偏移', () => {
-    expect(idsOf('current', { ...ALL, canAdjustLyricOffset: false })).not.toContain('lyric-offset')
   })
 
   it('后端不支持歌单写入时不出现「添加到歌单」', () => {
@@ -209,23 +203,19 @@ describe('iOS 分组顺序', () => {
     ])
   })
 
-  it('当前上下文向下弹出：歌单 → 分享 → 信息 → 歌词偏移', () => {
+  it('当前上下文向下弹出：歌单 → 分享 → 信息', () => {
     expect(trackMenuGroups(idsOf('current'), 'current', 'down')).toEqual([
       { id: 'group-playlist', ids: ['add-to-playlist'] },
       { id: 'group-share', ids: ['share-song', 'share-lyrics'] },
       { id: 'group-details', ids: ['song-info', 'goto-album', 'goto-artist'] },
-      { id: 'group-lyric-offset', ids: ['lyric-offset'] },
     ])
   })
 
-  it('当前上下文向上弹出：组顺序与组内顺序整体反向，但歌词偏移组仍在最后', () => {
-    // UIKit 从锚点由近及远排列，向上弹出需要与向下相反的排列。
-    // 这条断言是重构前的原始手写顺序，用来锁住「反向 + 尾巴组不动」这个规则。
+  it('当前上下文向上弹出：组顺序与组内顺序整体反向', () => {
     expect(trackMenuGroups(idsOf('current'), 'current', 'up')).toEqual([
       { id: 'group-details', ids: ['goto-artist', 'goto-album', 'song-info'] },
       { id: 'group-share', ids: ['share-lyrics', 'share-song'] },
       { id: 'group-playlist', ids: ['add-to-playlist'] },
-      { id: 'group-lyric-offset', ids: ['lyric-offset'] },
     ])
   })
 

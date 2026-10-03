@@ -34,18 +34,37 @@ export interface MutationOptions {
 export class AsyncMutationQueue {
   private tail: Promise<void> = Promise.resolve()
 
+  constructor(private readonly onTimeout?: () => void) {}
+
   run<T>(mutation: () => Promise<T>, options: MutationOptions = {}): Promise<T> {
     // 在调用点抓一次栈：超时日志里带上它就能直接指认是哪个操作卡住的，
     // 不用维护一份「谁调用了 run」的手工清单（那种清单迟早会漏）。
     const callSite = new Error('mutation-queue call site')
-    const started = this.tail.then(mutation, mutation)
-    const guarded = this.guard(started, options, callSite)
+    // 先把 mutation 排进队列，再在它真正开始执行时创建看门狗。
+    // 计时不能包含前面任务的等待时间，否则正常的排队也会被误判成超时。
+    const started = this.tail.then(
+      () => this.execute(mutation, options, callSite),
+      () => this.execute(mutation, options, callSite),
+    )
+    const guarded = started
     // 队列尾部只跟随「已结束或已超时」的信号，绝不跟随可能永不 settle 的 promise
     this.tail = guarded.then(
       () => undefined,
       () => undefined,
     )
     return guarded
+  }
+
+  private execute<T>(mutation: () => Promise<T>, options: MutationOptions, callSite: Error): Promise<T> {
+    let task: Promise<T>
+    try {
+      // execute() 本身只会在队列尾部 settle 后被调用；这里同步调用 mutation，
+      // 既保持严格串行，也让调用方看到和旧实现一致的启动时序。
+      task = Promise.resolve(mutation())
+    } catch (error) {
+      task = Promise.reject(error)
+    }
+    return this.guard(task, options, callSite)
   }
 
   private guard<T>(task: Promise<T>, { timeoutMs = DEFAULT_TIMEOUT_MS, label }: MutationOptions, callSite: Error): Promise<T> {
@@ -57,6 +76,7 @@ export class AsyncMutationQueue {
             '如果反复出现，说明有一次原生调用或网络请求悬挂了。调用点：',
           callSite.stack,
         )
+        this.onTimeout?.()
         reject(new Error(`${label ?? '播放操作'} 超时`))
       }, timeoutMs)
       task.then(

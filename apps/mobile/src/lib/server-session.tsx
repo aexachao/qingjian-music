@@ -1,9 +1,11 @@
-import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
+import { saveServerRouteConfiguration } from './server-route-configuration'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isMusicError } from '@qj/core-domain'
 import type { MusicProvider, ProviderSession, ServerConnection } from '@qj/provider-api'
 import { providerRegistry, validateBaseUrl } from '@qj/provider-api'
 import { createFnosFactory } from '@qj/provider-fnos'
-import { clearQueue } from '@/player/controller'
+import { clearQueue, invalidatePlaybackIntents, rememberProvider } from '@/player/controller'
 import { queryClient } from './query-client'
 import { sessionAfterBootstrapFailure, teardownSession, type SessionStatus } from './session-state'
 import { sha256Hex } from './crypto'
@@ -26,6 +28,7 @@ import {
   removeServer as removeStoredServer,
 } from './storage'
 import { hasInstallSentinel, markInstallSentinel } from './install-sentinel'
+import { wasExplicitlySignedOut, markExplicitlySignedOut, clearSignedOutMarker } from './signed-out-marker'
 
 export interface SignInInput {
   baseUrl: string
@@ -43,6 +46,7 @@ interface ServerSessionValue {
   servers: ServerConnection[]
   signIn(input: SignInInput): Promise<void>
   signOut(): Promise<void>
+  saveServerRoutes(urls: readonly string[]): Promise<void>
   /**
    * 删除一台已保存的服务器及其本地凭据。
    * **只有删除，没有切换** —— 客户端不支持服务器切换（见 screens/settings.tsx 的说明），
@@ -72,14 +76,17 @@ async function ensureRegistry(): Promise<void> {
 }
 
 export function ServerSessionProvider({ children }: { children: React.ReactNode }) {
+  const lifecycle = useRef(0)
+  const routeSaves = useRef(new StorageMutationQueue())
   const [status, setStatus] = useState<SessionStatus>('loading')
   const [connection, setConnection] = useState<ServerConnection | null>(null)
   const [session, setSession] = useState<ProviderSession | null>(null)
   const [provider, setProvider] = useState<MusicProvider | null>(null)
   const [servers, setServers] = useState<ServerConnection[]>([])
 
-  const activate = useCallback(async (target: ServerConnection, targetSession: ProviderSession) => {
+  const activate = useCallback(async (target: ServerConnection, targetSession: ProviderSession, revision: number) => {
     await ensureRegistry()
+    if (revision !== lifecycle.current) return
     const instance = providerRegistry.get(target.providerId).create(target, targetSession)
     setConnection(target)
     setSession(targetSession)
@@ -90,41 +97,43 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   // 冷启动：恢复上次使用的服务器；token 失效就用 Keychain 里的密码静默重登
   useEffect(() => {
     let cancelled = false
+    const revision = lifecycle.current
     void (async () => {
       // 卸载重装清号：iOS Keychain 卸载不清，全新安装时把旧凭据全清（要在恢复会话之前）
-      await purgeIfFreshInstall(hasInstallSentinel, markInstallSentinel).catch((error: unknown) => {
-        console.warn('卸载重装清号失败', error)
-      })
+      await purgeIfFreshInstall(hasInstallSentinel, markInstallSentinel)
       await ensureRegistry()
       const all = await listServers()
-      if (!cancelled) setServers(all)
-      const activeId = (await getActiveServerId()) ?? all[0]?.id
+      if (!cancelled && revision === lifecycle.current) setServers(all)
+      if (cancelled || revision !== lifecycle.current) return
+      if (wasExplicitlySignedOut()) { setStatus('signedOut'); return }
+      const activeId = await getActiveServerId()
       const target = all.find((item) => item.id === activeId)
       if (!target) {
-        if (!cancelled) setStatus('signedOut')
+        if (!cancelled && revision === lifecycle.current) setStatus('signedOut')
         return
       }
       const stored = await getSession(target.id)
       if (stored) {
-        if (!cancelled) await activate(target, stored)
+        if (!cancelled) await activate(target, stored, revision)
         return
       }
       const password = await getPassword(target.id)
       if (!password) {
-        if (!cancelled) setStatus('signedOut')
+        if (!cancelled && revision === lifecycle.current) setStatus('signedOut')
         return
       }
       try {
         const instance = providerRegistry.get(target.providerId).create(target)
         const fresh = await instance.login({ password })
+        if (cancelled || revision !== lifecycle.current) return
         await saveSession(target.id, fresh)
-        if (!cancelled) await activate(target, fresh)
+        if (!cancelled) await activate(target, fresh, revision)
       } catch {
-        if (!cancelled) setStatus('signedOut')
+        if (!cancelled && revision === lifecycle.current) setStatus('signedOut')
       }
     })().catch((error: unknown) => {
       console.warn('恢复服务器会话失败', error)
-      if (cancelled) return
+      if (cancelled || revision !== lifecycle.current) return
       const fallback = sessionAfterBootstrapFailure()
       setConnection(fallback.connection)
       setSession(fallback.session)
@@ -138,7 +147,10 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
 
   const signIn = useCallback(
     async (input: SignInInput) => {
+      const revision = ++lifecycle.current
+      const check = () => { if (revision !== lifecycle.current) throw new Error('登录操作已取消') }
       await ensureRegistry()
+      check()
       const { url } = validateBaseUrl(input.baseUrl)
       const existing = (await listServers()).find(
         (item) => item.baseUrl === url && item.username === input.username.trim(),
@@ -151,20 +163,28 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
         username: input.username.trim(),
       }
 
+      check()
       const instance = providerRegistry.get(target.providerId).create(target)
       const fresh = await instance.login({ password: input.password })
+      check()
 
       if (connection && connection.id !== target.id) {
-        await clearQueue()
+        invalidatePlaybackIntents()
+        void clearQueue().catch((error: unknown) => console.warn('切换账号时清理播放失败', error))
         queryClient.clear()
       }
       await upsertServer(target)
+      check()
       await setActiveServerId(target.id)
+      check()
       await saveSession(target.id, fresh)
+      check()
       if (input.rememberPassword !== false) {
         await savePassword(target.id, input.password)
+        check()
       } else {
         await clearPassword(target.id)
+        check()
       }
       await saveLastServer({
         serverId: target.id,
@@ -173,8 +193,11 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
         displayName: target.displayName,
         rememberPassword: input.rememberPassword !== false,
       })
-      setServers(await listServers())
-      await activate(target, fresh)
+      const nextServers = await listServers()
+      check()
+      clearSignedOutMarker()
+      setServers(nextServers)
+      await activate(target, fresh, revision)
     },
     [activate, connection],
   )
@@ -189,61 +212,68 @@ export function ServerSessionProvider({ children }: { children: React.ReactNode 
   )
 
   const signOut = useCallback(async () => {
-    let shouldKeepPassword = false
-    if (connection) {
-      const last = await getLastServer()
-      shouldKeepPassword = last?.serverId === connection.id
-        ? last.rememberPassword !== false
-        : Boolean(await getPassword(connection.id))
-      try {
-        await saveLastServer({
-          serverId: connection.id,
-          baseUrl: connection.baseUrl,
-          username: connection.username,
-          displayName: connection.displayName,
-          rememberPassword: shouldKeepPassword,
-        })
-      } catch (error) {
-        console.warn('保存退出登录前服务器信息失败', error)
-      }
-      try {
-        await provider?.logout()
-      } catch (error) {
-        // 服务端登出失败不影响本地退出
-        if (!isMusicError(error)) console.warn('登出失败', error)
-      }
-    }
-    const updatedServers = await listServers()
+    const targetConnection = connection
+    const targetProvider = provider
+    const revision = ++lifecycle.current
+    // A synchronous local marker keeps a failed Keychain cleanup from silently
+    // signing the user back in on the next launch.
+    let markerError: unknown
+    try { markExplicitlySignedOut() } catch (error) { markerError = error }
+    invalidatePlaybackIntents()
+    rememberProvider(null)
+    void targetProvider?.logout().catch((error: unknown) => {
+      if (!isMusicError(error)) console.warn('远程登出失败', error)
+    })
     await teardownSession({
       clearPlayback: async () => {
-        try {
-          await clearQueue()
-        } catch (error) {
-          console.warn('退出登录时清理播放队列失败', error)
-        }
+        void clearQueue().catch((error: unknown) => console.warn('退出时清理播放失败', error))
       },
       clearQueryCache: () => queryClient.clear(),
-      clearCredentials: async () => {
-        if (!connection) return
-        const ops: Promise<void>[] = [clearSession(connection.id), setActiveServerId(null)]
-        if (!shouldKeepPassword) {
-          ops.push(clearPassword(connection.id))
-        }
-        await Promise.all(ops)
-      },
       publishSignedOut: () => {
-        setServers(updatedServers)
         setProvider(null)
         setSession(null)
         setConnection(null)
         setStatus('signedOut')
       },
+      clearCredentials: async () => {
+        if (!targetConnection) return
+        // Enqueue revocation now, before optional metadata reads.
+        const [, last] = await Promise.all([
+          Promise.all([clearSession(targetConnection.id), setActiveServerId(null)]),
+          getLastServer().catch(() => null),
+        ])
+        const keepPassword = last?.serverId === targetConnection.id && last.rememberPassword !== false
+        if (revision !== lifecycle.current) return
+        if (!keepPassword) await clearPassword(targetConnection.id)
+        if (revision !== lifecycle.current) return
+        await saveLastServer({
+          serverId: targetConnection.id,
+          baseUrl: targetConnection.baseUrl,
+          username: targetConnection.username,
+          displayName: targetConnection.displayName,
+          rememberPassword: keepPassword,
+        })
+      },
+    })
+    if (markerError) throw markerError
+  }, [connection, provider])
+
+  const saveServerRoutes = useCallback(async (urls: readonly string[]) => {
+    const revision = lifecycle.current
+    if (!connection || !provider) throw new Error('请先连接服务器')
+    await routeSaves.current.run(async () => {
+      const next = await saveServerRouteConfiguration(
+        connection, provider, urls, upsertServer, () => lifecycle.current === revision,
+      )
+      if (lifecycle.current !== revision) return
+      setConnection(next)
+      setServers((items) => items.map((item) => item.id === next.id ? next : item))
     })
   }, [connection, provider])
 
   const value = useMemo<ServerSessionValue>(
-    () => ({ status, connection, session, provider, servers, signIn, signOut, removeServer }),
-    [status, connection, session, provider, servers, signIn, signOut, removeServer],
+    () => ({ status, connection, session, provider, servers, signIn, signOut, removeServer, saveServerRoutes }),
+    [status, connection, session, provider, servers, signIn, signOut, removeServer, saveServerRoutes],
   )
 
   return <ServerSessionContext value={value}>{children}</ServerSessionContext>

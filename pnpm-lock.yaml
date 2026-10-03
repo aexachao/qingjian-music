@@ -6,7 +6,8 @@ settings:
 
 patchedDependencies:
   expo-crypto@57.0.2: 2d15a80a3862f6288e5c23e616a5bfc5eb4db64a96237015c90a726bc8135bbc
-  react-native-track-player@4.1.2: 7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a
+  expo-network@57.0.2: 6dbb2947cedcc93d43fff016ea23fee52bd82c0df1e9256a2a132b661262b4db
+  react-native-track-player@4.1.2: df57ce798e46389df624810c21d75a52bba91b508ec392230f108a45d42be3da
 
 importers:
 
@@ -95,10 +96,13 @@ importers:
         version: 57.0.9(expo@57.0.20)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       expo-network:
         specifier: ~57.0.2
-        version: 57.0.2(expo@57.0.20)(react@19.2.3)
+        version: 57.0.2(patch_hash=6dbb2947cedcc93d43fff016ea23fee52bd82c0df1e9256a2a132b661262b4db)(expo@57.0.20)(react@19.2.3)
       expo-router:
         specifier: ~57.0.19
         version: 57.0.19(dea1b00d79bfa5a0c1c404d7cc2744f2)
+      expo-screen-orientation:
+        specifier: ~57.0.2
+        version: 57.0.2(expo@57.0.20)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))
       expo-secure-store:
         specifier: ~57.0.3
         version: 57.0.3(expo@57.0.20)
@@ -146,7 +150,7 @@ importers:
         version: 15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
       react-native-track-player:
         specifier: 4.1.2
-        version: 4.1.2(patch_hash=7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12)
+        version: 4.1.2(patch_hash=df57ce798e46389df624810c21d75a52bba91b508ec392230f108a45d42be3da)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12)
       react-native-web:
         specifier: ~0.21.0
         version: 0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -169,6 +173,12 @@ importers:
       '@types/react':
         specifier: ~19.2.2
         version: 19.2.18
+      '@types/react-test-renderer':
+        specifier: 19.1.0
+        version: 19.1.0
+      react-test-renderer:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.3)
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -2429,6 +2439,12 @@ packages:
       react-server-dom-webpack:
         optional: true
 
+  expo-screen-orientation@57.0.2:
+    resolution: {integrity: sha512-9wIa/dU561fidHYChkg6LIDAcYr8uMBa8fOws1Km9/slaF3N/a2kgcy0TUZWvNIe7at3r4g2kVva9vRBJBkaEQ==}
+    peerDependencies:
+      expo: '*'
+      react-native: '*'
+
   expo-secure-store@57.0.3:
     resolution: {integrity: sha512-w7XkSQeUiYXPoKXo1jSrQqql7pyCSyIzOp2k0apsZZBE+RkoLTQIMjcbqc181y6KgupfNnYxkaKe+4MEg94+SA==}
     peerDependencies:
@@ -3666,6 +3682,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  react-test-renderer@19.2.3:
+    resolution: {integrity: sha512-TMR1LnSFiWZMJkCgNf5ATSvAheTT2NvKIwiVwdBPHxjBI7n/JbWd4gaZ16DVd9foAXdvDz+sB5yxZTwMjPRxpw==}
+    peerDependencies:
+      react: ^19.2.3
 
   react@19.2.3:
     resolution: {integrity: sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA==}
@@ -7055,7 +7076,7 @@ snapshots:
     dependencies:
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
 
-  expo-network@57.0.2(expo@57.0.20)(react@19.2.3):
+  expo-network@57.0.2(patch_hash=6dbb2947cedcc93d43fff016ea23fee52bd82c0df1e9256a2a132b661262b4db)(expo@57.0.20)(react@19.2.3):
     dependencies:
       expo: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
       react: 19.2.3
@@ -7107,6 +7128,11 @@ snapshots:
       - expo-font
       - react-native-worklets
       - supports-color
+
+  expo-screen-orientation@57.0.2(expo@57.0.20)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)):
+    dependencies:
+      expo: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
+      react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
 
   expo-secure-store@57.0.3(expo@57.0.20):
     dependencies:
@@ -8476,7 +8502,7 @@ snapshots:
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
       warn-once: 0.1.1
 
-  react-native-track-player@4.1.2(patch_hash=7fe4719f3b47ec0ac59a85e61cbdc24f2605a06455fdcf5efe864328a057758a)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12):
+  react-native-track-player@4.1.2(patch_hash=df57ce798e46389df624810c21d75a52bba91b508ec392230f108a45d42be3da)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)(shaka-player@4.16.12):
     dependencies:
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3)
@@ -8592,6 +8618,12 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.2.18
+
+  react-test-renderer@19.2.3(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+      react-is: 19.2.8
+      scheduler: 0.27.0
 
   react@19.2.3: {}
 

@@ -3,14 +3,14 @@
     "name": "轻简音乐",
     "slug": "qingjian-music",
     "version": "0.1.4",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/app-icons/ios/crimson-note.png",
     "scheme": "qingjianmusic",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
-      "buildNumber": "62",
+      "buildNumber": "63",
       "entitlements": {
         "keychain-access-groups": [
           "$(AppIdentifierPrefix)com.chrisli.music"

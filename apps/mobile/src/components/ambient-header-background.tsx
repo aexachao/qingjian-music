@@ -2,24 +2,29 @@ import { useMemo } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Image } from 'expo-image'
 import type { AmbientPalette } from '@/theme/ambient-palette'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
+import { useServerSession } from '@/lib/server-session'
 
 export interface AmbientHeaderBackgroundProps {
   palette: AmbientPalette
   height?: number
+  coverId?: string
 }
 
 /**
  * 详情页顶部统一流体弥散氛围光底色（Ambient Header Background）：
- * - 采用双重抽象光斑（Primary + Secondary）进行超大半径高斯模糊；
+ * - 如果提供了 coverId，直接使用原图进行超大半径高斯模糊，实现原生级的真实「封面取色」；
+ * - 否则 fallback 采用双重抽象光斑（Primary + Secondary）；
  * - 叠加非线性遮罩平滑汇入页面深色底色，消除纯黑背景的冰冷感；
  * - 浅色模式下采用无黑色介入的自然渐变衰减，避免彩色弥散与浅灰底色相交产生发灰/发脏的泥泞感；
  * - 广泛应用于 专辑、歌单、流派与收藏 详情页。
  */
-export function AmbientHeaderBackground({ palette, height = 480 }: AmbientHeaderBackgroundProps) {
+export function AmbientHeaderBackground({ palette, height = 480, coverId }: AmbientHeaderBackgroundProps) {
   const { colors, mode } = useAppTheme()
   const styles = useStyles()
+  const { provider } = useServerSession()
 
   const gradientColors = useMemo(() => {
     if (mode === 'dark') {
@@ -30,23 +35,39 @@ export function AmbientHeaderBackground({ palette, height = 480 }: AmbientHeader
     return [`${colors.bgPrimary}00`, `${colors.bgPrimary}66`, colors.bgPrimary] as const
   }, [mode, colors.bgPrimary])
 
+  const resource = useMemo(() => {
+    if (!coverId || !provider) return null
+    return provider.image(coverId, 400)
+  }, [coverId, provider])
+
   return (
     <View style={[styles.ambientRoot, { height }]} pointerEvents="none">
       <View style={styles.ambientBlobContainer}>
-        <View
-          style={[
-            styles.ambientBlob,
-            styles.ambientBlobPrimary,
-            { backgroundColor: palette.primary },
-          ]}
-        />
-        <View
-          style={[
-            styles.ambientBlob,
-            styles.ambientBlobSecondary,
-            { backgroundColor: palette.secondary },
-          ]}
-        />
+        {resource ? (
+          <Image
+            source={{ uri: resource.url, headers: resource.headers }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            blurRadius={Platform.OS === 'ios' ? 60 : 40}
+          />
+        ) : (
+          <>
+            <View
+              style={[
+                styles.ambientBlob,
+                styles.ambientBlobPrimary,
+                { backgroundColor: palette.primary },
+              ]}
+            />
+            <View
+              style={[
+                styles.ambientBlob,
+                styles.ambientBlobSecondary,
+                { backgroundColor: palette.secondary },
+              ]}
+            />
+          </>
+        )}
       </View>
       <BlurView
         intensity={Platform.OS === 'ios' ? 90 : 100}

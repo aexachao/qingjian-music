@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   FlatList,
   Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -166,6 +167,16 @@ export function SearchQueryScreen() {
             clearButtonMode="while-editing"
             accessibilityLabel="搜索曲库"
           />
+          {Platform.OS !== 'ios' && input.length > 0 ? (
+            <Pressable
+              onPress={() => setInput('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="清空输入"
+            >
+              <Icon name="clear" size={iconSize.sm} color={colors.iconDim} />
+            </Pressable>
+          ) : null}
         </SearchFieldShell>
         <Pressable onPress={onCancel} hitSlop={12} accessibilityRole="button" accessibilityLabel="取消搜索">
           <Text style={styles.cancel}>取消</Text>

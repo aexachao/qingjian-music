@@ -11,6 +11,7 @@ interface ActiveSession {
   qid: string
   session: StreamSession
   timer: ReturnType<typeof setInterval>
+  beating: boolean
 }
 
 let active: ActiveSession | null = null
@@ -28,9 +29,11 @@ export function hasTranscodeSession(qid: string): boolean {
 
 async function beat(): Promise<void> {
   const current = active
-  if (!current) return
+  if (!current || current.beating) return
+  current.beating = true
   try {
     const progress = await TrackPlayer.getProgress()
+    if (active !== current) return
     await current.session.heartbeat(progress.position * 1000)
   } catch (error) {
     // 只有服务端明确说「任务已被回收」（notFound）才算会话死亡，交给上层重建。
@@ -42,32 +45,38 @@ async function beat(): Promise<void> {
       active = null
       sessionLostHandler?.(current.qid)
     }
+  } finally {
+    current.beating = false
   }
 }
 
-async function replaceNow(qid: string, session: StreamSession): Promise<void> {
+async function replaceNow(qid: string, session: StreamSession, isCurrent: () => boolean): Promise<void> {
+  if (!isCurrent()) { void session.close().catch(() => undefined); return }
+  if (active?.session === session) return
+  // Recovering the same queue occurrence can replace its URL/session. Retire the
+  // old local heartbeat instead of closing the newly created server task.
   if (active?.qid === qid) {
-    await session.close().catch((error: unknown) => {
-      console.warn('重复转码会话退出失败', error)
-    })
-    return
+    clearInterval(active.timer)
+    active = null
+  } else {
+    await stopNow()
   }
-  await stopNow()
+  if (!isCurrent()) { void session.close().catch(() => undefined); return }
   const timer = setInterval(() => {
     void beat()
   }, session.heartbeatIntervalMs)
-  active = { qid, session, timer }
+  active = { qid, session, timer, beating: false }
 }
 
-export function replaceTranscodeSession(qid: string, session: StreamSession): Promise<void> {
-  const result = transition.then(() => replaceNow(qid, session))
+export function replaceTranscodeSession(qid: string, session: StreamSession, isCurrent = () => true): Promise<void> {
+  const result = transition.then(() => replaceNow(qid, session, isCurrent))
   transition = result.catch(() => undefined)
   return result
 }
 
 /** 注册并开始保活；兼容无需等待的调用方 */
-export function startTranscodeSession(qid: string, session: StreamSession): void {
-  void replaceTranscodeSession(qid, session)
+export function startTranscodeSession(qid: string, session: StreamSession, isCurrent = () => true): void {
+  void replaceTranscodeSession(qid, session, isCurrent).catch(() => undefined)
 }
 
 /** 关闭当前会话（传 qid 时只关这一个）；quit 失败只记日志 */
@@ -77,15 +86,14 @@ async function stopNow(qid?: string): Promise<void> {
   if (qid && current.qid !== qid) return
   clearInterval(current.timer)
   active = null
-  try {
-    await current.session.close()
-  } catch (error) {
+  // Detach locally before requesting remote cleanup; a slow quit must not block the next song.
+  void current.session.close().catch((error: unknown) => {
     console.warn('转码会话退出失败', error)
-  }
+  })
 }
 
-export function stopTranscodeSession(qid?: string): Promise<void> {
-  const result = transition.then(() => stopNow(qid))
+export function stopTranscodeSession(qid?: string, isCurrent = () => true): Promise<void> {
+  const result = transition.then(() => isCurrent() ? stopNow(qid) : undefined)
   transition = result.catch(() => undefined)
   return result
 }

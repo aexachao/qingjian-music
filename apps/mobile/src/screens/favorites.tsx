@@ -8,12 +8,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
-import { BlurView } from 'expo-blur'
 import { Link, Stack } from 'expo-router'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MenuView, type MenuAction, type NativeActionEvent } from '@react-native-menu/menu'
 import type { Track } from '@qj/core-domain'
-import { AmbientHeaderBackground } from '@/components/ambient-header-background'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
@@ -39,7 +36,6 @@ import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { appendTracks, playTrackList, toggleShuffle } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
@@ -135,24 +131,13 @@ export function FavoritesScreen() {
 
   const isMenuOpen = useIsMenuOpen()
 
-  // 提取首曲封面用于氛围流体底色
-  const firstTrackCoverId = items[0]?.coverId ?? items[0]?.album?.coverId
-
   // 播放总时长统计（毫秒）
   const totalDurationMs = useMemo(
     () => items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
     [items],
   )
 
-  const insets = useSafeAreaInsets()
-  const topHeaderOffset = Math.max(insets.top, 20) + 44
-  const tabBarHeight = 44
-  const contentTopPadding = topHeaderOffset + tabBarHeight + spacing.sm
-
-  const palette = useMemo(
-    () => resolveAmbientPalette(firstTrackCoverId ?? 'favorites'),
-    [firstTrackCoverId],
-  )
+  const contentTopPadding = spacing.sm
 
   const toolbar = (
     <ListToolbar
@@ -168,20 +153,9 @@ export function FavoritesScreen() {
   const screenOptions = useMemo(
     () => ({
       headerShown: true,
-      headerTransparent: true,
+      headerTransparent: false,
       title: '',
       headerLeft: () => <StackBackButton />,
-      headerBackground: () => (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <BlurView
-            tint={mode === 'dark' ? 'dark' : 'light'}
-            intensity={100}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
-          <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
-        </View>
-      ),
       headerTitle: () => (
         <View style={styles.navTitleRow}>
           <View style={styles.navHeartBadge}>
@@ -219,23 +193,16 @@ export function FavoritesScreen() {
 
   // 早退放到所有 hook 之后（rules-of-hooks：不能在 hook 之前条件 return）
   if (provider && !provider.capabilities.favorites) {
-    return <EmptyState text="当前服务器不支持收藏" />
+    return <><Stack.Screen options={screenOptions} /><EmptyState text="当前服务器不支持收藏" /></>
   }
 
   return (
     <View style={styles.root}>
-      {/* 顶部自适应毛玻璃导航栏 */}
+      {/* 与普通二级页共用系统导航背景，分段栏在内容流中排布。 */}
       <Stack.Screen options={screenOptions} />
 
-      {/* 导航栏下方悬浮固定三 Tab 分类切换器 */}
-      <View style={[styles.tabBarContainer, { top: topHeaderOffset }]}>
-        <BlurView
-          tint={mode === 'dark' ? 'dark' : 'light'}
-          intensity={100}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgFloatingBlur, opacity: 0.7 }]} />
-        <View style={[styles.navBottomBorder, { backgroundColor: colors.borderSubtle }]} />
+      {/* 分类切换器位于导航栏下方，不依赖系统导航高度。 */}
+      <View style={styles.tabBarContainer}>
         <SegmentedTabs
           items={TABS}
           value={activeTab}
@@ -243,9 +210,6 @@ export function FavoritesScreen() {
           center
         />
       </View>
-
-      {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} />
 
       <TabPager activeIndex={activeTabIndex} style={styles.flex}>
         {/* Tab 1: 歌曲列表 */}
@@ -430,11 +394,8 @@ const useStyles = createThemedStyles((colors) => ({
     flex: 1,
   },
   tabBarContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 30,
-    height: 44,
+    backgroundColor: colors.bgPrimary,
+    minHeight: 44,
     justifyContent: 'center',
   },
   list: {
@@ -501,13 +462,6 @@ const useStyles = createThemedStyles((colors) => ({
     marginLeft: 60,
     backgroundColor: colors.borderSubtle,
   },
-  navBottomBorder: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: StyleSheet.hairlineWidth,
-  },
   navTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -532,7 +486,6 @@ const useStyles = createThemedStyles((colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginRight: -spacing.sm,
   },
   cardName: {
     ...typography.subhead,

@@ -2,6 +2,7 @@
 # QueueManager callbacks can read state while holding their own recursive lock,
 # so invoking the delegate under that barrier creates a lock-order inversion.
 def patch_swift_audio_state(installer)
+  patch_swift_audio_queue_lock(installer)
   file = File.join(installer.sandbox.root.to_s, 'SwiftAudioEx/Sources/SwiftAudioEx/AVPlayerWrapper/AVPlayerWrapper.swift')
   source = File.read(file)
   marker = '// QJ: deliver state outside the stateQueue barrier.'
@@ -18,6 +19,20 @@ def patch_swift_audio_state(installer)
   SWIFT
   # Keep the indentation of the surrounding dependency source.
   replacement = replacement.lines.map { |line| '                    ' + line }.join
+  File.chmod(File.stat(file).mode | 0200, file)
+  File.write(file, source.sub(original, replacement))
+end
+
+# A thrown queue validation error must release the recursive lock. Otherwise the
+# RNTP thread retains it and main-thread state callbacks wait forever.
+def patch_swift_audio_queue_lock(installer)
+  file = File.join(installer.sandbox.root.to_s, 'SwiftAudioEx/Sources/SwiftAudioEx/QueueManager.swift')
+  source = File.read(file)
+  marker = '// QJ: release queue lock even when validation throws.'
+  return if source.include?(marker)
+  original = "        recursiveLock.lock()\n        let result = try action()\n        recursiveLock.unlock()\n        return result"
+  raise 'SwiftAudioEx queue synchronization changed; review lock cleanup' unless source.scan(original).length == 1
+  replacement = "        recursiveLock.lock()\n        #{marker}\n        defer { recursiveLock.unlock() }\n        return try action()"
   File.chmod(File.stat(file).mode | 0200, file)
   File.write(file, source.sub(original, replacement))
 end

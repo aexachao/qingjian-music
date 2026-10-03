@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Share, Text, View } from 'react-native'
 import { Stack } from 'expo-router'
 import * as Clipboard from 'expo-clipboard'
 import { StackBackButton } from '@/components/stack-back-button'
-import { EmptyState } from '@/components/list-states'
+import { Icon } from '@/components/icon'
 import { useConfirm } from '@/components/confirm-modal'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
@@ -25,6 +25,7 @@ export function CrashLogScreen() {
   const toast = useToast()
   // 崩溃日志只在启动/崩溃时变，进页读一次；清空后重读
   const [logs, setLogs] = useState(() => readCrashLogs())
+  const [expanded, setExpanded] = useState<string[]>([])
 
   const titleScreen = (
     <Stack.Screen
@@ -33,13 +34,17 @@ export function CrashLogScreen() {
   )
 
   const onCopyOne = useCallback(async (text: string) => {
-    await Clipboard.setStringAsync(text)
-    toast('已复制这条')
+    try {
+      await Clipboard.setStringAsync(text)
+      toast('已复制日志')
+    } catch {
+      toast('未能复制，请重试')
+    }
   }, [toast])
 
   const onShareAll = useCallback(() => {
-    void Share.share({ message: formatCrashLogText(logs) })
-  }, [logs])
+    void Share.share({ message: formatCrashLogText(logs) }).catch(() => toast('未能打开分享，请重试'))
+  }, [logs, toast])
 
   const onClear = useCallback(() => {
     confirm({
@@ -49,17 +54,23 @@ export function CrashLogScreen() {
       destructive: true,
       onConfirm: () => {
         clearCrashLogs()
-        setLogs(readCrashLogs())
+        const remaining = readCrashLogs()
+        setLogs(remaining)
+        if (remaining.length > 0) toast('未能清空日志，请重试')
       },
     })
-  }, [confirm])
+  }, [confirm, toast])
 
   if (logs.length === 0) {
     return (
-      <>
+      <View style={styles.root}>
         {titleScreen}
-        <EmptyState text="暂无崩溃记录" />
-      </>
+        <View style={[styles.empty, { paddingBottom: bottom + spacing.xl }]}>
+          <Icon name="document" size={32} color={colors.textTertiary} />
+          <Text style={styles.emptyTitle}>暂无崩溃记录</Text>
+          <Text style={styles.emptyText}>如果遇到异常，可在这里查看并分享诊断信息。</Text>
+        </View>
+      </View>
     )
   }
 
@@ -84,26 +95,43 @@ export function CrashLogScreen() {
 
         {ordered.map((entry, i) => {
           const text = formatCrashEntryText(entry)
+          const key = `${entry.at}_${i}`
+          const isExpanded = expanded.includes(key)
           return (
-            <View key={`${entry.at}_${i}`} style={styles.card}>
-              <Text style={styles.cardText} selectable>
-                {text}
+            <View key={key} style={styles.card}>
+              <Text style={styles.cardMeta}>{new Date(entry.at).toLocaleString('zh-CN', { hour12: false })}</Text>
+              <Text style={styles.cardTitle} selectable>{entry.message}</Text>
+              <Text style={styles.cardMeta}>
+                {entry.source === 'render' ? '界面异常' : '运行异常'}
+                {entry.appVersion ? ` · ${entry.appVersion}` : ''}
+                {entry.buildNumber ? ` (${entry.buildNumber})` : ''}
               </Text>
-              <Pressable
-                onPress={() => void onCopyOne(text)}
-                hitSlop={8}
-                style={({ pressed }) => [styles.copyBtn, pressed && styles.copyBtnPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="复制这条崩溃日志"
-              >
-                <Text style={styles.copyBtnText}>复制这条</Text>
-              </Pressable>
+              <View style={styles.cardActions}>
+                <Pressable
+                  onPress={() => setExpanded((current) => isExpanded ? current.filter((item) => item !== key) : [...current, key])}
+                  style={({ pressed }) => [styles.copyBtn, pressed && styles.copyBtnPressed]}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: isExpanded }}
+                  accessibilityLabel={isExpanded ? '收起日志详情' : '查看日志详情'}
+                >
+                  <Text style={styles.copyBtnText}>{isExpanded ? '收起详情' : '查看详情'}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void onCopyOne(text)}
+                  style={({ pressed }) => [styles.copyBtn, pressed && styles.copyBtnPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="复制这条崩溃日志"
+                >
+                  <Text style={styles.copyBtnText}>复制日志</Text>
+                </Pressable>
+              </View>
+              {isExpanded ? <Text style={styles.cardText} selectable>{text}</Text> : null}
             </View>
           )
         })}
 
         <Text style={styles.note}>
-          仅记录 App 内 JS 层崩溃。若点开就闪退、这里也没有记录，多半是原生层崩溃，需要系统崩溃报告。
+          这里保留应用内的异常记录，方便反馈问题。若启动即闪退且没有记录，可通过 TestFlight 提交系统崩溃报告。
         </Text>
       </ScrollView>
     </View>
@@ -113,31 +141,38 @@ export function CrashLogScreen() {
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, gap: spacing.md },
-  toolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
   count: { ...typography.subhead, color: colors.textSecondary },
   toolbarActions: { flexDirection: 'row', gap: spacing.lg },
-  toolBtn: { paddingVertical: spacing.xs },
+  toolBtn: { minHeight: 44, paddingVertical: spacing.sm, justifyContent: 'center' },
   toolBtnText: { ...typography.callout, color: colors.textPrimary },
   card: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    padding: spacing.lg,
     gap: spacing.sm,
   },
-  cardText: { ...typography.caption, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
+  cardTitle: { ...typography.callout, fontWeight: '600', color: colors.textPrimary },
+  cardMeta: { ...typography.footnote, color: colors.textTertiary, fontVariant: ['tabular-nums'] },
+  cardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
+  cardText: { ...typography.footnote, color: colors.textPrimary, fontVariant: ['tabular-nums'] },
   copyBtn: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.md,
-    height: 30,
-    borderRadius: radius.pill,
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.bgButtonSecondary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   copyBtnPressed: { opacity: 0.7 },
-  copyBtnText: { ...typography.caption, fontWeight: '600', color: colors.textPrimary },
+  copyBtnText: { ...typography.footnote, fontWeight: '600', color: colors.textPrimary },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, gap: spacing.md },
+  emptyTitle: { ...typography.headline, color: colors.textPrimary },
+  emptyText: { ...typography.footnote, color: colors.textTertiary, textAlign: 'center' },
   note: {
-    ...typography.caption,
+    ...typography.footnote,
     color: colors.textTertiary,
     marginTop: spacing.sm,
     paddingHorizontal: spacing.xs,

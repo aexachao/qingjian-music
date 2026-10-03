@@ -35,9 +35,20 @@ interface CacheIndex {
 let index: CacheIndex | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 const inflight = new Map<string, Promise<void>>()
+const inflightControllers = new Map<string, AbortController>()
+const reservations = new Map<string, number>()
 /** 正在播放与马上要播的文件名，淘汰时必须跳过 */
 let protectedNames: ReadonlySet<string> = new Set()
 let cacheGeneration = 0
+
+/** Captured before resource resolution so a clear can invalidate later cache work too. */
+export function captureAudioCacheGeneration(): number {
+  return cacheGeneration
+}
+
+export function isAudioCacheGenerationCurrent(generation: number): boolean {
+  return generation === cacheGeneration
+}
 
 function audioDir(): Directory {
   const dir = new Directory(Paths.cache, AUDIO_DIR)
@@ -116,14 +127,55 @@ function entryList(current: CacheIndex): CacheEntry[] {
 }
 
 /** 为了放进 incomingBytes 腾地方，删掉最久未用的（受保护的除外） */
-function evictFor(incomingBytes: number, protect: string): void {
+function evictFor(incomingBytes: number, protect: string): boolean {
+  if (!Number.isFinite(incomingBytes) || incomingBytes < 0) return false
   const current = loadIndex()
   const keep = new Set<string>([protect, ...protectedNames, ...inflight.keys()])
   const budget = getCurrentCacheBudgetBytes()
   const countLimit = getCurrentCacheCountLimit()
-  const victims = pickEvictions(entryList(current), budget, incomingBytes, keep, countLimit)
-  if (victims.length === 0) return
-  for (const name of victims) {
+  const otherReservations = [...reservations.entries()]
+    .filter(([name]) => name !== protect)
+    .reduce((sum, [, size]) => sum + size, 0)
+  const currentEntries = entryList(current)
+  const existingEntry = current.entries[protect]
+  const nextReservation = Math.max(0, incomingBytes)
+  const projectedIncoming = otherReservations + nextReservation
+  const reservationNames = new Set([...reservations.keys()].filter((name) => name !== protect))
+  const fixedNames = new Set([
+    ...currentEntries.filter((entry) => keep.has(entry.key)).map((entry) => entry.key),
+    ...reservationNames,
+  ])
+  if (nextReservation > 0 && !existingEntry) fixedNames.add(protect)
+
+  // Reject impossible admissions before evicting any useful cache file.
+  const protectedEntries = currentEntries.filter((entry) => keep.has(entry.key))
+  const protectedBytes = totalBytes(protectedEntries) + otherReservations + nextReservation
+  if ((budget > 0 && protectedBytes > budget) || (countLimit > 0 && fixedNames.size > countLimit)) {
+    return false
+  }
+
+  const victims = pickEvictions(currentEntries, budget, projectedIncoming, keep, countLimit)
+  const victimNames = new Set(victims)
+  if (countLimit > 0) {
+    const names = new Set(currentEntries.filter((entry) => !victimNames.has(entry.key)).map((entry) => entry.key))
+    for (const name of reservationNames) names.add(name)
+    if (nextReservation > 0) names.add(protect)
+    for (const candidate of currentEntries.filter((entry) => !keep.has(entry.key)).sort((a, b) => a.lastUsedAt - b.lastUsedAt)) {
+      if (names.size <= countLimit) break
+      if (victimNames.has(candidate.key)) continue
+      victimNames.add(candidate.key)
+      names.delete(candidate.key)
+    }
+  }
+  const plannedVictims = [...victimNames]
+  const theoreticalBytes = totalBytes(currentEntries.filter((entry) => !victimNames.has(entry.key))) + projectedIncoming
+  const theoreticalNames = new Set(currentEntries.filter((entry) => !victimNames.has(entry.key)).map((entry) => entry.key))
+  for (const name of reservationNames) theoreticalNames.add(name)
+  if (nextReservation > 0) theoreticalNames.add(protect)
+  const theoreticalCount = theoreticalNames.size
+  if ((budget > 0 && theoreticalBytes > budget) || (countLimit > 0 && theoreticalCount > countLimit)) return false
+
+  for (const name of plannedVictims) {
     let deleted = false
     try {
       const file = new File(audioDir(), name)
@@ -134,7 +186,22 @@ function evictFor(incomingBytes: number, protect: string): void {
     }
     if (deleted) delete current.entries[name]
   }
-  scheduleFlush()
+  if (plannedVictims.length > 0) scheduleFlush()
+
+  const projectedBytes = totalBytes(entryList(current)) + projectedIncoming
+  const actualNames = new Set([...Object.keys(current.entries), ...reservationNames])
+  if (nextReservation > 0) actualNames.add(protect)
+  const actualCount = actualNames.size
+  const withinBudget = budget <= 0 || projectedBytes <= budget
+  const withinCount = countLimit <= 0 || actualCount <= countLimit
+  if (!withinBudget || !withinCount) return false
+  reservations.set(protect, nextReservation)
+  return true
+}
+
+/** Release an in-flight byte reservation once its temporary file is gone or committed. */
+export function releaseCacheSpace(name: string): void {
+  reservations.delete(name)
 }
 
 /** 主动应用当前配额与首数上限（用户在设置里调小容量或限制首数时调用） */
@@ -200,23 +267,35 @@ export async function cacheAudio(target: AudioCacheTarget, resource: HttpResourc
     const final = new File(dir, name)
     if (final.exists) return
     const part = new File(dir, `${name}.part`)
+    const controller = new AbortController()
+    inflightControllers.set(name, controller)
     try {
       if (part.exists) part.delete()
-      const downloaded = await File.downloadFileAsync(resource.url, part, { headers: resource.headers })
+      if (target.sizeBytes && !reserveCacheSpace(target.sizeBytes, name)) return
+      const downloaded = await File.downloadFileAsync(resource.url, part, {
+        headers: resource.headers,
+        signal: controller.signal,
+        onProgress: ({ bytesWritten }) => {
+          if (!reserveCacheSpace(bytesWritten, name)) controller.abort()
+        },
+      })
       if (generation !== cacheGeneration) {
         if (downloaded.exists) downloaded.delete()
         return
       }
       const size = downloaded.size ?? target.sizeBytes ?? 0
-      evictFor(size, name)
-      if (final.exists) {
+      if (!isAutoCacheEnabled() || !reserveCacheSpace(size, name) || generation !== cacheGeneration) {
         downloaded.delete()
         return
       }
       await downloaded.move(final)
-      const current = loadIndex()
-      current.entries[name] = { size, lastUsedAt: Date.now() }
-      scheduleFlush()
+      if (generation !== cacheGeneration || !isAutoCacheEnabled() || !registerCacheEntry(name, size)) {
+        try {
+          if (final.exists) final.delete()
+        } catch {
+          // 清理失败时下次按磁盘重建索引
+        }
+      }
     } catch (error) {
       try {
         if (part.exists) part.delete()
@@ -224,6 +303,9 @@ export async function cacheAudio(target: AudioCacheTarget, resource: HttpResourc
         // 清理临时文件失败无所谓
       }
       console.warn('音频缓存失败', error)
+    } finally {
+      inflightControllers.delete(name)
+      releaseCacheSpace(name)
     }
   })()
 
@@ -243,9 +325,17 @@ export function audioCacheStats(): { bytes: number; files: number; budgetBytes: 
   return { bytes: totalBytes(entries), files: entries.length, budgetBytes: getCurrentCacheBudgetBytes() }
 }
 
-/** 设置页「清理音频缓存」 */
-export function clearAudioCache(): void {
+/** Cancel automatic transfers while retaining completed cache entries. */
+export function abortAudioCaching(): void {
   cacheGeneration += 1
+  for (const controller of inflightControllers.values()) controller.abort()
+}
+
+/** 设置页「清理音频缓存」 */
+export function clearAudioCache(): boolean {
+  cacheGeneration += 1
+  for (const controller of inflightControllers.values()) controller.abort()
+  reservations.clear()
   if (flushTimer !== null) {
     clearTimeout(flushTimer)
     flushTimer = null
@@ -253,10 +343,14 @@ export function clearAudioCache(): void {
   try {
     const dir = new Directory(Paths.cache, AUDIO_DIR)
     if (dir.exists) dir.delete()
+    if (dir.exists) throw new Error('Audio cache directory remains after delete')
   } catch {
-    // 目录删不掉就算了
+    // 保留真实索引，设置页可反馈删除失败。
+    index = null
+    return false
   }
   index = { version: 1, entries: {} }
+  return true
 }
 
 // ── 给「转码产物缓存」用的窄接口 ─────────────────────────────────────────────
@@ -267,28 +361,43 @@ export function clearAudioCache(): void {
 // 「上限 2GB」就形同虚设。
 
 /** 为即将写入的 bytes 腾出空间（受保护的条目与正在下载的不会被删） */
-export function reserveCacheSpace(bytes: number, protectName: string): void {
-  evictFor(bytes, protectName)
+export function reserveCacheSpace(bytes: number, protectName: string): boolean {
+  return evictFor(bytes, protectName)
 }
 
 /** 文件已落盘后登记进索引并刷新 LRU */
-export function registerCacheEntry(name: string, size: number): void {
+export function registerCacheEntry(name: string, size: number): boolean {
   const current = loadIndex()
+  const previous = current.entries[name]
+  // The final file may replace a stale index entry. Do not count that old
+  // size against the new admission decision.
+  if (previous) delete current.entries[name]
+  const reservation = reservations.get(name) ?? 0
+  if (!evictFor(Math.max(size, reservation), name)) {
+    if (previous) current.entries[name] = previous
+    return false
+  }
   current.entries[name] = { size, lastUsedAt: Date.now() }
   scheduleFlush()
+  return true
 }
 
 /** 丢弃一个缓存条目（转码产物校验失败、或播放失败需要作废时用） */
 export function removeCacheEntry(name: string): void {
   const current = loadIndex()
+  let deleted = false
   try {
     const file = new File(audioDir(), name)
     if (file.exists) file.delete()
+    deleted = !file.exists
   } catch {
-    // 删不掉就只从索引里摘掉，下次 loadIndex 会按磁盘重建
+    // Keep the index entry if the file could not be deleted.
   }
-  delete current.entries[name]
-  scheduleFlush()
+  if (deleted) {
+    delete current.entries[name]
+    releaseCacheSpace(name)
+    scheduleFlush()
+  }
 }
 
 /**

@@ -16,6 +16,7 @@ import { LatestWriteQueue } from '@/lib/latest-write-queue'
  * 启动时 PlayerBridge 发现队列为空就读这份快照重建 RNTP 队列（只加载不播放）。
  */
 const FILE_NAME = 'player-session.json'
+const TEMP_FILE_NAME = 'player-session.json.tmp'
 const SAVE_DEBOUNCE_MS = 500
 const PROGRESS_SAVE_MS = 8_000
 
@@ -23,44 +24,59 @@ function snapshotFile(): File {
   return new File(new Directory(Paths.document), FILE_NAME)
 }
 
-/** 读快照；文件不存在 / 版本不对 / JSON 坏掉都算没有，并删除不安全的旧文件 */
+function snapshotTempFile(): File {
+  return new File(new Directory(Paths.document), TEMP_FILE_NAME)
+}
+
+/** Read the newest valid snapshot; invalid legacy data is never restored. */
 export function readPlaybackSnapshot(): RestorablePlaybackSnapshot | null {
-  const file = snapshotFile()
-  if (!file.exists) return null
-  try {
-    const snapshot = parsePlaybackSnapshot(JSON.parse(file.textSync()))
-    if (!snapshot) file.delete()
-    return snapshot
-  } catch (error) {
-    console.warn('播放快照读不了', error)
+  // A complete temp is a recoverable commit, including a logout tombstone.
+  // Ignore interrupted/invalid temp writes and retain the last valid live file.
+  for (const file of [snapshotTempFile(), snapshotFile()]) {
+    if (!file.exists) continue
     try {
-      if (file.exists) file.delete()
+      const value: unknown = JSON.parse(file.textSync())
+      if (value === null) return null
+      const snapshot = parsePlaybackSnapshot(value)
+      if (snapshot) return snapshot
     } catch {
-      // 坏文件删除失败不影响本次按新会话启动
+      // Try the last committed file without deleting recovery evidence.
     }
-    return null
   }
+  return null
 }
 
 async function persistSnapshot(snapshot: ReturnType<typeof createPlaybackSnapshot> | null): Promise<void> {
   const file = snapshotFile()
+  const temp = snapshotTempFile()
+  if (!snapshot) {
+    temp.create({ intermediates: true, overwrite: true })
+    temp.write('null')
+    if (file.exists) file.delete()
+    return
+  }
+  if (temp.exists) temp.delete()
+  temp.create({ intermediates: true, overwrite: true })
+  temp.write(JSON.stringify(snapshot))
+  // Only replace the live file after the complete JSON has reached disk.
   if (file.exists) file.delete()
-  if (!snapshot) return
-  file.create()
-  file.write(JSON.stringify(snapshot))
+  temp.move(file)
 }
 
 const snapshotWrites = new LatestWriteQueue(persistSnapshot)
+let snapshotGeneration = 0
 
 /** 清空与退出时排队删除，避免正在写盘的旧快照在删除后重新出现。 */
 export function clearPlaybackSnapshot(): Promise<void> {
+  snapshotGeneration += 1
   return snapshotWrites.enqueue(null)
 }
 
 /** 写一份当前状态。失败只记日志：持久化是锦上添花，不该打断播放 */
 export async function writePlaybackSnapshot(): Promise<void> {
+  const generation = snapshotGeneration
   try {
-    const { queue, history, baseQueue, index, playMode, autoplay, source, lyricOffsetMs } = usePlayerStore.getState()
+    const { queue, history, baseQueue, index, playMode, autoplay, source, lyricOffsetMs, lyricOffsetTrackId } = usePlayerStore.getState()
     if (queue.length === 0 || index < 0) {
       await snapshotWrites.enqueue(null)
       return
@@ -72,6 +88,7 @@ export async function writePlaybackSnapshot(): Promise<void> {
     } catch {
       // RNTP 还没初始化就读不了进度，先把队列结构存下来
     }
+    if (generation !== snapshotGeneration || usePlayerStore.getState().queue !== queue) return
     const snapshot = createPlaybackSnapshot({
       serverId: queue[index]?.serverId ?? '',
       queue,
@@ -82,7 +99,7 @@ export async function writePlaybackSnapshot(): Promise<void> {
       playMode,
       autoplay,
       source,
-      lyricOffsetMs,
+      lyricOffsetMs: lyricOffsetTrackId === queue[index]?.trackId ? lyricOffsetMs : 0,
       savedAt: Date.now(),
     })
     await snapshotWrites.enqueue(snapshot)
@@ -96,7 +113,7 @@ export async function writePlaybackSnapshot(): Promise<void> {
  * 退到后台再补一次。返回清理函数。
  */
 export function startPlaybackPersistence(): () => void {
-  // 根桥接挂载时立即清理含鉴权资源的旧版或损坏快照，即使当前尚未登录。
+  // Validate recovery data on bridge mount; malformed snapshots are ignored.
   readPlaybackSnapshot()
   let timer: ReturnType<typeof setTimeout> | null = null
   const schedule = () => {

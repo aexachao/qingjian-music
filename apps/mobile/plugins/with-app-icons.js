@@ -28,7 +28,7 @@ function hasLauncherIntentFilter(filter) {
 function withIosAlternateIcons(config) {
   config = withXcodeProject(config, (cfg) => {
     const buildConfigurations = cfg.modResults.pbxXCBuildConfigurationSection()
-    const alternates = ICONS.filter((icon) => !icon.default).map((icon) => icon.nativeName)
+    const alternates = ICONS.map((icon) => icon.nativeName)
     for (const entry of Object.values(buildConfigurations)) {
       const settings = entry && typeof entry === 'object' ? entry.buildSettings : undefined
       if (!settings?.PRODUCT_BUNDLE_IDENTIFIER) continue
@@ -43,7 +43,7 @@ function withIosAlternateIcons(config) {
     const assetCatalogRoot = path.join(sourceRoot, 'Images.xcassets')
     const sourceAssets = path.join(cfg.modRequest.projectRoot, 'assets/images/app-icons/ios')
 
-    for (const icon of ICONS.filter((item) => !item.default)) {
+    for (const icon of ICONS) {
       const iconSet = path.join(assetCatalogRoot, `${icon.nativeName}.appiconset`)
       fs.rmSync(iconSet, { recursive: true, force: true })
       fs.mkdirSync(iconSet, { recursive: true })

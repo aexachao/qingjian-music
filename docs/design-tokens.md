@@ -66,8 +66,10 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 | `like` | 收藏（心形）。**独立色值**，与品牌色无关 |
 | `danger` | 破坏性动作（删除 / 清空）。**独立色值**（`#ff3b30`），改品牌色不会连累它 |
 | `actionText` / `actionTextMuted` / `disabledText` | 普通可点动作 / 次要动作 / 不可点 |
-| `brandTint` | 品牌色的**装饰**用法：全局微型加载指示器等（严格限制使用范围，禁止滥用至通用列表行图标） |
+| `loadingIndicator` | 加载指示器的中性颜色：暗色主题纯白、浅色主题纯黑；不随品牌色变化 |
+| `brandTint` | 品牌色的**装饰**用法：设置入口的小图标、Hub 卡、封面占位等（严格限制使用范围，禁止滥用至通用列表行图标） |
 | `coverPlaceholder` / `coverPlaceholderMark` | 无封面时的占位**底**与**记号**：浅灰底 + 比底更有存在感的灰记号（不用品牌红）。记号形状取自官方应用图标「轻简音符」的灵动音符，画成矢量（`components/brand-mark.tsx`），且**不跟随设置里切换的启动图标** |
+| `storageChartDownloads` / `storageChartAudio` / `storageChartLyrics` / `storageChartArtwork` / `storageChartOther` | 仅用于存储容量分段条与图例的分类颜色，独立于品牌色；可用空间沿用 `bgProgressTrack`，同时以文字容量区分，不依赖颜色传意 |
 | `accent` | 品牌色本身，**只用于品牌标识**（应用图标预览、关于页）。组件里直接用会被架构守卫拦下 |
 
 ### 核心设计纪律与品牌色收敛原则（2026-09-24 校准）
@@ -111,18 +113,39 @@ grep -oE '/music/static/assets/[^"]*\.css' index.html | sort -u
 - `fonts`：全面采用平台原生系统字体（iOS: San Francisco + PingFang SC；Android: Roboto + Noto Sans SC），
   无需打包外部 TTF 字体，节省包体积 1.3MB+，冷启动无字体加载延迟，字重渲染与系统动效完美贴合 Apple 原生规范。
   在 `tokens.ts` 中通过 `Platform.select({ ios: 'System', default: '...' })` 结合显式 `fontWeight`（`400` / `500` / `600` / `700`）实现精准排版。
-- 图标：`apps/mobile/src/components/icon.tsx` 用 **Material Icons 面性版**（`@expo/vector-icons/MaterialIcons`，
-  字体文件也随 `expo-font` 构建期嵌入）。web 端用的是线性的 lucide，App 这边**故意不跟**：
-  移动端播放控制、页签、列表行摆在一起，线性图标会显得一半线一半面、轻重不一；
-  Material 的面性版整套都是实心，同一屏里风格才统一。唯一的例外是「收藏」——
-  用同族空心变体 `favorite-border` 表示未选中，靠虚实区分开关状态。
-  领域层 `BrowseNode.icon` 仍存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射过去。
+- 图标统一从 `apps/mobile/src/components/icon.tsx` 使用；当前跨平台字形为 Ionicons，歌词、队列等少数字形使用共享 SVG。iOS 原生快捷菜单使用 SF Symbols。
+  同一对象应保持一致的基础图形；对象入口与添加、移除等动作可以不同。音乐库与菜单的专辑、艺术家等映射仍有历史差异，尚未完成统一。
+  播放器工具栏的模式按钮未选中使用线性字形，选中使用面性镂空字形；收藏仍以虚实表达状态。封面页的主要播放控制保持面性字形。
+  领域层 `BrowseNode.icon` 存 SF Symbols 名（CarPlay 需要），由 `iconForSymbol()` 映射到当前字形。
 - 图标尺寸六档：`sm 16 / md 20 / lg 24 / xl 28` 给列表、页签、工具栏；
   `xxl 40 / hero 56` 只给正在播放页的传输控制（上一首 / 播放暂停 / 下一首），
   对齐 Apple Music 那种大字形、不带圆形底的按钮。
 
 ## 未移植的部分（有意）
 
-- `--ds-glass-*` / `--ds-player-glass-*`：web 端靠 `backdrop-filter` 实现，App 用 `expo-blur` 的原生毛玻璃替代。
+- `--ds-glass-*` / `--ds-player-glass-*`：web 端靠 `backdrop-filter` 实现。App 悬浮 tabbar 与 MiniPlayer 在支持的 iOS 上使用 `expo-glass-effect` 原生玻璃，其他 iOS 回退为 `expo-blur`，Android 使用实色表面。
 - `--semi-*`：Semi Design 组件库内部变量，App 不用该组件库，不移植。
 - hover 系列（`*-hover`）：移动端无悬停，仅在需要按压态时取用。
+
+## 首页漫游装饰
+
+- `roamingDeck` / `roamingDeckFront`：唱片机机身与前面板。
+- `roamingMetal`：唱臂与转轴金属材质。
+- `roamingRecordLabel`：唱针末端的低饱和材质点缀；全局播放状态继续使用 `playing`。
+- 漫游卡片基础高度 124 pt，并随系统文字大小扩展。Tabbar 的按钮区高 64 pt，背景贴底延伸覆盖底部安全区，仅顶部两角使用 20 pt 圆角；选中页签仅改变图标和文字颜色。MiniPlayer 与 tabbar 保持 8 pt 间距，使用 20 pt 圆角的实色卡片，各系统版本不切换为玻璃胶囊。
+
+- `roamingLamp` / `roamingLampCore`：播放指示灯与灯芯；暂停降至 20%，未开启熄灭。
+- `roamingAmbient`：漫游边缘柔光；未开启 9%、暂停 20%、播放渐亮并缓慢移动。
+
+- 漫游三层柔光限制在右下角唱片机背后和底部，类似设备环境背光，文字区保持安静。共享 32 秒局部聚散周期，同时小幅改变横纵比例、大小与角度，聚合时降低亮度。深色模式使用低明度玫瑰、琥珀、紫色，浅色模式保留淡玫瑰、淡杏、灰紫。保持未开启、暂停时的低亮度与减少动态效果支持。
+- 漫游标题沿用 `typography.title3` 系统字体，只把“漫游”染成 `roamingTitleAccent` 的低饱和玫瑰色。副文案和状态使用 `roamingSupportingText`：深色模式 68% 白，浅色模式 68% 近黑，让背景光自然影响文字合成色，同时保留可读性。
+- 漫游状态文字统一 18 pt 行高和左侧起点；“开启中”的加载圈放在文字右侧 12 pt 槽位内，不替换状态文字。
+- 漫游卡片使用局部渐变边光：左上角较亮、右下角更弱，边缘中段透明；亮度跟随漫游状态渐变，不做独立绕圈动画。颜色复用 `roamingTitleAccent`。
+- 我喜欢的、已下载使用固定的局部渐变边光，分别复用 `homeFavoritesGlow` 和 `homeDownloadsGlow`。强度低于漫游播放态，无动画；原有极浅的角落底色保持。
+
+- `roamingLabelPaper`：唱片标签纸底及封面的细边。当前封面缺失或加载失败时继续显示纸底与偏心刻痕。
+- `homeFavoritesGlow` / `homeDownloadsGlow`：首页收藏与下载卡片右下角的静态柔光，仅装饰，不表达播放或加载状态。
+
+- 首页局部描边独立使用 `roamingEdge` / `homeFavoritesEdge` / `homeDownloadsEdge`：深色沿用柔光色，浅色改用低饱和、较深的玫瑰与蓝灰，在白色卡片上保留细腻轮廓；背景柔光颜色与强度不随描边一起加重。浅色漫游未开始时也保留可辨认的局部边缘，播放态只小幅增强。
+
+播放器底部模式切换：未选中使用线性字形，选中使用 `playerToolbarSelected` 的局部圆角底与透明镂空面性字形，透出真实背景；不使用品牌红。歌词设置在左，播放/暂停和下一首在同一行最右侧；播放控制使用面性图标、36 pt 圆底并保留 44 pt 命中区。底部工具栏始终只保留歌词、音频输出、队列三个入口；播放控制使用 `playerToolbarControl` 浅圆底，与模式切换区分。音频输出显示真实路由名称，中性图标，名称单行中间省略并保留完整无障碍标签。

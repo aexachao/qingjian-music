@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
+import { fetchForegroundLyric, lyricQueryOptions } from '@/lib/lyric-loader'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Platform, Share } from 'react-native'
 import type { MenuAction, NativeActionEvent } from '@react-native-menu/menu'
 import { useQueryClient } from '@tanstack/react-query'
@@ -7,16 +8,9 @@ import type { LyricSheet, Track } from '@qj/core-domain'
 import { useToast } from '@/components/toast'
 import { useDetailHref } from '@/lib/detail-href'
 import { useToggleFavorite } from '@/lib/favorites'
-import {
-  formatOffset,
-  loadLyricSheet,
-  lyricQueryKey,
-  LYRIC_STALE_MS,
-  OFFSET_STEP_MS,
-  useLyricOffset,
-} from '@/lib/lyric-offset'
+import { isFavoriteMutationCancelled } from '@/lib/favorite-mutation'
 import { downloadKey } from '@/lib/download-policy'
-import { useIsDownloaded } from '@/lib/use-downloads'
+import { useIsDownloaded, useIsDownloading } from '@/lib/use-downloads'
 import { useServerSession } from '@/lib/server-session'
 import { recordTasteSignal } from '@/lib/taste-profile-store'
 import { downloadTrack, removeDownload } from '@/player/downloads'
@@ -111,16 +105,17 @@ export function useTrackMenu({
   const href = useDetailHref()
   const queryClient = useQueryClient()
   const { provider, connection } = useServerSession()
+  const sessionRef = useRef({ provider, serverId: connection?.id })
+  useLayoutEffect(() => {
+    sessionRef.current = { provider, serverId: connection?.id }
+    return () => { sessionRef.current = { provider: null, serverId: undefined } }
+  }, [provider, connection?.id])
   const toggleFavorite = useToggleFavorite()
   // 下载状态跟着登记表变：下完再打开菜单就该显示「删除下载」
   const downloaded = useIsDownloaded(connection?.id, subject.trackId)
+  const downloading = useIsDownloading(connection?.id, subject.trackId)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [playlistPickerVisible, setPlaylistPickerVisible] = useState(false)
-
-  // 只有「当前曲目」上下文才需要歌词：其它上下文传空串让查询保持 disabled，
-  // 否则列表里每个「···」都会去拉一次歌词。
-  const lyricTrackId = context === 'current' ? subject.trackId : ''
-  const { offsetMs, adjust, canAdjust } = useLyricOffset(lyricTrackId)
 
   const ids = useMemo(
     () =>
@@ -132,9 +127,8 @@ export function useTrackMenu({
           canWritePlaylist: Boolean(provider?.capabilities.playlists === 'write'),
           hasAlbum: Boolean(subject.albumId),
           hasArtist: Boolean(subject.artistId),
-          canAdjustLyricOffset: canAdjust,
           canDownload: Boolean(provider && connection && subject.track),
-          isDownloaded: downloaded,
+          isDownloaded: downloaded || downloading,
           // 队列类条目要完整曲目：列表行有，历史行看 QueueItem.track 有没有留下来
           hasTrack: Boolean(subject.track),
         },
@@ -143,7 +137,6 @@ export function useTrackMenu({
         ...(subject.isHistory ? { isHistory: true } : {}),
       }),
     [
-      canAdjust,
       context,
       provider,
       subject.albumId,
@@ -156,6 +149,7 @@ export function useTrackMenu({
       // 下载状态与连接：菜单条目按「是否已下载」二选一（第 7 轮）
       connection,
       downloaded,
+      downloading,
     ],
   )
 
@@ -164,41 +158,14 @@ export function useTrackMenu({
       const icon = trackMenuIcon(id, { isFavorite: subject.isFavorite })
       return {
         id,
-        title: trackMenuLabel(id, { isFavorite: subject.isFavorite }),
+        title: id === 'remove-download' && downloading ? '取消下载' : trackMenuLabel(id, { isFavorite: subject.isFavorite }),
         image: Platform.OS === 'ios' ? icon.ios : icon.android,
         imageColor: colors.iconBright,
         ...(TRACK_MENU_DESTRUCTIVE.has(id) ? { attributes: { destructive: true } } : {}),
       }
     }
 
-    // 歌词偏移是个组：原生菜单做不了连续滑块，用 ±0.5 秒步进 + 重置
     const group = (id: string, subIds: TrackMenuId[]): MenuAction => {
-      if (id === 'lyric-offset') {
-        return {
-          id,
-          title: `歌词偏移 ${formatOffset(offsetMs)}`,
-          subactions: [
-            {
-              id: 'lyric-earlier',
-              title: `提前 ${OFFSET_STEP_MS / 1000} 秒`,
-              image: 'goforward',
-              imageColor: colors.iconBright,
-            },
-            {
-              id: 'lyric-later',
-              title: `延后 ${OFFSET_STEP_MS / 1000} 秒`,
-              image: 'gobackward',
-              imageColor: colors.iconBright,
-            },
-            {
-              id: 'lyric-reset',
-              title: '重置为 0 秒',
-              image: 'arrow.counterclockwise',
-              imageColor: colors.iconBright,
-            },
-          ],
-        }
-      }
       return {
         id,
         title: '',
@@ -216,7 +183,7 @@ export function useTrackMenu({
     }
 
     return trackMenuGroups(ids, context, popDirection).map((item) => group(item.id, item.ids))
-  }, [colors.iconBright, context, ids, offsetMs, popDirection, subject.isFavorite])
+  }, [colors.iconBright, context, downloading, ids, popDirection, subject.isFavorite])
 
   const navigate = useCallback(
     (action: () => void) => {
@@ -237,6 +204,16 @@ export function useTrackMenu({
 
   const onPressAction = useCallback(
     ({ nativeEvent }: NativeActionEvent) => {
+      const isCurrentSession = () =>
+        sessionRef.current.provider === provider && sessionRef.current.serverId === connection?.id
+      const reportCommit = (operation: () => Promise<boolean>, success: string, failure: string) => {
+        void Promise.resolve().then(operation).then((committed) => {
+          if (!isCurrentSession()) return
+          toast(committed ? success : failure)
+        }).catch(() => {
+          if (isCurrentSession()) toast(failure)
+        })
+      }
       setIsMenuOpen(false)
       setGlobalMenuOpen(false)
       onMenuOpenChange?.(false)
@@ -246,15 +223,21 @@ export function useTrackMenu({
           if (context === 'upcoming') {
             if (subject.queueIndex !== undefined) void moveInQueue(subject.queueIndex, nextPlayTargetIndex())
           } else if (provider && connection && subject.track) {
-            void playNext({ provider, serverId: connection.id, tracks: [subject.track] })
-            toast('已插入到下一首')
+            reportCommit(
+              () => playNext({ provider, serverId: connection.id, tracks: [subject.track!] }),
+              '已插入到下一首',
+              '插入失败，请稍后再试',
+            )
           }
           break
 
         case 'add-to-queue':
           if (provider && connection && subject.track) {
-            void appendTracks({ provider, serverId: connection.id, tracks: [subject.track] })
-            toast('已加入队列')
+            reportCommit(
+              () => appendTracks({ provider, serverId: connection.id, tracks: [subject.track!] }),
+              '已加入队列',
+              '加入队列失败，请稍后再试',
+            )
           }
           break
 
@@ -271,13 +254,18 @@ export function useTrackMenu({
         case 'toggle-favorite':
           void toggleFavorite(subject.trackId, !subject.isFavorite)
             .then(() => {
+              if (sessionRef.current.provider !== provider || sessionRef.current.serverId !== connection?.id) return
               toast(subject.isFavorite ? '已取消喜欢' : '已加入我喜欢')
               // 收藏/取消收藏是强口味信号，喂给本地画像（需完整曲目拿 artists/genres）
               if (connection && subject.track) {
                 recordTasteSignal(connection.id, subject.track, subject.isFavorite ? 'unfavorited' : 'favorited')
               }
             })
-            .catch(() => toast('操作失败，请稍后再试'))
+            .catch((error: unknown) => {
+              if (isFavoriteMutationCancelled(error)) return
+              if (sessionRef.current.provider !== provider || sessionRef.current.serverId !== connection?.id) return
+              toast('操作失败，请稍后再试')
+            })
           break
 
         case 'download':
@@ -289,15 +277,24 @@ export function useTrackMenu({
               track: subject.track,
               requiresTranscode: shouldTranscode(item),
             })
-              .then(() => toast('已开始下载'))
-              .catch((error: unknown) => toast(error instanceof Error ? error.message : '下载失败'))
+              .then(() => {
+                if (isCurrentSession()) toast('已开始下载')
+              })
+              .catch((error: unknown) => {
+                if (isCurrentSession()) toast(error instanceof Error ? error.message : '下载失败')
+              })
           }
           break
 
         case 'remove-download':
           if (connection) {
-            removeDownload(downloadKey(connection.id, subject.trackId))
-            toast('已删除下载')
+            void Promise.resolve().then(() => removeDownload(downloadKey(connection.id, subject.trackId)))
+              .then(() => {
+                if (isCurrentSession()) toast(downloading ? '已取消下载' : '已删除下载')
+              })
+              .catch((error: unknown) => {
+                if (isCurrentSession()) toast(error instanceof Error ? error.message : '删除下载失败')
+              })
           }
           break
 
@@ -324,14 +321,13 @@ export function useTrackMenu({
           void (async () => {
             let sheet: LyricSheet | null = null
             try {
-              sheet = await queryClient.fetchQuery({
-                queryKey: lyricQueryKey(connection?.id, subject.trackId),
-                queryFn: () => loadLyricSheet(provider, connection?.id, subject.trackId),
-                staleTime: LYRIC_STALE_MS,
-              })
+              sheet = await fetchForegroundLyric(queryClient, lyricQueryOptions(provider, connection?.id, subject.trackId, {
+                title: subject.title, artist: subject.artistText, album: subject.albumText,
+              }))
             } catch {
               // 取歌词失败按「没有歌词」处理，下面会给提示
             }
+            if (!isCurrentSession()) return
             const lines = (sheet?.lines ?? []).map((line) => line.text.trim()).filter(Boolean)
             if (lines.length === 0) {
               toast('这首歌还没有歌词')
@@ -383,24 +379,14 @@ export function useTrackMenu({
           }
           break
 
-        case 'lyric-earlier':
-          adjust(OFFSET_STEP_MS)
-          break
-        case 'lyric-later':
-          adjust(-OFFSET_STEP_MS)
-          break
-        case 'lyric-reset':
-          adjust(-offsetMs)
-          break
       }
     },
     [
-      adjust,
       connection,
       context,
+      downloading,
       href,
       navigate,
-      offsetMs,
       onMenuOpenChange,
       provider,
       queryClient,

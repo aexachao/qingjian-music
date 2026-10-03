@@ -71,7 +71,7 @@ describe('播放与转码 Loading 状态与 UI 契约', () => {
     expect(deckSource).toContain('<ProgressBar')
     expect(deckSource).toContain('centerLabel={audioSourceInfo}')
     expect(deckSource).toContain('formatAudioSourceInfo(current)')
-    expect(deckSource).toContain('loading={isAudioLoading}')
+    expect(deckSource).toContain('loading={isAudioLoading && !networkWaiting}')
 
     const progressSource = readSource('components/progress-bar.tsx')
     expect(progressSource).toContain('centerLabel?: string')
@@ -82,7 +82,7 @@ describe('播放与转码 Loading 状态与 UI 契约', () => {
   it('迷你播放器 (MiniPlayer) 为播放/暂停按钮接入 loading', () => {
     const miniSource = readSource('components/mini-player.tsx')
     expect(miniSource).toContain('useIsAudioLoading')
-    expect(miniSource).toContain('loading={isAudioLoading}')
+    expect(miniSource).toContain('loading={isAudioLoading && !networkWaiting}')
   })
 
   it('IconButton 支持 loading 态并渲染 ActivityIndicator', () => {

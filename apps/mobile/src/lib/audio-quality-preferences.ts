@@ -7,6 +7,8 @@
  */
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createHydrationQueue } from './hydration-queue'
 
 const KEY_AUDIO_QUALITY_PREFS = 'qj.prefs.audio_quality'
 
@@ -29,6 +31,7 @@ interface AudioQualityPreferencesData {
 }
 
 interface AudioQualityPreferencesState extends AudioQualityPreferencesData {
+  hydrated: boolean
   setWifiQuality: (quality: QualityOption) => void
   setCellularQuality: (quality: QualityOption) => void
   setDownloadQuality: (quality: QualityOption) => void
@@ -41,50 +44,63 @@ function normalizeQuality(val: unknown): QualityOption {
 
 async function persist(state: AudioQualityPreferencesData) {
   try {
-    await SecureStore.setItemAsync(
-      KEY_AUDIO_QUALITY_PREFS,
-      JSON.stringify({
-        wifiQuality: state.wifiQuality,
-        cellularQuality: state.cellularQuality,
-        downloadQuality: state.downloadQuality,
-      }),
+    await storageWrites.run(() =>
+      SecureStore.setItemAsync(
+        KEY_AUDIO_QUALITY_PREFS,
+        JSON.stringify({
+          wifiQuality: state.wifiQuality,
+          cellularQuality: state.cellularQuality,
+          downloadQuality: state.downloadQuality,
+        }),
+      ),
     )
   } catch {
     // 忽略写入错误
   }
 }
 
+const storageWrites = new StorageMutationQueue()
+const hydration = createHydrationQueue<AudioQualityPreferencesData>()
+
+function ensureHydrated(): void {
+  void hydration.hydrate(async () => {
+    const raw = await SecureStore.getItemAsync(KEY_AUDIO_QUALITY_PREFS)
+    const data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    return {
+      wifiQuality: data.wifiQuality ? normalizeQuality(data.wifiQuality) : 'original',
+      cellularQuality: data.cellularQuality ? normalizeQuality(data.cellularQuality) : 'original',
+      downloadQuality: data.downloadQuality ? normalizeQuality(data.downloadQuality) : 'original',
+    }
+  }, (data, replayed) => {
+    useAudioQualityPreferences.setState({ ...data, hydrated: true })
+    if (replayed) void persist(data)
+  })
+}
+
 export const useAudioQualityPreferences = create<AudioQualityPreferencesState>((set, get) => ({
+  hydrated: false,
   wifiQuality: 'original',
   cellularQuality: 'original',
   downloadQuality: 'original',
   setWifiQuality: (wifiQuality) => {
+    hydration.queue((data) => ({ ...data, wifiQuality }))
     set({ wifiQuality })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
   },
   setCellularQuality: (cellularQuality) => {
+    hydration.queue((data) => ({ ...data, cellularQuality }))
     set({ cellularQuality })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
   },
   setDownloadQuality: (downloadQuality) => {
+    hydration.queue((data) => ({ ...data, downloadQuality }))
     set({ downloadQuality })
-    void persist(get())
+    if (hydration.hydrated) void persist(get())
+    else ensureHydrated()
   },
 }))
 
 // 初始化：异步从 SecureStore 恢复
-void (async () => {
-  try {
-    const raw = await SecureStore.getItemAsync(KEY_AUDIO_QUALITY_PREFS)
-    if (raw) {
-      const data = JSON.parse(raw) as Record<string, unknown>
-      useAudioQualityPreferences.setState({
-        ...(data.wifiQuality ? { wifiQuality: normalizeQuality(data.wifiQuality) } : {}),
-        ...(data.cellularQuality ? { cellularQuality: normalizeQuality(data.cellularQuality) } : {}),
-        ...(data.downloadQuality ? { downloadQuality: normalizeQuality(data.downloadQuality) } : {}),
-      })
-    }
-  } catch {
-    // 忽略错误
-  }
-})()
+ensureHydrated()

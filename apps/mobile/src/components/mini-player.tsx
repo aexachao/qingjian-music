@@ -1,5 +1,5 @@
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
-import { BlurView } from 'expo-blur'
+import { usePlaybackIntent } from '@/player/playback-intent'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useRouter, useSegments } from 'expo-router'
 import { useIsPlaying, useProgress } from 'react-native-track-player'
 import Svg, { Path } from 'react-native-svg'
@@ -10,6 +10,7 @@ import { tap } from '@/lib/haptics'
 import { skipToNextSafe, togglePlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
 import { useIsAudioLoading } from '@/player/use-audio-loading'
+import { useToast } from '@/components/toast'
 import { radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useAppTheme } from '@/theme/theme-provider'
 
@@ -29,18 +30,17 @@ const STROKE_PATH =
 /** 直线段 16 + 32 + 32 + 32 + 16 = 128，四角圆弧 2 * π * 7 ≈ 43.982，总周长 ≈ 171.982 */
 const STROKE_PERIMETER = 128 + 14 * Math.PI
 
-/** iOS 有真毛玻璃（UIVisualEffectView），Android 上 BlurView 不可靠 —— 所以两端一律用实心底，不引入 BlurView */
-
 /**
  * 迷你播放条：固定贴在页签上方，点击进入正在播放页。
  *
  * 底色必须**挡住**下面滚动的内容——之前用白 10% 的半透明，列表文字会透上来，
- * 和背景糊在一起。现在 iOS 是「毛玻璃 + 深色蒙层」，Android 是实心底，
- * 再加一圈描边把它和页面分开。封面四周顺时针呈现圆角矩形描边显示播放进度。
+ * 和背景糊在一起。所有系统版本使用同一实色圆角卡片，
+ * 用细描边和页面分开。封面四周顺时针呈现圆角矩形描边显示播放进度。
  * 固定停靠在底部，不使用任何入场/出场/位移动画。
  */
 export function MiniPlayer() {
-  const { colors, mode } = useAppTheme()
+  const toast = useToast()
+  const { colors } = useAppTheme()
   const styles = useStyles()
   const router = useRouter()
   const segments = useSegments()
@@ -48,13 +48,24 @@ export function MiniPlayer() {
 
   const current = usePlayerStore(selectCurrent)
   const playbackEnded = usePlayerStore((s) => s.playbackEnded)
+  const selectionPending = usePlayerStore((s) => Boolean(s.pendingCurrent))
+  const queue = usePlayerStore((s) => s.queue)
+  const index = usePlayerStore((s) => s.index)
+  const autoplay = usePlayerStore((s) => s.autoplay)
+  const repeatMode = usePlayerStore((s) => s.playMode.repeat)
+
+  const upcomingCount = index >= 0 ? queue.length - index - 1 : Math.max(0, queue.length - 1)
+  const isLooping = repeatMode !== 'off'
+  const canGoNext = autoplay || isLooping || upcomingCount > 0
+
   const { playing } = useIsPlaying()
+  const networkWaiting = usePlaybackIntent((s) => s.waitingForNetwork)
   const isAudioLoading = useIsAudioLoading()
   const progress = useProgress(500)
 
   if (!current) return null
 
-  const ratio = playbackEnded
+  const ratio = selectionPending ? 0 : playbackEnded
     ? 1
     : progress.duration > 0
     ? Math.min(Math.max(progress.position / progress.duration, 0), 1)
@@ -62,7 +73,7 @@ export function MiniPlayer() {
 
   const togglePlayWithHaptics = () => {
     tap()
-    void togglePlay()
+    void togglePlay().catch((error: unknown) => toast(error instanceof Error ? error.message : '播放操作失败，请重试'))
   }
 
   return (
@@ -70,8 +81,6 @@ export function MiniPlayer() {
       style={styles.shell}
       pointerEvents={isPlayerOpen ? 'none' : 'auto'}
     >
-      {Platform.OS === 'ios' && <BlurView intensity={80} tint={mode === 'dark' ? 'systemThickMaterialDark' : 'systemThickMaterialLight'} style={StyleSheet.absoluteFill} />}
-        
         <Pressable
           style={styles.container}
           onPress={() => router.push('/player')}
@@ -116,20 +125,21 @@ export function MiniPlayer() {
           </View>
           {/* 次级控制用 lg，命中区由 IconButton 撑到 44×44 */}
           <IconButton
-            name={playing ? 'pause' : 'play'}
+            name={playing || networkWaiting ? 'pause' : 'play'}
             size={iconSize.lg}
             color={colors.iconBright}
-            loading={isAudioLoading}
+            loading={isAudioLoading && !networkWaiting}
             onPress={togglePlayWithHaptics}
-            accessibilityLabel={playing ? '暂停' : '播放'}
+            accessibilityLabel={networkWaiting ? '取消网络恢复后续播' : playing ? '暂停' : '播放'}
           />
           <IconButton
             name="next"
             size={iconSize.lg}
-            color={colors.iconMid}
+            color={canGoNext ? colors.iconMid : colors.textTertiary}
+            disabled={!canGoNext}
             onPress={() => {
               tap()
-              void skipToNextSafe()
+              void skipToNextSafe().catch(() => toast('切换下一首失败，请重试'))
             }}
             accessibilityLabel="下一首"
           />
@@ -141,12 +151,12 @@ export function MiniPlayer() {
 const useStyles = createThemedStyles((colors) => ({
   shell: {
     marginHorizontal: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
+    borderCurve: 'continuous',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.borderEmphasis,
-    // overflow 必须裁掉，否则毛玻璃会画到圆角外面
     overflow: 'hidden',
-    backgroundColor: Platform.OS === 'ios' ? 'transparent' : colors.bgFloatingSolid,
+    backgroundColor: colors.bgFloatingSolid,
   },
   container: {
     flexDirection: 'row',

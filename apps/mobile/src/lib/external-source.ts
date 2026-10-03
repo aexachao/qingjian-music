@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import * as SecureStore from 'expo-secure-store'
+import { StorageMutationQueue } from './storage-mutation-queue'
+import { createHydrationQueue } from './hydration-queue'
 
 /**
  * 外部数据源配置（用户自填的国内自建服务）—— 按「服务」组织。
@@ -39,14 +41,26 @@ const INFO_PRIORITY: SourceType[] = ['netease', 'qq']
 
 interface ExternalSourcesStore {
   hydrated: boolean
+  revision: number
   services: SourceService[]
-  addService: (type: SourceType) => void
+  addService: (type: SourceType, initialData?: Partial<SourceService>) => void
   updateService: (id: string, patch: Partial<SourceService>) => void
   removeService: (id: string) => void
 }
 
-function persist(services: SourceService[]): void {
-  void SecureStore.setItemAsync(KEY_EXTERNAL_SOURCES, JSON.stringify({ services })).catch(() => undefined)
+interface ExternalSourcesPersistedData {
+  services: SourceService[]
+  revision: number
+  needsRevisionPersistence: boolean
+}
+
+const storageWrites = new StorageMutationQueue()
+const hydration = createHydrationQueue<ExternalSourcesPersistedData>()
+
+function persist(services: SourceService[], revision: number): void {
+  void storageWrites
+    .run(() => SecureStore.setItemAsync(KEY_EXTERNAL_SOURCES, JSON.stringify({ services, revision })))
+    .catch(() => undefined)
 }
 
 /** 归一化地址：去尾部斜杠、去空白 */
@@ -62,8 +76,9 @@ function newId(): string {
 
 export const useExternalSourcesStore = create<ExternalSourcesStore>((set, get) => ({
   hydrated: false,
+  revision: 0,
   services: [],
-  addService: (type) => {
+  addService: (type, initialData) => {
     const caps = SOURCE_CAPS[type]
     const service: SourceService = {
       id: newId(),
@@ -72,37 +87,61 @@ export const useExternalSourcesStore = create<ExternalSourcesStore>((set, get) =
       token: '',
       useLyrics: caps.lyrics,
       useMusicInfo: caps.musicInfo,
+      ...initialData,
     }
+    hydration.queue((data) => ({ ...data, services: [...data.services, service], revision: data.revision + 1 }))
     const services = [...get().services, service]
-    set({ services })
-    persist(services)
+    const revision = get().revision + 1
+    set({ services, revision })
+    if (hydration.hydrated) persist(services, revision)
+    else ensureHydrated()
   },
   updateService: (id, patch) => {
+    hydration.queue((data) => ({
+      ...data,
+      services: data.services.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      revision: data.revision + 1,
+    }))
     const services = get().services.map((s) => (s.id === id ? { ...s, ...patch } : s))
-    set({ services })
-    persist(services)
+    const revision = get().revision + 1
+    set({ services, revision })
+    if (hydration.hydrated) persist(services, revision)
+    else ensureHydrated()
   },
   removeService: (id) => {
+    hydration.queue((data) => ({
+      ...data,
+      services: data.services.filter((s) => s.id !== id),
+      revision: data.revision + 1,
+    }))
     const services = get().services.filter((s) => s.id !== id)
-    set({ services })
-    persist(services)
+    const revision = get().revision + 1
+    set({ services, revision })
+    if (hydration.hydrated) persist(services, revision)
+    else ensureHydrated()
   },
 }))
 
-// 模块加载即水合；兼容旧版 {lyrics,musicInfo} 结构，自动迁移成服务列表
-void (async () => {
-  try {
+function ensureHydrated(): void {
+  void hydration.hydrate(async () => {
     const raw = await SecureStore.getItemAsync(KEY_EXTERNAL_SOURCES)
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
     let services: SourceService[] = Array.isArray(parsed.services) ? (parsed.services as SourceService[]) : []
     if (services.length === 0 && (parsed.lyrics || parsed.musicInfo)) {
       services = migrateLegacy(parsed as LegacyShape)
     }
-    useExternalSourcesStore.setState({ hydrated: true, services })
-  } catch {
-    useExternalSourcesStore.setState({ hydrated: true })
-  }
-})()
+    const revision = typeof parsed.revision === 'number' && Number.isSafeInteger(parsed.revision) && parsed.revision >= 0
+      ? parsed.revision
+      : 0
+    return { services, revision, needsRevisionPersistence: parsed.revision !== revision }
+  }, (data, replayed) => {
+    useExternalSourcesStore.setState({ hydrated: true, services: data.services, revision: data.revision })
+    if (replayed || data.needsRevisionPersistence) persist(data.services, data.revision)
+  })
+}
+
+// 模块加载即水合；兼容旧版 {lyrics,musicInfo} 结构，自动迁移成服务列表
+ensureHydrated()
 
 interface LegacyShape {
   lyrics?: { type?: string; baseUrl?: string; token?: string }

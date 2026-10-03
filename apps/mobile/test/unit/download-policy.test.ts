@@ -122,6 +122,13 @@ describe('下载接线（源码断言，防止被顺手改断）', () => {
     expect(downloads).toContain('assertNamespacesDisjoint(CACHE_DIR, DOWNLOAD_DIR)')
   })
 
+  it('下载管理页按当前服务器隔离条目', async () => {
+    const { readSource } = await import('../support/source')
+    const screen = readSource('screens/downloaded.tsx')
+    expect(screen).toContain('entry.serverId === connection.id')
+    expect(screen).toContain('data={visibleEntries}')
+  })
+
   it('需转码的曲目走 HLS 拼接而不是直接报错', async () => {
     const { readSource } = await import('../support/source')
     const downloads = readSource('player/downloads.ts')
