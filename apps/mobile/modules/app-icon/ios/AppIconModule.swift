@@ -37,7 +37,8 @@ public class AppIconModule: Module {
       }
 
       let currentAlternate = UIApplication.shared.alternateIconName
-      if currentAlternate == targetIconName || (iconId == defaultIconId && (currentAlternate == nil || currentAlternate == targetIconName)) {
+      if currentAlternate == targetIconName ||
+        (iconId == defaultIconId && (currentAlternate == nil || currentAlternate == targetIconName)) {
         return
       }
 
