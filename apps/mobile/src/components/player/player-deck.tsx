@@ -39,6 +39,10 @@ interface PlayerDeckProps {
   compact?: boolean
   onDismissWithAction?: (action: () => void) => void
   onMenuOpenChange?: (open: boolean) => void
+  /** Optional action bridge used by the immersive lyric chrome. */
+  onAction?: (action: () => Promise<unknown>, fallback: string) => void
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
 }
 
 export interface PlayerTitleRowProps {
@@ -111,6 +115,9 @@ export function PlayerDeck({
   compact = false,
   onDismissWithAction,
   onMenuOpenChange,
+  onAction,
+  onInteractionStart,
+  onInteractionEnd,
 }: PlayerDeckProps) {
   const colors = useThemeColors()
   const styles = useStyles()
@@ -161,6 +168,11 @@ export function PlayerDeck({
   const isLooping = repeatMode !== 'off'
   const canGoPrevious = history.length > 0
   const canGoNext = autoplay || isLooping || upcomingCount > 0
+  const runAction = (action: () => Promise<unknown>, fallback: string) => {
+    tap()
+    if (onAction) onAction(action, fallback)
+    else void action().catch((error: unknown) => toast(error instanceof Error ? error.message : fallback))
+  }
 
   return (
     <View style={[styles.container, compact && styles.containerCompact]}>
@@ -178,9 +190,13 @@ export function PlayerDeck({
         position={position}
         duration={duration}
         centerLabel={audioSourceInfo}
+        onInteractionStart={onInteractionStart}
+        onInteractionEnd={onInteractionEnd}
         onSeek={(seconds) => {
           usePlayerStore.getState().setPlaybackEnded(false)
-          void seekPlayback(seconds).catch(() => toast('调整进度失败，请重试'))
+          const action = () => seekPlayback(seconds)
+          if (onAction) onAction(action, '调整进度失败，请重试')
+          else void action().catch(() => toast('调整进度失败，请重试'))
         }}
       />
 
@@ -191,10 +207,7 @@ export function PlayerDeck({
           size={compact ? iconSize.xxl : iconSize.xxl}
           color={canGoPrevious ? colors.textPrimary : colors.textTertiary}
           disabled={!canGoPrevious}
-          onPress={() => {
-            tap()
-            void skipToPreviousSmart().catch(() => toast('切换上一首失败，请重试'))
-          }}
+          onPress={() => runAction(skipToPreviousSmart, '切换上一首失败，请重试')}
           accessibilityLabel="上一首"
           style={compact ? styles.sideControlHitCompact : styles.sideControlHit}
         />
@@ -203,10 +216,7 @@ export function PlayerDeck({
           size={compact ? iconSize.hero : iconSize.hero}
           color={colors.textPrimary}
           loading={isAudioLoading && !networkWaiting}
-          onPress={() => {
-            tap()
-            void togglePlay().catch((error: unknown) => toast(error instanceof Error ? error.message : '播放操作失败，请重试'))
-          }}
+          onPress={() => runAction(togglePlay, '播放操作失败，请重试')}
           accessibilityLabel={networkWaiting ? '取消网络恢复后续播' : playing ? '暂停' : '播放'}
           style={compact ? styles.playControlHitCompact : styles.playControlHit}
         />
@@ -215,10 +225,7 @@ export function PlayerDeck({
           size={compact ? iconSize.xxl : iconSize.xxl}
           color={canGoNext ? colors.textPrimary : colors.textTertiary}
           disabled={!canGoNext}
-          onPress={() => {
-            tap()
-            void skipToNextSafe().catch(() => toast('切换下一首失败，请重试'))
-          }}
+          onPress={() => runAction(skipToNextSafe, '切换下一首失败，请重试')}
           accessibilityLabel="下一首"
           style={compact ? styles.sideControlHitCompact : styles.sideControlHit}
         />
@@ -229,7 +236,7 @@ export function PlayerDeck({
         style={volumeAnimatedStyle}
         pointerEvents={hideVolume ? 'none' : 'auto'}
       >
-        <VolumeBar />
+        <VolumeBar onInteractionStart={onInteractionStart} onInteractionEnd={onInteractionEnd} />
       </Animated.View>
     </View>
   )
@@ -239,7 +246,7 @@ export function PlayerDeck({
  * 自绘音量条：完美的 Apple Music 胶囊外观，左右图标在胶囊内部。
  * 利用透明的 SystemVolumeSlider 拦截手势并抑制系统音量弹窗。
  */
-function VolumeBar() {
+function VolumeBar({ onInteractionStart, onInteractionEnd }: { onInteractionStart?: () => void; onInteractionEnd?: () => void }) {
   const colors = useThemeColors()
   const styles = useStyles()
   const currentVol = getSystemVolume()
@@ -266,6 +273,7 @@ function VolumeBar() {
   const pan = Gesture.Pan()
     .failOffsetY([-14, 14])
     .onBegin(() => {
+      if (onInteractionStart) runOnJS(onInteractionStart)()
       runOnJS(select)()
       pressed.value = withSpring(1, { damping: 34.6, stiffness: 300 })
       initialVolume.value = volume.value
@@ -279,6 +287,7 @@ function VolumeBar() {
       runOnJS(setSystemVolume)(next)
     })
     .onFinalize(() => {
+      if (onInteractionEnd) runOnJS(onInteractionEnd)()
       pressed.value = withTiming(0, { duration: 250 })
     })
 
@@ -371,14 +380,16 @@ const useStyles = createThemedStyles((colors) => ({
   actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐
   menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
-  controlsCompact: {
-    gap: spacing.xl,
-    // 音量条的 32pt 触控区包着 6pt 轨道；补偿透明留白，让时间字段与音量轨道
-    // 到播放图标的可见间距相当，同时保持整个横屏控制区的高度和触控范围。
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.lg,
+    // 平衡播放 glyph 到时间文字、音量轨道的视觉间距；上下净高度不变。
     marginTop: 6,
     marginBottom: -6,
   },
+  controlsCompact: { gap: spacing.xl },
   playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
   playControlHitCompact: { minWidth: 64, minHeight: 64, borderRadius: 32 },
   sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },

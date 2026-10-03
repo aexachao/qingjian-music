@@ -6,7 +6,7 @@ export interface LyricWord {
 }
 
 export interface LyricLine {
-  /** 行起始时间（毫秒），纯文本歌词为 0 */
+  /** 行起始时间（毫秒）；纯文本歌词为 0，负值表示没有演唱时间的信息行 */
   atMs: number
   text: string
   translation?: string

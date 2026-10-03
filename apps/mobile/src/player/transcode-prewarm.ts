@@ -25,16 +25,16 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /** 保持一个“下一首”转码任务热着；新的预热会替换并关闭旧任务。 */
-export function setWarmTranscode(qid: string, stream: StreamRequest, isCurrent = () => true): Promise<void> {
+export function setWarmTranscode(qid: string, stream: StreamRequest, isCurrent = () => true): Promise<StreamRequest | undefined> {
   return serialize(async () => {
-    if (!stream.session) return
-    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return }
+    if (!stream.session) return undefined
+    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return undefined }
     if (warm?.qid === qid) {
       void stream.session.close().catch(() => undefined)
-      return
+      return warm.stream
     }
     if (warm) await closeWarm(warm)
-    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return }
+    if (!isCurrent()) { void stream.session.close().catch(() => undefined); return undefined }
     const session = stream.session
     let beating = false
     const timer = setInterval(() => {
@@ -45,7 +45,17 @@ export function setWarmTranscode(qid: string, stream: StreamRequest, isCurrent =
       }).finally(() => { beating = false })
     }, session.heartbeatIntervalMs)
     warm = { qid, stream, session, timer }
+    return stream
   })
+}
+
+export function isWarmTranscodeCurrent(qid: string, session: StreamSession): boolean {
+  return warm?.qid === qid && warm.session === session
+}
+
+/** Read the still-owned warm stream so rescheduling the same window won't open another session. */
+export function getWarmTranscode(qid: string): StreamRequest | undefined {
+  return warm?.qid === qid ? warm.stream : undefined
 }
 
 /** 切到预热歌曲时原子取走资源；调用方接管 session 生命周期。 */

@@ -1470,7 +1470,7 @@ const useStyles = createThemedStyles((colors) => ({
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     backgroundColor: colors.bgButtonSecondary,
   },
   modeActive: { backgroundColor: colors.textPrimary },

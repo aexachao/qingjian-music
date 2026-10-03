@@ -245,10 +245,15 @@ export function PlayerBridge() {
       void refreshArtwork(activeIndex)
       void refreshArtist(activeIndex)
       reportPlay(activeIndex, qid)
-      schedulePrefetch(activeIndex)
       // 冷启动恢复永远保持暂停；正常切歌或播放错误重试才续播。
       void ensureTranscodeForIndex(activeIndex, { resumePlayback: !isRestoringSession() }).catch((error: unknown) => {
         console.warn('转码会话切换失败', error)
+      }).finally(() => {
+        // Consume a just-activated warm session before replacing the warm slot
+        // with preparation for the following queue occurrence.
+        if (usePlayerStore.getState().queue[usePlayerStore.getState().index]?.qid === qid) {
+          schedulePrefetch(usePlayerStore.getState().index)
+        }
       })
       // 续歌优先级：列表还没放完 → 静默补列表下一页（不看♾️，这是列表本身）；
       // 列表真末尾后，才看♾️无限播放 → 用全库漫游续命。

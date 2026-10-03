@@ -1,10 +1,10 @@
 import { useToast } from '@/components/toast'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { useActiveTrack, useIsPlaying, useProgress } from 'react-native-track-player'
+import { useIsPlaying } from 'react-native-track-player'
 
 import Animated, {
   Easing,
@@ -15,22 +15,21 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  type SharedValue,
 } from 'react-native-reanimated'
 
 import { StatusBar } from 'expo-status-bar'
 import * as ScreenOrientation from 'expo-screen-orientation'
 import { PlayerToolbar } from '@/components/player/player-toolbar'
+import { useLyricsControls } from '@/components/player/use-lyrics-controls'
+import { PlayerModeLayer, PLAYER_MODE_TIMING } from '@/components/player/player-mode-transition'
 import { PlayerLandscapeView } from '@/components/player/player-landscape-view'
 import { LyricPage } from '@/components/player/lyric-page'
 import { AuthGate } from '@/lib/auth-gate'
 import { CoverBackdrop } from '@/components/player/cover-backdrop'
 import { ImmersiveDarkOverlay, ViewportCover } from '@/components/player/immersive-cover'
-import { LyricAdjustmentSheet } from '@/components/player/lyric-adjustment-sheet'
 import { IconButton, iconSize } from '@/components/icon'
-import { seekAndPlay as seekLyricAndPlay } from '@/player/controller'
-import { useLyricOffset } from '@/lib/lyric-offset'
-import { LyricView } from '@/components/lyric-view'
+import { usePlaybackIntent } from '@/player/playback-intent'
+import { useIsAudioLoading } from '@/player/use-audio-loading'
 import { PlayerDeck, PlayerTitleRow } from '@/components/player/player-deck'
 import { closeOpenQueueAction, CurrentTrackCard, PlayerQueue } from '@/components/player/player-queue'
 import { selectCurrent, usePlayerStore } from '@/player/store'
@@ -38,8 +37,6 @@ import { DarkThemeScope } from '@/theme/theme-provider'
 import { resolveAmbientPalette } from '@/theme/ambient-palette'
 import { getThemeColors, radius, spacing, typography } from '@/theme/tokens'
 
-const LYRIC_TICK_MS = 100
-const LYRIC_IDLE_TICK_MS = 200
 const PAUSED_COVER_SCALE = 0.86
 
 type PlayerMode = 'cover' | 'lyrics' | 'list'
@@ -48,7 +45,7 @@ export default function PlayerScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
-  const [screenOrient, setScreenOrient] = useState<ScreenOrientation.Orientation | null>(null)
+  const [, setScreenOrient] = useState<ScreenOrientation.Orientation | null>(null)
 
   // 播放页方向管理：进入播放页解锁重力感应全向旋转；离开时恢复并锁定为竖屏
   useEffect(() => {
@@ -67,6 +64,9 @@ export default function PlayerScreen() {
   
   const current = usePlayerStore(selectCurrent)
   const { playing } = useIsPlaying()
+  const isAudioLoading = useIsAudioLoading()
+  const networkWaiting = usePlaybackIntent((state) => state.waitingForNetwork)
+  const playbackEnded = usePlayerStore((state) => state.playbackEnded)
   const palette = useMemo(
     () => resolveAmbientPalette(current?.trackId ?? current?.coverId),
     [current?.trackId, current?.coverId],
@@ -77,6 +77,51 @@ export default function PlayerScreen() {
     params.mode === 'lyrics' || params.mode === 'list' ? params.mode : 'cover',
   )
   const [menuOpen, setMenuOpen] = useState(false)
+  const [lyricsReadiness, setLyricsReadiness] = useState<{ identity: string; ready: boolean; error: boolean }>({ identity: '', ready: false, error: false })
+  const [lyricsModalOpen, setLyricsModalOpen] = useState(false)
+  const [routePickerOpen, setRoutePickerOpen] = useState(false)
+  const [playbackRequestPending, setPlaybackRequestPending] = useState(false)
+  const adjustHandler = useRef<() => void>(() => {})
+  const registerAdjustHandler = useCallback((handler: () => void) => { adjustHandler.current = handler }, [])
+  const [lyricAdjustAvailable, setLyricAdjustAvailable] = useState(false)
+  const [portraitChromeHeight, setPortraitChromeHeight] = useState(0)
+  const [toolbarHeight, setToolbarHeight] = useState(0)
+  const [pinnedHeaderHeight, setPinnedHeaderHeight] = useState(0)
+  const lyricsIdentity = current?.qid ?? ''
+  const lyricsReadyForCurrent = lyricsReadiness.identity === lyricsIdentity && lyricsReadiness.ready
+  const lyricsErrorForCurrent = lyricsReadiness.identity === lyricsIdentity && lyricsReadiness.error
+  const controls = useLyricsControls({
+    active: mode === 'lyrics',
+    identity: lyricsIdentity,
+    playing: Boolean(playing),
+    ready: lyricsReadyForCurrent,
+    locked: lyricsModalOpen || routePickerOpen || menuOpen,
+    forceVisible: playbackEnded || !lyricsReadyForCurrent || lyricsErrorForCurrent || isAudioLoading || networkWaiting || playbackRequestPending || (!playing && !isAudioLoading && !networkWaiting),
+  })
+  const updateLyricsReady = useCallback((ready: boolean) => {
+    setLyricsReadiness((previous) => ({ identity: lyricsIdentity, ready, error: ready ? false : previous.identity === lyricsIdentity && previous.error }))
+  }, [lyricsIdentity])
+  const updateLyricsError = useCallback((error: boolean) => {
+    setLyricsReadiness((previous) => ({ identity: lyricsIdentity, ready: previous.identity === lyricsIdentity && previous.ready, error }))
+  }, [lyricsIdentity])
+  const [showImmersionHint, setShowImmersionHint] = useState(true)
+  useEffect(() => {
+    if (mode !== 'lyrics' || controls.visible || !showImmersionHint) return
+    const timer = setTimeout(() => setShowImmersionHint(false), 3000)
+    return () => clearTimeout(timer)
+  }, [mode, controls.visible, showImmersionHint])
+  const controlsOpacity = useSharedValue(1)
+  useEffect(() => {
+    controlsOpacity.value = withTiming(controls.visible ? 1 : 0, {
+      duration: controls.visible ? 360 : 500,
+      easing: controls.visible ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic),
+      reduceMotion: ReduceMotion.System,
+    })
+  }, [controls.visible, controlsOpacity])
+  const chromeAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: controlsOpacity.value,
+    transform: [{ translateY: (1 - controlsOpacity.value) * 48 }],
+  }))
 
   useEffect(() => {
     if (params.mode === 'lyrics' || params.mode === 'list' || params.mode === 'cover') {
@@ -95,6 +140,7 @@ export default function PlayerScreen() {
   const stageHeight = useSharedValue(initialStageHeight)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
 
+  const coverAnim = useSharedValue(mode === 'cover' ? 1 : 0)
   const listAnim = useSharedValue(0)
   const lyricAnim = useSharedValue(0)
   const coverScale = useSharedValue(playing === false ? PAUSED_COVER_SCALE : 1)
@@ -114,10 +160,8 @@ export default function PlayerScreen() {
 
   // Apple 级流体动量曲线（前快后慢、自然阻尼，杜绝顿挫）
   useEffect(() => {
-    const timingConfig = {
-      duration: 360,
-      easing: Easing.bezier(0.22, 1, 0.36, 1),
-    }
+    const timingConfig = PLAYER_MODE_TIMING
+    coverAnim.value = withTiming(mode === 'cover' ? 1 : 0, timingConfig)
 
     if (mode === 'list') {
       listAnim.value = withTiming(1, timingConfig)
@@ -129,7 +173,7 @@ export default function PlayerScreen() {
       listAnim.value = withTiming(0, timingConfig)
       lyricAnim.value = withTiming(0, timingConfig)
     }
-  }, [mode, listAnim, lyricAnim])
+  }, [mode, coverAnim, listAnim, lyricAnim])
 
   const dismiss = useCallback(() => router.back(), [router])
 
@@ -138,13 +182,9 @@ export default function PlayerScreen() {
   const [isListAtTop, setIsListAtTop] = useState(true)
   const [queueActionOpen, setQueueActionOpen] = useState(false)
 
-  // 追踪歌词层与队列层的激活与显示生命周期：
-  // 1. hasEnteredList / hasEnteredLyrics: 一旦进入或进场后预热就常驻内存，绝不反复卸载重建组件树，彻底消除切入时的冷启动卡顿/掉帧
-  // 2. isListVisible / isLyricsVisible: 切出模式等 380ms 动画完全结束后才应用 display: 'none'，同时 pointerEvents 根据当前模式切换，彻底防止后台 ScrollView 拦截手势
-  const [hasEnteredList, setHasEnteredList] = useState(false)
-  const [isListVisible, setIsListVisible] = useState(false)
-  const [hasEnteredLyrics, setHasEnteredLyrics] = useState(false)
-  const [isLyricsVisible, setIsLyricsVisible] = useState(false)
+  // 一旦进入或进场后预热，列表与歌词层保留固定布局；非当前层通过 hit-testing 和辅助功能隔离。
+  const [hasEnteredList, setHasEnteredList] = useState(mode === 'list')
+  const [hasEnteredLyrics, setHasEnteredLyrics] = useState(mode === 'lyrics')
 
   // 播放页进场动画 (360ms) 完成后，后台空闲预热挂载列表和歌词，确保首次点击时已在内存中就绪
   useEffect(() => {
@@ -161,30 +201,13 @@ export default function PlayerScreen() {
   }, [])
 
   useEffect(() => {
-    let timer: NodeJS.Timeout
-    if (mode === 'lyrics') {
-      setHasEnteredLyrics(true)
-      setIsLyricsVisible(true)
-    } else {
-      timer = setTimeout(() => {
-        setIsLyricsVisible(false)
-      }, 380)
-    }
-    return () => clearTimeout(timer)
-  }, [mode])
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout
     if (mode === 'list') {
       setIsListAtTop(true)
       setHasEnteredList(true)
-      setIsListVisible(true)
-    } else {
-      timer = setTimeout(() => {
-        setIsListVisible(false)
-      }, 380)
     }
-    return () => clearTimeout(timer)
+    if (mode === 'lyrics') {
+      setHasEnteredLyrics(true)
+    }
   }, [mode])
 
   // 播放器进场动效
@@ -293,64 +316,43 @@ export default function PlayerScreen() {
     borderTopRightRadius: topCornerRadius,
   }))
 
-  // 播放列表页进入动量：从容升起，配合微缩放，消除突兀跳跃
-  const queueAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(listAnim.value, [0.05, 0.85], [0, 1], Extrapolation.CLAMP),
-    transform: [
-      { translateY: interpolate(listAnim.value, [0, 1], [32, 0], Extrapolation.CLAMP) },
-      { scale: interpolate(listAnim.value, [0, 1], [1.02, 1], Extrapolation.CLAMP) },
-    ],
-  }))
-
-  // 封面态内容退场动量：向后退景与微缩
+  // 两个目标共用退场权重，封面退出的运动不随目标变化。
   const coverAnimatedStyle = useAnimatedStyle(() => {
-    const scale = interpolate(listAnim.value, [0, 1], [1, 0.94], Extrapolation.CLAMP)
-    const opacity = interpolate(listAnim.value, [0, 0.7], [1, 0], Extrapolation.CLAMP)
+    const progress = 1 - coverAnim.value
     return {
-      opacity,
-      transform: [{ scale }],
+      opacity: interpolate(progress, [0, 0.7], [1, 0], Extrapolation.CLAMP),
+      transform: [{ scale: interpolate(progress, [0, 1], [1, 0.94], Extrapolation.CLAMP) }],
     }
   })
 
   // 沉浸式全屏封面：仅在 cover 态完全显露，平滑过渡到底层的 CoverBackdrop
-  // 采用完整 [0, 0.95] 渐淡与微景深扩散（1 -> 1.03），彻底消除 60% 处突然全黑的断层感
+  // 遮罩只做透明度过渡，保持背景几何尺寸稳定。
   const immersiveCoverStyle = useAnimatedStyle(() => {
-    const activeProg = Math.max(listAnim.value, lyricAnim.value)
+    const activeProg = 1 - coverAnim.value
     const opacity = interpolate(activeProg, [0, 0.95], [1, 0], Extrapolation.CLAMP)
-    const scale = interpolate(activeProg, [0, 1], [1, 1.03], Extrapolation.CLAMP)
-    return {
-      opacity,
-      transform: [{ scale }],
-    }
+    return { opacity }
   })
 
-  const coverListContainerAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(lyricAnim.value, [0, 0.75], [1, 0], Extrapolation.CLAMP)
-    const scale = interpolate(lyricAnim.value, [0, 1], [1, 0.94], Extrapolation.CLAMP)
-    return {
-      opacity,
-      transform: [{ scale }],
-    }
-  })
+  const lyricSettingsAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(lyricAnim.value, [0, 0.85], [0, 1], Extrapolation.CLAMP) * controlsOpacity.value,
+    transform: [{ translateY: (1 - controlsOpacity.value) * 48 }],
+  }))
 
-  const lyricsContainerAnimatedStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(lyricAnim.value, [0.05, 0.85], [0, 1], Extrapolation.CLAMP)
-    const scale = interpolate(lyricAnim.value, [0, 1], [1.02, 1], Extrapolation.CLAMP)
-    const translateY = interpolate(lyricAnim.value, [0, 1], [24, 0], Extrapolation.CLAMP)
-    return {
-      opacity,
-      transform: [{ scale }, { translateY }],
-    }
-  })
-
-  const pinnedHeaderAnimatedStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(lyricAnim.value, [0.1, 1], [-14, 0], Extrapolation.CLAMP)
-    const opacity = interpolate(lyricAnim.value, [0.15, 0.9], [0, 1], Extrapolation.CLAMP)
-    return {
-      opacity,
-      transform: [{ translateY }],
-    }
-  })
+  const toast = useToast()
+  const showControls = controls.show
+  const requestPlaybackAction = useCallback((action: () => Promise<unknown>, fallback: string) => {
+    showControls()
+    setPlaybackRequestPending(true)
+    void action().catch((error: unknown) => toast(error instanceof Error ? error.message : fallback)).finally(() => setPlaybackRequestPending(false))
+  }, [showControls, toast])
+  const recordLayoutHeight = useCallback((setHeight: Dispatch<SetStateAction<number>>) => (event: LayoutChangeEvent) => {
+    const height = Math.ceil(event.nativeEvent.layout.height)
+    setHeight((previous) => Math.abs(previous - height) > 1 ? height : previous)
+  }, [])
+  const onPortraitChromeLayout = useMemo(() => recordLayoutHeight(setPortraitChromeHeight), [recordLayoutHeight])
+  const onToolbarLayout = useMemo(() => recordLayoutHeight(setToolbarHeight), [recordLayoutHeight])
+  const onPinnedHeaderLayout = useMemo(() => recordLayoutHeight(setPinnedHeaderHeight), [recordLayoutHeight])
+  const bottomChromeInset = portraitChromeHeight + toolbarHeight + 6 + 44 + spacing.xl
 
 
   if (!current) {
@@ -381,10 +383,27 @@ export default function PlayerScreen() {
                 onMenuOpenChange={setMenuOpen}
                 isMenuOpen={menuOpen}
                 coverScaleStyle={coverScaleStyle}
+                coverAnim={coverAnim}
+                listAnim={listAnim}
+                lyricAnim={lyricAnim}
+                hasEnteredList={hasEnteredList}
+                hasEnteredLyrics={hasEnteredLyrics}
                 handleDismissGesture={handleDismissGesture}
                 coverDismissGesture={handleDismissGesture}
                 translateY={translateY}
                 playing={playing}
+                controlsVisible={controls.visible}
+                controlsOpacity={controlsOpacity}
+                foreground={controls.foreground}
+                followLocked={lyricsModalOpen || routePickerOpen || menuOpen || isAudioLoading || networkWaiting || playbackRequestPending}
+                onLyricsReadyChange={updateLyricsReady}
+                onLyricsErrorChange={updateLyricsError}
+                onInteractionStart={controls.touchStart}
+                onInteractionEnd={controls.touchEnd}
+                onShareOpenChange={setLyricsModalOpen}
+                onRoutePickerVisibilityChange={setRoutePickerOpen}
+                onBlankTap={controls.toggle}
+                onFlingReveal={controls.show}
                 onListTopStateChange={setIsListAtTop}
               />
               {menuOpen ? (
@@ -422,8 +441,10 @@ export default function PlayerScreen() {
           <View style={styles.stageViewport}>
             {/* 封面与播放列表层 */}
             <Animated.View
-              style={[StyleSheet.absoluteFill, coverListContainerAnimatedStyle]}
+              style={[StyleSheet.absoluteFill, { paddingBottom: toolbarHeight + portraitChromeHeight + spacing.lg }]}
               pointerEvents={mode !== 'lyrics' ? 'auto' : 'none'}
+              accessibilityElementsHidden={mode === 'lyrics'}
+              importantForAccessibility={mode === 'lyrics' ? 'no-hide-descendants' : 'auto'}
             >
               <View style={styles.page}>
                 <View
@@ -435,10 +456,7 @@ export default function PlayerScreen() {
                     }
                   }}
                 >
-                  <Animated.View
-                    style={[StyleSheet.absoluteFill, queueAnimatedStyle, !isListVisible && styles.hiddenLayer]}
-                    pointerEvents={mode === 'list' ? 'auto' : 'none'}
-                  >
+                  <PlayerModeLayer progress={listAnim} active={mode === 'list'}>
                     {hasEnteredList ? (
                       <PlayerQueue
                         palette={palette}
@@ -457,11 +475,13 @@ export default function PlayerScreen() {
                         onDismiss={dismiss}
                       />
                     ) : null}
-                  </Animated.View>
+                  </PlayerModeLayer>
 
                   <Animated.View
                     pointerEvents={mode === 'cover' ? 'auto' : 'none'}
                     style={[StyleSheet.absoluteFill, styles.coverStage, coverAnimatedStyle]}
+                    accessibilityElementsHidden={mode !== 'cover'}
+                    importantForAccessibility={mode === 'cover' ? 'auto' : 'no-hide-descendants'}
                   >
                     <GestureDetector gesture={coverDismissGesture}>
                       <View style={styles.coverGestureContainer}>
@@ -482,30 +502,16 @@ export default function PlayerScreen() {
                     </GestureDetector>
                   </Animated.View>
                 </View>
-
-                <View style={{ paddingHorizontal: spacing.xl }}>
-                  <PlayerDeck
-                    current={current}
-                    hideTitle={true}
-                    onDismissWithAction={dismissWithAction}
-                    onMenuOpenChange={setMenuOpen}
-                  />
-                </View>
               </View>
             </Animated.View>
 
             {/* 歌词层 */}
-            <Animated.View
-              style={[
-                StyleSheet.absoluteFill,
-                lyricsContainerAnimatedStyle,
-                !isLyricsVisible && styles.hiddenLayer,
-              ]}
-              pointerEvents={mode === 'lyrics' ? 'auto' : 'none'}
-            >
-              <Animated.View style={pinnedHeaderAnimatedStyle}>
+            <PlayerModeLayer progress={lyricAnim} active={mode === 'lyrics'}>
+              <Animated.View
+                style={styles.pinnedHeaderOverlay}
+                pointerEvents="auto">
                 <GestureDetector gesture={lyricHeaderDismissGesture}>
-                  <View style={styles.pinnedHeader} collapsable={false}>
+                  <View style={styles.pinnedHeader} collapsable={false} onLayout={onPinnedHeaderLayout}>
                     {hasEnteredLyrics ? (
                       <CurrentTrackCard
                         item={current}
@@ -523,18 +529,71 @@ export default function PlayerScreen() {
                   <LyricPage
                     key={current.qid}
                     trackId={current.trackId}
-                    bottomSpace={48 + insets.bottom}
+                    bottomSpace={bottomChromeInset}
                     active={mode === 'lyrics'}
                     translateY={translateY}
                     onDismiss={dismiss}
                     playing={playing}
+                    immersive
+                    stageMask={{ opacity: controlsOpacity, topInset: pinnedHeaderHeight, bottomInset: bottomChromeInset, topFloor: pinnedHeaderHeight, bottomFloor: insets.bottom }}
+                    controlsVisible={controls.visible}
+                    foreground={controls.foreground}
+                    followLocked={lyricsModalOpen || routePickerOpen || menuOpen || isAudioLoading || networkWaiting || playbackRequestPending}
+                    onFlingReveal={controls.show}
+                    onLyricsReadyChange={updateLyricsReady}
+                    onLyricsErrorChange={updateLyricsError}
+                    onInteractionStart={controls.touchStart}
+                    onInteractionEnd={controls.touchEnd}
+                    onShareOpenChange={setLyricsModalOpen}
+                    onModalOpenChange={setLyricsModalOpen}
+                    onAdjustAvailabilityChange={setLyricAdjustAvailable}
+                    onRegisterAdjustHandler={registerAdjustHandler}
+                    onBlankTap={controls.toggle}
                   />
                 ) : null}
               </View>
-            </Animated.View>
+            </PlayerModeLayer>
           </View>
 
-          <PlayerToolbar mode={mode} onModeChange={setMode} bottomInset={insets.bottom} />
+          <Animated.View
+            style={[styles.lyricSettingsRow, { bottom: toolbarHeight + portraitChromeHeight + 6 + spacing.xl }, lyricSettingsAnimatedStyle]}
+            pointerEvents={mode === 'lyrics' && controls.visible ? 'auto' : 'none'}
+            accessibilityElementsHidden={mode !== 'lyrics' || !controls.visible}
+            importantForAccessibility={mode === 'lyrics' && controls.visible ? 'auto' : 'no-hide-descendants'}>
+            <IconButton name="lyricAdjust" size={iconSize.lg} color={lyricAdjustAvailable ? darkColors.iconMid : darkColors.textTertiary}
+              disabled={!lyricAdjustAvailable} onPress={() => adjustHandler.current()} accessibilityLabel="调整歌词时间" />
+          </Animated.View>
+          <Animated.View
+            onLayout={onPortraitChromeLayout}
+            style={[styles.portraitLyricsControls, { bottom: toolbarHeight + 6 }, mode === 'lyrics' ? chromeAnimatedStyle : undefined]}
+            pointerEvents={mode === 'lyrics' && !controls.visible ? 'none' : 'auto'}
+            accessibilityElementsHidden={mode === 'lyrics' && !controls.visible}
+            importantForAccessibility={mode === 'lyrics' && !controls.visible ? 'no-hide-descendants' : 'auto'}>
+            <PlayerDeck current={current} hideTitle
+              onAction={mode === 'lyrics' ? requestPlaybackAction : undefined}
+              onInteractionStart={mode === 'lyrics' ? controls.touchStart : undefined}
+              onInteractionEnd={mode === 'lyrics' ? controls.touchEnd : undefined}
+            />
+          </Animated.View>
+
+          {mode === 'lyrics' && !controls.visible ? (
+            <Pressable
+              style={[styles.hiddenControlsTapZone, { bottom: insets.bottom }]}
+              onPress={controls.toggle}
+              accessibilityRole="button"
+              accessibilityLabel="显示播放控制"
+            >
+              {showImmersionHint ? <Text style={styles.immersionHint}>轻点空白处显示控制</Text> : null}
+            </Pressable>
+          ) : null}
+          <Animated.View
+            onLayout={onToolbarLayout}
+            style={[styles.lyricsToolbarOverlay, mode === 'lyrics' ? chromeAnimatedStyle : undefined]}
+            pointerEvents={mode === 'lyrics' && !controls.visible ? 'none' : 'auto'}
+            accessibilityElementsHidden={mode === 'lyrics' && !controls.visible}
+            importantForAccessibility={mode === 'lyrics' && !controls.visible ? 'no-hide-descendants' : 'auto'}>
+            <PlayerToolbar mode={mode} onModeChange={(next) => { if (next === 'lyrics') controls.show(); setMode(next) }} bottomInset={insets.bottom} onRoutePickerVisibilityChange={setRoutePickerOpen} />
+          </Animated.View>
 
           {menuOpen ? (
             <Pressable
@@ -589,19 +648,19 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
-  pinnedHeader: {
-    zIndex: 10,
-  },
-  lyricsStage: {
-    flex: 1,
-    position: 'relative',
-  },
+  pinnedHeaderOverlay: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  pinnedHeader: { zIndex: 10 },
+  portraitLyricsControls: { position: 'absolute', left: 0, right: 0, paddingHorizontal: spacing.xl },
+  lyricSettingsRow: { position: 'absolute', right: spacing.xl, height: 44, alignItems: 'flex-end', justifyContent: 'center' },
+  hiddenControlsTapZone: { position: 'absolute', left: 0, right: 0, height: 44, zIndex: 8, alignItems: 'center', justifyContent: 'center' },
+  immersionHint: { ...typography.caption, color: darkColors.textTertiary },
+  lyricsToolbarOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10 },
+  lyricsStage: { flex: 1, position: 'relative' },
   // paddingBottom 再减 10（lg 16 → 6）：播放器整块再下移 10pt，更贴底部工具栏
   page: { flex: 1, paddingTop: spacing.xs, paddingBottom: 6, gap: spacing.lg },
   stage: { flex: 1 },
   stageFill: { flex: 1, paddingHorizontal: spacing.xl },
   lyricActions: { position: 'absolute', right: spacing.xl, bottom: 24, zIndex: 20 },
-  hiddenLayer: { display: 'none' },
   coverGestureContainer: {
     flex: 1,
     justifyContent: 'space-between',

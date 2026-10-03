@@ -1,5 +1,5 @@
 import TrackPlayer, { RepeatMode as RntpRepeatMode, TrackType, type AddTrack } from 'react-native-track-player'
-import type { PlaySource, QueueItem, RepeatMode, Track } from '@qj/core-domain'
+import type { PlaySource, QueueItem, RepeatMode, StreamRequest, Track } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
 import { cacheArtwork } from './artwork'
 import { type AudioCacheTarget, cacheAudio, cachedAudioUri, protectTracks, captureAudioCacheGeneration, isAudioCacheGenerationCurrent, abortAudioCaching } from './audio-cache'
@@ -13,22 +13,22 @@ import { clearPlaybackSnapshot, readPlaybackSnapshot } from './persist'
 import { QueueOccurrenceIds } from './queue-occurrence'
 import { planTailReorder } from './queue-reorder'
 import { ensurePlayer } from './setup'
+import { promoteUpcomingTrackSource } from './native-queue-source'
 import { AsyncMutationQueue } from './mutation-queue'
 import { usePlayerStore } from './store'
-import { clearWarmTranscode, setWarmTranscode, takeWarmTranscode } from './transcode-prewarm'
+import { clearWarmTranscode, getWarmTranscode, setWarmTranscode, takeWarmTranscode } from './transcode-prewarm'
 import {
   abortTranscodeCaching,
   cachedTranscodeUri,
   startTranscodeCaching,
 } from './transcode-cache'
-import { hasTranscodeSession, replaceTranscodeSession, startTranscodeSession, stopTranscodeSession } from './transcode-session'
+import { hasTranscodeSession, isTranscodeSessionCurrent, replaceTranscodeSession, stopTranscodeSession } from './transcode-session'
 import { isAutoCacheEnabled } from '../lib/cache-preferences'
 import { useAudioQualityPreferences } from '../lib/audio-quality-preferences'
 import { getPlaybackNetworkType, selectPlaybackQuality, type StreamQuality } from '../lib/playback-quality'
 
 const ARTWORK_SIZE = 600
 /** 预取范围：当前这首 + 后面两首 */
-const PREFETCH_AHEAD = 2
 let queueMutations = makePlaybackQueue()
 /**
  * RNTP 提交段不能在外层 watchdog 放行后并发执行。
@@ -101,11 +101,11 @@ function ignoreSuperseded(error: unknown): void {
 
 // A new playback request must not wait behind an obsolete network request.
 // Native commit ordering is retained separately; every continuation validates its owner.
-function beginPlaybackIntent(wantsPlay = true, requestedPosition?: number): number {
+function beginPlaybackIntent(wantsPlay = true, requestedPosition?: number, options: { invalidatePrefetch?: boolean } = {}): number {
   setPlaybackIntent(wantsPlay, requestedPosition)
   const generation = playbackGeneration.advance()
   queueMutations = makePlaybackQueue()
-  prefetchToken += 1
+  if (options.invalidatePrefetch !== false) prefetchToken += 1
   pendingPreviousActivation = undefined
   pendingNavigation = undefined
   pendingHistoryActivation = undefined
@@ -189,6 +189,25 @@ function toCacheTarget(item: QueueItem): AudioCacheTarget {
   }
 }
 
+type LocalPlaybackResource = { url: string; contentType?: string; kind: 'download' | 'transcode' | 'cache' }
+
+/** Resolve local playback consistently, keeping original downloads in their real container MIME. */
+export function resolveLocalPlaybackResource(item: QueueItem): LocalPlaybackResource | undefined {
+  const download = downloadedUri(item.serverId, item.trackId)
+  if (download) {
+    const contentType = downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)
+    return { url: download, ...(contentType ? { contentType } : {}), kind: 'download' }
+  }
+  const transcode = cachedTranscodeUri(item.serverId, item.trackId)
+  if (transcode) return { url: transcode, contentType: 'audio/mp4', kind: 'transcode' }
+  const cached = cachedAudioUri(toCacheTarget(item))
+  if (cached) {
+    const contentType = contentTypeFor(item.format)
+    return { url: cached, ...(contentType ? { contentType } : {}), kind: 'cache' }
+  }
+  return undefined
+}
+
 /** 原生放不了、或上次原生播放失败过的曲目，必须走服务端转码 */
 const forcedTranscode = new Set<string>()
 
@@ -241,20 +260,8 @@ async function toRntpTrack(
     ...(item.albumText ? { album: item.albumText } : {}),
     duration: item.durationMs / 1000,
   }
-  // **下载优先**：用户显式下过的歌直接用本地文件，不走网络、也不进转码链路
-  // （下载时就已经按「能不能本地播」选好了内容，见 player/downloads.ts）
-  const downloaded = downloadedUri(item.serverId, item.trackId)
-  if (downloaded) {
-    // 转码下载的产物是 fMP4，登记表里有 audio/mp4；普通直连文件按 format 兜底
-    const contentType =
-      downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)
-    return { ...base, url: downloaded, ...(contentType ? { contentType } : {}) }
-  }
-
-  const cachedProduct = cachedTranscodeUri(item.serverId, item.trackId)
-  if (cachedProduct) return { ...base, url: cachedProduct, contentType: 'audio/mp4' }
-  const cached = cachedAudioUri(toCacheTarget(item))
-  if (cached) return { ...base, url: cached, contentType: contentTypeFor(item.format) }
+  const local = resolveLocalPlaybackResource(item)
+  if (local) return { ...base, url: local.url, ...(local.contentType ? { contentType: local.contentType } : {}) }
 
   if (options.allowTranscode) await guarded(generation, requirePlaybackNetwork)
   const quality = options.allowTranscode ? await getStreamQuality() : 'original'
@@ -266,7 +273,10 @@ async function toRntpTrack(
       void stream.session?.close().catch(() => undefined)
       throw new SupersededPlayback('播放操作已取消')
     }
-    if (stream.session) startTranscodeSession(item.qid, stream.session, isCurrent)
+    if (stream.session) {
+      await replaceTranscodeSession(item.qid, stream.session, isCurrent)
+      cacheHlsStream(item, stream)
+    }
     return {
       ...base,
       url: stream.url,
@@ -499,6 +509,7 @@ async function appendTracksMutation({
     await guarded(generation, () => TrackPlayer.add(rntpTracks))
     if (!isNativeCommitCurrent(generation, commitEpoch)) return false
     usePlayerStore.getState().appendItems(items)
+    schedulePrefetch(usePlayerStore.getState().index)
     return true
   }, '提交追加曲目')
 }
@@ -521,6 +532,7 @@ async function playNextMutation({
   const { index } = usePlayerStore.getState()
   await nativeCommand(generation, () => TrackPlayer.add(rntpTracks, index + 1))
   usePlayerStore.getState().insertAfterCurrent(items)
+  schedulePrefetch(usePlayerStore.getState().index)
   return true
 }
 
@@ -714,8 +726,47 @@ async function nativeTrackForQueueId(generation: number, qid: string): Promise<{
   return { index, track: queue[index]! }
 }
 
+/** Ask the native queue owner to atomically promote a still-upcoming cached source. */
+async function promoteQueuedLocalSource(generation: number, qid: string): Promise<boolean> {
+  const item = usePlayerStore.getState().queue.find((entry) => entry.qid === qid)
+  const local = item && resolveLocalPlaybackResource(item)
+  if (!item || !local || !playbackGeneration.isCurrent(generation)) return false
+  const nativeQueue = await guarded(generation, () => TrackPlayer.getQueue())
+  const index = nativeQueue.findIndex((entry) => entry.id === qid)
+  const native = nativeQueue[index]
+  if (index < 0 || !native || native.url === local.url || hasLocalNativeUrl(native)) return false
+  const activeIndex = await guarded(generation, () => TrackPlayer.getActiveTrackIndex())
+  if (activeIndex === index) return false
+  const stillSameOccurrence = usePlayerStore.getState().queue.some((entry) => entry.qid === qid)
+  if (!stillSameOccurrence) return false
+  return promoteUpcomingTrackSource(qid, String(native.url), {
+    url: local.url,
+    ...(local.contentType ? { contentType: local.contentType } : {}),
+  })
+}
+
+function cacheHlsStream(item: QueueItem, stream: { url: string; headers?: Record<string, string>; transport?: string; session?: import('@qj/core-domain').StreamSession }): void {
+  if (stream.transport !== 'hls' || !stream.session || !canUsePlaybackNetwork()) return
+  const session = stream.session
+  const shouldAbort = () => !isTranscodeSessionCurrent(item.qid, session)
+  if (shouldAbort()) return
+  void startTranscodeCaching({
+    serverId: item.serverId,
+    trackId: item.trackId,
+    playlistUrl: stream.url,
+    ...(stream.headers ? { headers: stream.headers } : {}),
+    sourceDurationSeconds: item.durationMs / 1000,
+    shouldAbort,
+  }).then(async () => {
+    if (!shouldAbort() && usePlayerStore.getState().queue.some((entry) => entry.qid === item.qid)) {
+      await promoteQueuedLocalSource(playbackGeneration.capture(), item.qid).catch(() => false)
+    }
+  })
+}
+
 /** Check the final native URL before skip; cache bookkeeping can be newer than RNTP. */
 async function skipToNativeQueueTrack(generation: number, qid: string): Promise<void> {
+  await promoteQueuedLocalSource(generation, qid)
   const target = await nativeTrackForQueueId(generation, qid)
   await requireNetworkForNativeTrack(generation, target.track)
   checkGeneration(generation)
@@ -746,7 +797,7 @@ async function playWithNetworkPolicy(generation: number, stillCurrent: () => boo
 
 export async function pausePlayback(stop = false): Promise<void> {
   // Cancel network/decoder continuations before waiting for native commands.
-  const generation = beginPlaybackIntent(false)
+  const generation = beginPlaybackIntent(false, undefined, { invalidatePrefetch: false })
   usePlayerStore.getState().setIsLoadingAudio(false)
   await guarded(generation, () => ensurePlayer())
   await nativeCommand(generation, () => stop ? TrackPlayer.stop() : TrackPlayer.pause())
@@ -771,20 +822,42 @@ export async function resumePlayback(): Promise<void> {
       const recovered = await recoverPlaybackAfterNetwork(checkpoint.qid, checkpoint.position, stillCurrent)
       if (recovered && stillCurrent()) setNetworkPlaybackCheckpoint(undefined)
     } finally {
-      clearLoadingLater(generation, 350)
+      setLoadingForGeneration(generation, false)
     }
     return
   }
   const progress = await guarded(generation, () => TrackPlayer.getProgress())
+  let resumePosition = progress.position
   if (store.playbackEnded || (progress.duration > 0 && progress.position >= progress.duration - 0.5)) {
     store.setPlaybackEnded(false)
     await nativeCommand(generation, () => TrackPlayer.seekTo(0))
+    resumePosition = 0
   }
-  store.setIsLoadingAudio(true)
+  // A paused native item is already prepared. Only rebind when policy blocks
+  // its remote URL and a complete local copy can satisfy the same occurrence.
   try {
+    if (!canUsePlaybackNetwork() && current) {
+      const resource = resolveLocalPlaybackResource(current)
+      const active = await guarded(generation, () => TrackPlayer.getActiveTrack())
+      if (resource && active?.id === current.qid && active.url !== resource.url) {
+        await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
+        await nativeCommand(generation, () => TrackPlayer.load({
+          id: current.qid,
+          title: current.title,
+          artist: current.artistText,
+          ...(current.albumText ? { album: current.albumText } : {}),
+          ...(active.artwork ? { artwork: active.artwork } : {}),
+          duration: current.durationMs / 1000,
+          url: resource.url,
+          ...(resource.contentType ? { contentType: resource.contentType } : {}),
+        }))
+        if (resumePosition > 0) await nativeCommand(generation, () => TrackPlayer.seekTo(resumePosition))
+      }
+    }
     await guarded(generation, () => playWithNetworkPolicy(generation))
   } finally {
-    clearLoadingLater(generation, 350)
+    setLoadingForGeneration(generation, false)
+    if (current) schedulePrefetch(store.index)
   }
 }
 
@@ -878,6 +951,8 @@ export async function recoverPlaybackAfterNetwork(
   }
   const track = await toRntpTrack(item, provider, { allowTranscode: true, generation, isCurrent: stillCurrent })
   check()
+  // Reconnect may refresh headers or HLS session data while leaving the URL
+  // text unchanged, so this recovery path always installs the newly resolved track.
   await nativeCommand(generation, async () => { check(); await TrackPlayer.pause() })
   check()
   await nativeCommand(generation, async () => { check(); await TrackPlayer.load(track) })
@@ -1106,6 +1181,7 @@ async function moveInQueueMutation(from: number, to: number, generation: number)
     return
   }
   usePlayerStore.getState().moveItem(from, to)
+  schedulePrefetch(usePlayerStore.getState().index)
 }
 
 export function moveInQueue(from: number, to: number): Promise<void> {
@@ -1124,6 +1200,7 @@ async function removeFromQueueMutation(index: number, generation: number): Promi
     return
   }
   usePlayerStore.getState().removeItem(index)
+  schedulePrefetch(usePlayerStore.getState().index)
 }
 
 export function removeFromQueue(index: number): Promise<void> {
@@ -1205,6 +1282,7 @@ async function clearUpcomingMutation(generation: number): Promise<void> {
     return
   }
   usePlayerStore.getState().clearUpcoming()
+  schedulePrefetch(usePlayerStore.getState().index)
 }
 
 export function clearUpcoming(): Promise<void> {
@@ -1283,6 +1361,7 @@ async function setShuffledOrderMutation(shuffle: boolean, generation: number): P
   const latest = usePlayerStore.getState()
   if (latest.queue !== queue) return
   latest.reorder([...head, ...tail], index)
+  schedulePrefetch(latest.index)
 }
 
 /**
@@ -1347,6 +1426,33 @@ export function takePendingPreviousActivation(qid: string): { items: QueueItem[]
 }
 /** 每次切歌都会重排预取顺序，旧的循环靠这个令牌自行退出 */
 let prefetchToken = 0
+const pendingWarmPreparations = new Map<string, Promise<StreamRequest | undefined>>()
+
+function prepareWarmTranscode(item: QueueItem, provider: MusicProvider, quality: StreamQuality): Promise<StreamRequest | undefined> {
+  const warmed = getWarmTranscode(item.qid)
+  if (warmed) return Promise.resolve(warmed)
+  const pending = pendingWarmPreparations.get(item.qid)
+  if (pending) return pending
+  const isStillNext = () => {
+    const { queue, index } = usePlayerStore.getState()
+    return canUsePlaybackNetwork() && queue[index + 1]?.qid === item.qid
+  }
+  const promise = provider.stream(item.trackId, { quality, allowTranscode: true })
+    .then(async (stream) => {
+      if (!isStillNext()) {
+        await stream.session?.close().catch(() => undefined)
+        return undefined
+      }
+      return setWarmTranscode(item.qid, stream, isStillNext)
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      if (pendingWarmPreparations.get(item.qid) === promise) pendingWarmPreparations.delete(item.qid)
+    })
+  pendingWarmPreparations.set(item.qid, promise)
+  return promise
+}
+
 
 export function rememberProvider(provider: MusicProvider | null): void {
   activeProvider = provider
@@ -1387,11 +1493,16 @@ async function ensureTranscodeForIndexMutation(
   const provider = activeProvider
   const item = usePlayerStore.getState().queue[index]
   if (!provider || !item || !playbackGeneration.isCurrent(generation)) return
-  if (!downloadedUri(item.serverId, item.trackId) && !cachedTranscodeUri(item.serverId, item.trackId) && !shouldTranscode(item) && await getStreamQuality() === 'original') {
+  if (!resolveLocalPlaybackResource(item) && !shouldTranscode(item) && await getStreamQuality() === 'original') {
     await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
     return
   }
-  if (hasTranscodeSession(item.qid)) return
+  if (hasTranscodeSession(item.qid)) {
+    const active = await guarded(generation, () => TrackPlayer.getActiveTrack())
+    const local = resolveLocalPlaybackResource(item)
+    if (active?.id !== item.qid || !local || active.url !== local.url) return
+    await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
+  }
 
   const base = {
     id: item.qid,
@@ -1407,20 +1518,42 @@ async function ensureTranscodeForIndexMutation(
    * 文件是 fragmented MP4（内含 FLAC），所以后缀与 contentType 都按 mp4 给 ——
    * 实测后缀不对时 AVFoundation 会直接拒绝播放（见 audio-cache-policy.ts 的说明）。
    */
-  const cachedProduct = downloadedUri(item.serverId, item.trackId) ?? cachedTranscodeUri(item.serverId, item.trackId) ?? cachedAudioUri(toCacheTarget(item))
-  if (cachedProduct) {
+  const localResource = resolveLocalPlaybackResource(item)
+  if (localResource) {
+    const active = await guarded(generation, () => TrackPlayer.getActiveTrack())
+    if (active?.id !== item.qid) return
+    const needsLocalRebind = active?.id === item.qid
+      && active.url !== localResource.url
+      && (!canUsePlaybackNetwork() || shouldTranscode(item))
+    if (!needsLocalRebind) {
+      if (hasTranscodeSession(item.qid) && localResource.kind !== 'transcode') return
+      if (active?.id === item.qid && active.url === localResource.url) {
+        await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
+        return
+      }
+      if (!shouldTranscode(item) && canUsePlaybackNetwork()) {
+        await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
+        return
+      }
+    }
     usePlayerStore.getState().setIsLoadingAudio(true)
     try {
       // 本地文件不需要会话；把可能还活着的旧会话收掉，别让服务端留着转码进程
       await stopTranscodeSession(undefined, () => playbackGeneration.isCurrent(generation))
+      const latest = await guarded(generation, () => TrackPlayer.getActiveTrack())
+      if (latest?.id !== item.qid) return
       const position = (await guarded(generation, () => TrackPlayer.getProgress())).position
-      await nativeCommand(generation, () => TrackPlayer.load({ ...base, url: cachedProduct, contentType: 'audio/mp4' }))
+      if (latest.url !== localResource.url) {
+        await nativeCommand(generation, () => TrackPlayer.load({
+          ...base,
+          url: localResource.url,
+          ...(localResource.contentType ? { contentType: localResource.contentType } : {}),
+        }))
+      }
       if (position > 1) await nativeCommand(generation, () => TrackPlayer.seekTo(position))
       if (options.resumePlayback !== false) await guarded(generation, () => playWithNetworkPolicy(generation))
     } finally {
-      setTimeout(() => {
-        setLoadingForGeneration(generation, false)
-      }, 400)
+      setLoadingForGeneration(generation, false)
     }
     return
   }
@@ -1450,22 +1583,12 @@ async function ensureTranscodeForIndexMutation(
      * 缓存成功后下次直接播本地（上面的 cachedTranscodeUri 分支），顺带获得离线能力。
      * 失败只 warn，绝不影响正在播放的这首。
      */
-    if (stream.transport === 'hls' && canUsePlaybackNetwork()) {
-      startTranscodeCaching({
-        serverId: item.serverId,
-        trackId: item.trackId,
-        playlistUrl: stream.url,
-        ...(stream.headers ? { headers: stream.headers } : {}),
-        sourceDurationSeconds: item.durationMs / 1000,
-      })
-    }
+    cacheHlsStream(item, stream)
     // 保留已播进度（原生播放失败重试时用得上）
     if (position > 1) await nativeCommand(generation, () => TrackPlayer.seekTo(position))
     if (options.resumePlayback !== false) await guarded(generation, () => playWithNetworkPolicy(generation))
   } finally {
-    setTimeout(() => {
-      setLoadingForGeneration(generation, false)
-    }, 400)
+    setLoadingForGeneration(generation, false)
   }
 }
 
@@ -1482,7 +1605,7 @@ export function ensureTranscodeForIndex(index: number, options?: { resumePlaybac
  */
 export function schedulePrefetch(index: number): void {
   const provider = activeProvider
-  if (!provider || index < 0 || !canUsePlaybackNetwork()) return
+  if (!provider || index < 0) return
   const { queue } = usePlayerStore.getState()
 
   prefetchToken += 1
@@ -1490,43 +1613,80 @@ export function schedulePrefetch(index: number): void {
   const cacheGeneration = captureAudioCacheGeneration()
   void (async () => {
     const quality = await getStreamQuality()
-    if (token !== prefetchToken || !canUsePlaybackNetwork()) return
-    const nextTranscode = queue[index + 1]
+    if (token !== prefetchToken) return
+    const latest = usePlayerStore.getState()
+    const currentIndex = latest.queue.findIndex((item) => item.qid === queue[index]?.qid)
+    if (currentIndex < 0) return
+    const liveQueue = latest.queue
+    const previous = latest.history.at(-1)
+    const next = liveQueue[currentIndex + 1]
+    const candidates = [next, liveQueue[currentIndex], previous, liveQueue[currentIndex + 2]]
+      .filter((item): item is QueueItem => Boolean(item))
+      .filter((item, position, all) => all.findIndex((entry) => entry.qid === item.qid) === position)
+    protectTracks(candidates.map(toCacheTarget))
+
+    // Cache files may have completed while a queue edit invalidated the old
+    // scheduling window. Promote any still-upcoming occurrence before skipping it.
+    const currentGeneration = playbackGeneration.capture()
+    for (const item of candidates) {
+      if (token !== prefetchToken) return
+      if (resolveLocalPlaybackResource(item)) {
+        await promoteQueuedLocalSource(currentGeneration, item.qid).catch(() => false)
+      }
+    }
+
+    const nextTranscode = liveQueue[currentIndex + 1]
     const shouldPrewarm = nextTranscode ? shouldTranscode(nextTranscode) || quality !== 'original' : false
-    const targets = quality === 'original'
-      ? queue.slice(index, index + 1 + PREFETCH_AHEAD).filter((item) => !shouldTranscode(item))
-      : []
-    protectTracks(targets.map(toCacheTarget))
-
-    if (nextTranscode && shouldPrewarm && !downloadedUri(nextTranscode.serverId, nextTranscode.trackId) && !cachedTranscodeUri(nextTranscode.serverId, nextTranscode.trackId)) {
-      try {
-        const stream = await provider.stream(nextTranscode.trackId, { quality, allowTranscode: true })
-        if (token !== prefetchToken || !canUsePlaybackNetwork() || usePlayerStore.getState().queue[index + 1]?.qid !== nextTranscode.qid) {
-          await stream.session?.close().catch(() => undefined)
-          return
+    const warmTask = (async () => {
+      if (!canUsePlaybackNetwork()) {
+        await clearWarmTranscode()
+        return
+      }
+      if (nextTranscode && shouldPrewarm && !resolveLocalPlaybackResource(nextTranscode)) {
+        try {
+          const adopted = await prepareWarmTranscode(nextTranscode, provider, quality)
+          if (adopted && isAutoCacheEnabled()) {
+            cacheHlsStream(nextTranscode, adopted)
+          }
+        } catch {
+          // 预热失败不影响当前播放，切过去时仍会按原流程即时创建。
         }
-        await setWarmTranscode(nextTranscode.qid, stream, () => token === prefetchToken)
-      } catch {
-        // 预热失败不影响当前播放，切过去时仍会按原流程即时创建。
+      } else {
+        await clearWarmTranscode()
       }
-    } else {
-      await clearWarmTranscode()
-    }
-    // 未开启自动缓存时，跳过后台音频文件预取与写入
-    if (!isAutoCacheEnabled()) return
+    })()
 
-    for (const item of targets) {
-      if (token !== prefetchToken || !canUsePlaybackNetwork()) return
-      const target = toCacheTarget(item)
-      if (downloadedUri(item.serverId, item.trackId) || cachedAudioUri(target)) continue
-      try {
-        const stream = await provider.stream(item.trackId, { quality, allowTranscode: false })
+    // The next original file starts beside the current download. Keep at most
+    // two provider/cache pipelines active, with next/current/previous/next2 order.
+    const fileTargets = isAutoCacheEnabled() && quality === 'original'
+      ? candidates.filter((item) => !shouldTranscode(item))
+      : []
+    let cursor = 0
+    const cacheWorker = async () => {
+      while (cursor < fileTargets.length) {
+        const item = fileTargets[cursor++]!
         if (token !== prefetchToken || !canUsePlaybackNetwork() || !isAudioCacheGenerationCurrent(cacheGeneration) || !isAutoCacheEnabled()) return
-        await cacheAudio(target, { url: stream.url, headers: stream.headers })
-      } catch {
-        // 预取失败不影响播放，下次再试
+        const target = toCacheTarget(item)
+        if (resolveLocalPlaybackResource(item)) continue
+        try {
+          const stream = await provider.stream(item.trackId, { quality, allowTranscode: false })
+          if (token !== prefetchToken || !canUsePlaybackNetwork() || !isAudioCacheGenerationCurrent(cacheGeneration) || !isAutoCacheEnabled()) return
+          await cacheAudio(target, { url: stream.url, headers: stream.headers }, {
+            shouldAbort: () => token !== prefetchToken
+              || !canUsePlaybackNetwork()
+              || !isAudioCacheGenerationCurrent(cacheGeneration)
+              || !isAutoCacheEnabled(),
+          })
+          if (token !== prefetchToken || !isAudioCacheGenerationCurrent(cacheGeneration)) return
+          if (usePlayerStore.getState().queue.some((queued) => queued.qid === item.qid)) {
+            await promoteQueuedLocalSource(playbackGeneration.capture(), item.qid).catch(() => false)
+          }
+        } catch {
+          // 预取失败不影响播放，下次调度会重试。
+        }
       }
     }
+    await Promise.all([warmTask, cacheWorker(), cacheWorker()])
   })()
 }
 

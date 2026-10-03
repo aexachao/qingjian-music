@@ -6,7 +6,7 @@ import {
   isAutoCacheEnabled,
   registerCacheLimitEnforcer,
 } from '@/lib/cache-preferences'
-import { type CacheEntry, cacheFileName, pickEvictions, totalBytes } from './audio-cache-policy'
+import { type CacheEntry, cacheFileName, pickEvictions, totalBytes, transcodeCacheFileName } from './audio-cache-policy'
 
 /**
  * 播放缓存：听过的音频留在本地，下次直接从 file:// 起播。
@@ -17,6 +17,7 @@ const AUDIO_DIR = 'audio'
 const INDEX_NAME = 'index.json'
 /** 同时最多下几个，避免和正在播放的那首抢带宽 */
 const MAX_PARALLEL_DOWNLOADS = 2
+const MAX_QUEUED_DOWNLOADS = 8
 /** 索引写盘防抖 */
 const FLUSH_DELAY_MS = 1_500
 
@@ -36,6 +37,17 @@ let index: CacheIndex | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 const inflight = new Map<string, Promise<void>>()
 const inflightControllers = new Map<string, AbortController>()
+const activeDownloads = new Set<string>()
+const activeJobs = new Map<string, QueuedAudioDownload>()
+interface QueuedAudioDownload {
+  name: string
+  generation: number
+  shouldAbort?: () => boolean
+  run: (controller: AbortController, generation: number) => Promise<void>
+  resolve: () => void
+  promise: Promise<void>
+}
+const downloadQueue: QueuedAudioDownload[] = []
 const reservations = new Map<string, number>()
 /** 正在播放与马上要播的文件名，淘汰时必须跳过 */
 let protectedNames: ReadonlySet<string> = new Set()
@@ -245,31 +257,149 @@ export function cachedAudioUri(target: AudioCacheTarget): string | undefined {
 
 /** 告诉缓存「这几首正在播 / 马上要播」，淘汰时会跳过它们 */
 export function protectTracks(targets: AudioCacheTarget[]): void {
-  protectedNames = new Set(targets.map((item) => cacheFileName(item.serverId, item.trackId, item.format)))
+  protectedNames = new Set(targets.flatMap((item) => [
+    cacheFileName(item.serverId, item.trackId, item.format),
+    transcodeCacheFileName(item.serverId, item.trackId),
+  ]))
+}
+
+function settleQueuedDownload(job: QueuedAudioDownload): void {
+  if (inflight.get(job.name) === job.promise) inflight.delete(job.name)
+  job.resolve()
+}
+
+function isAudioJobStale(job: QueuedAudioDownload): boolean {
+  if (job.generation !== cacheGeneration || !isAutoCacheEnabled()) return true
+  try {
+    return job.shouldAbort?.() ?? false
+  } catch {
+    return true
+  }
+}
+
+function pruneQueuedDownloads(): void {
+  for (let index = downloadQueue.length - 1; index >= 0; index -= 1) {
+    if (!isAudioJobStale(downloadQueue[index])) continue
+    const [job] = downloadQueue.splice(index, 1)
+    settleQueuedDownload(job)
+  }
+}
+
+function removeQueuedDownload(job: QueuedAudioDownload): void {
+  const index = downloadQueue.indexOf(job)
+  if (index >= 0) downloadQueue.splice(index, 1)
+  settleQueuedDownload(job)
+}
+
+function boundDownloadQueue(): void {
+  while (downloadQueue.length > MAX_QUEUED_DOWNLOADS) {
+    const oldest = downloadQueue.shift()
+    if (oldest) settleQueuedDownload(oldest)
+  }
+}
+
+function cancelQueuedDownloads(): void {
+  for (const job of downloadQueue.splice(0)) settleQueuedDownload(job)
+}
+
+function pumpDownloadQueue(): void {
+  pruneQueuedDownloads()
+  while (activeDownloads.size < MAX_PARALLEL_DOWNLOADS && downloadQueue.length > 0) {
+    const runnableIndex = downloadQueue.findIndex((job) => !activeDownloads.has(job.name))
+    if (runnableIndex < 0) break
+    const [job] = downloadQueue.splice(runnableIndex, 1)
+    if (inflight.get(job.name) !== job.promise) {
+      settleQueuedDownload(job)
+      continue
+    }
+    if (isAudioJobStale(job)) {
+      settleQueuedDownload(job)
+      continue
+    }
+    const controller = new AbortController()
+    activeDownloads.add(job.name)
+    activeJobs.set(job.name, job)
+    inflightControllers.set(job.name, controller)
+    void job.run(controller, job.generation).catch((error: unknown) => {
+      try {
+        const part = new File(audioDir(), `${job.name}.part`)
+        if (part.exists) part.delete()
+      } catch {
+        // Cleaning up a temporary file is best-effort.
+      }
+      console.warn('音频缓存失败', error)
+    }).finally(() => {
+      inflightControllers.delete(job.name)
+      activeDownloads.delete(job.name)
+      if (activeJobs.get(job.name) === job) activeJobs.delete(job.name)
+      releaseCacheSpace(job.name)
+      settleQueuedDownload(job)
+      pumpDownloadQueue()
+    })
+  }
 }
 
 /**
- * 把音频存进缓存。已缓存、正在下载、并发满了都直接跳过；
+ * 把音频存进缓存。已缓存、正在下载时加入同一任务；
  * 任何失败都只 warn——缓存是加速手段，不该影响播放。
  */
-export async function cacheAudio(target: AudioCacheTarget, resource: HttpResource): Promise<void> {
+export async function cacheAudio(
+  target: AudioCacheTarget,
+  resource: HttpResource,
+  options: { shouldAbort?: () => boolean } = {},
+): Promise<void> {
   // 用户在设置中关闭了自动缓存时，绝对不写入本地磁盘
   if (!isAutoCacheEnabled()) return
 
+  pruneQueuedDownloads()
   const name = cacheFileName(target.serverId, target.trackId, target.format)
+  const activeJob = activeJobs.get(name)
+  if (activeJob) {
+    const activeController = inflightControllers.get(name)
+    const stale = activeJob.generation !== cacheGeneration || activeController?.signal.aborted === true
+    if (!stale) return inflight.get(name) ?? activeJob.promise
+    const queuedReplacement = downloadQueue.find((job) => job.name === name)
+    if (queuedReplacement && !isAudioJobStale(queuedReplacement)) return queuedReplacement.promise
+    if (queuedReplacement) removeQueuedDownload(queuedReplacement)
+    const replacement = createQueuedDownload(target, resource, name, cacheGeneration, options.shouldAbort)
+    inflight.set(name, replacement.promise)
+    downloadQueue.push(replacement)
+    boundDownloadQueue()
+    activeController?.abort()
+    pumpDownloadQueue()
+    return replacement.promise
+  }
   const running = inflight.get(name)
   if (running) return running
-  if (inflight.size >= MAX_PARALLEL_DOWNLOADS) return
 
-  const task = (async () => {
-    const generation = cacheGeneration
-    const dir = audioDir()
-    const final = new File(dir, name)
-    if (final.exists) return
-    const part = new File(dir, `${name}.part`)
-    const controller = new AbortController()
-    inflightControllers.set(name, controller)
-    try {
+  const job = createQueuedDownload(target, resource, name, cacheGeneration, options.shouldAbort)
+  inflight.set(name, job.promise)
+  downloadQueue.push(job)
+  boundDownloadQueue()
+  pumpDownloadQueue()
+  return job.promise
+}
+
+function createQueuedDownload(
+  target: AudioCacheTarget,
+  resource: HttpResource,
+  name: string,
+  generation: number,
+  shouldAbort?: () => boolean,
+): QueuedAudioDownload {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => { resolve = done })
+  return {
+    name,
+    generation,
+    shouldAbort,
+    promise,
+    resolve,
+    run: async (controller: AbortController, generationAtStart: number) => {
+      const dir = audioDir()
+      const final = new File(dir, name)
+      if (final.exists) return
+      const part = new File(dir, `${name}.part`)
       if (part.exists) part.delete()
       if (target.sizeBytes && !reserveCacheSpace(target.sizeBytes, name)) return
       const downloaded = await File.downloadFileAsync(resource.url, part, {
@@ -279,41 +409,24 @@ export async function cacheAudio(target: AudioCacheTarget, resource: HttpResourc
           if (!reserveCacheSpace(bytesWritten, name)) controller.abort()
         },
       })
-      if (generation !== cacheGeneration) {
+      if (generationAtStart !== cacheGeneration) {
         if (downloaded.exists) downloaded.delete()
         return
       }
       const size = downloaded.size ?? target.sizeBytes ?? 0
-      if (!isAutoCacheEnabled() || !reserveCacheSpace(size, name) || generation !== cacheGeneration) {
+      if (!isAutoCacheEnabled() || !reserveCacheSpace(size, name) || generationAtStart !== cacheGeneration) {
         downloaded.delete()
         return
       }
       await downloaded.move(final)
-      if (generation !== cacheGeneration || !isAutoCacheEnabled() || !registerCacheEntry(name, size)) {
+      if (generationAtStart !== cacheGeneration || !isAutoCacheEnabled() || !registerCacheEntry(name, size)) {
         try {
           if (final.exists) final.delete()
         } catch {
           // 清理失败时下次按磁盘重建索引
         }
       }
-    } catch (error) {
-      try {
-        if (part.exists) part.delete()
-      } catch {
-        // 清理临时文件失败无所谓
-      }
-      console.warn('音频缓存失败', error)
-    } finally {
-      inflightControllers.delete(name)
-      releaseCacheSpace(name)
-    }
-  })()
-
-  inflight.set(name, task)
-  try {
-    await task
-  } finally {
-    inflight.delete(name)
+    },
   }
 }
 
@@ -329,12 +442,14 @@ export function audioCacheStats(): { bytes: number; files: number; budgetBytes: 
 export function abortAudioCaching(): void {
   cacheGeneration += 1
   for (const controller of inflightControllers.values()) controller.abort()
+  cancelQueuedDownloads()
 }
 
 /** 设置页「清理音频缓存」 */
 export function clearAudioCache(): boolean {
   cacheGeneration += 1
   for (const controller of inflightControllers.values()) controller.abort()
+  cancelQueuedDownloads()
   reservations.clear()
   if (flushTimer !== null) {
     clearTimeout(flushTimer)

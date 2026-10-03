@@ -8,8 +8,14 @@ import type { LyricLine } from './lyrics'
  * App 的 lyric-view 已能消费 `LyricLine.words`，有逐字就逐字点亮、没有就整行高亮。
  */
 
-/** 署名/曲目信息没有演唱时间；by 是歌词文件制作者，不能当成作词。 */
-export function extractLyricMetadata(line: string): string | null {
+export interface LyricMetadata {
+  text: string
+  /** JSON credit records may carry a real playback position in milliseconds. */
+  atMs?: number
+}
+
+/** 署名/曲目信息；by 是歌词文件制作者，不能当成作词。 */
+export function parseLyricMetadata(line: string): LyricMetadata | null {
   if (line.startsWith('{')) {
     try {
       const data: unknown = JSON.parse(line)
@@ -17,7 +23,11 @@ export function extractLyricMetadata(line: string): string | null {
       const text = data.c.map((part: unknown) =>
         part && typeof part === 'object' && 'tx' in part && typeof part.tx === 'string' ? part.tx : '',
       ).join('').trim()
-      return text || null
+      if (!text) return null
+      const timestamp = 't' in data && typeof data.t === 'number' && Number.isFinite(data.t) && data.t >= 0
+        ? data.t
+        : undefined
+      return { text, ...(timestamp === undefined ? {} : { atMs: timestamp }) }
     } catch {
       return null
     }
@@ -32,14 +42,19 @@ export function extractLyricMetadata(line: string): string | null {
   }
   const label = labels[match[1]!.trim().toLowerCase()]
   const value = match[2]!.trim()
-  return label && value ? `${label}：${value}` : null
+  return label && value ? { text: `${label}：${value}` } : null
+}
+
+/** Compatibility helper retained for provider consumers that only need display text. */
+export function extractLyricMetadata(line: string): string | null {
+  return parseLyricMetadata(line)?.text ?? null
 }
 
 /**
  * 解析网易云 yrc（逐字）。
  *
  * 行格式：`[lineStartMs,lineDurationMs](wStartMs,wDurMs,0)字(wStartMs,wDurMs,0)字…`
- * 顶部 JSON 署名行保留为无演唱时间的信息行。
+ * JSON 署名行保留；有效的非负 t 字段作为播放时间，缺失或无效时保持无时间。
  */
 export function parseYrc(yrc: string): LyricLine[] {
   if (!yrc) return []
@@ -51,9 +66,10 @@ export function parseYrc(yrc: string): LyricLine[] {
     const line = raw.trim()
     if (!line) continue
 
-    const meta = extractLyricMetadata(line)
+    const meta = parseLyricMetadata(line)
     if (meta) {
-      lines.push({ atMs: metaIndex++, text: meta })
+      const atMs = meta.atMs ?? metaIndex++
+      lines.push({ atMs, text: meta.text })
       continue
     }
 
@@ -98,9 +114,10 @@ export function parseLrc(lrc: string): LyricLine[] {
     const line = raw.trim()
     if (!line) continue
 
-    const meta = extractLyricMetadata(line)
+    const meta = parseLyricMetadata(line)
     if (meta) {
-      out.push({ atMs: metaIndex++, text: meta })
+      const atMs = meta.atMs ?? metaIndex++
+      out.push({ atMs, text: meta.text })
       continue
     }
 

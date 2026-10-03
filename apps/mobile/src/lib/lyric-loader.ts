@@ -1,8 +1,8 @@
 import { QueryObserver, queryOptions, type QueryClient } from '@tanstack/react-query'
 import type { LyricSheet } from '@qj/core-domain'
-import { LYRIC_TIER_RANK } from '@qj/core-domain'
+import { LYRIC_TIER_RANK, MusicError, toMusicError } from '@qj/core-domain'
 import type { MusicProvider } from '@qj/provider-api'
-import { captureLyricCacheGeneration, readCachedLyric, writeCachedLyric } from '@/lib/lyric-cache'
+import { captureLyricCacheGeneration, LYRIC_CACHE_PARSER_VERSION, readCachedLyric, writeCachedLyric } from '@/lib/lyric-cache'
 import { fetchExternalLyricSheet, type LyricQueryMeta } from '@/lib/external-lyrics'
 import { externalSourceCacheIdentity } from '@/lib/external-source-cache-key'
 import { getLyricsSource, useExternalSourcesStore } from '@/lib/external-source'
@@ -63,6 +63,29 @@ function currentSourceMatches(sourceRevision: number, sourceIdentity: string): b
   return current.revision === sourceRevision && externalSourceCacheIdentity(current.services) === sourceIdentity
 }
 
+function sourceFailure(error: unknown, fallbackMessage: string): ReturnType<typeof toMusicError> {
+  const failure = toMusicError(error, fallbackMessage)
+  if (failure.code === 'canceled') throw failure
+  const message = failure.code === 'timeout'
+    ? '歌词加载超时，请重试'
+    : failure.code === 'unauthorized'
+      ? '歌词源认证失败，请检查设置'
+      : failure.code === 'forbidden'
+        ? '歌词源拒绝访问，请检查设置'
+        : failure.code === 'notFound'
+          ? '歌词源暂不可用'
+          : failure.code === 'protocol' || failure.code === 'invalidArguments'
+            ? '歌词源返回了无法识别的数据'
+            : '歌词加载失败，请重试'
+  return new MusicError({
+    code: failure.code,
+    message,
+    status: failure.status,
+    providerCode: failure.providerCode,
+    cause: failure,
+  })
+}
+
 /**
  * Resolve one lyric sheet. The source config is snapshotted before any await; a
  * stale request may still serve its caller, but it cannot replace disk cache for
@@ -91,8 +114,8 @@ export async function loadLyricSheet(
   if (
     hasLyricContent(cached?.sheet)
     && cached.sheet.tier === 'word'
-    // Older caches discarded credits; refresh online, retain the offline fallback.
-    && cached.metadataParsed
+    // Reparse older saved sheets online while retaining them as an offline fallback.
+    && cached.parserVersion === LYRIC_CACHE_PARSER_VERSION
     && cached.sourceIdentity === sourceIdentity
     && cached.sourceRevision === sourceRevision
   ) {
@@ -100,13 +123,14 @@ export async function loadLyricSheet(
   }
 
   let best: LyricSheet | null = null
+  const failures: ReturnType<typeof toMusicError>[] = []
   try {
     best = await fetchLyricSheet(provider, trackId, signal)
     throwIfAborted(signal)
     if (!hasLyricContent(best)) best = null
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
-    // Continue with an optional external source or the saved offline sheet.
+    failures.push(sourceFailure(error, '读取服务器歌词失败'))
   }
 
   if ((!best || best.tier !== 'word') && meta?.title && configuredSource.type !== 'none' && configuredSource.baseUrl.trim()) {
@@ -116,12 +140,18 @@ export async function loadLyricSheet(
       if (hasLyricContent(external) && (!best || LYRIC_TIER_RANK[external.tier] <= LYRIC_TIER_RANK[best.tier])) best = external
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
-      // An optional source failing must not discard the provider's lyric.
+      failures.push(sourceFailure(error, '读取外部歌词源失败'))
     }
   }
 
   throwIfAborted(signal)
   if (!best && hasLyricContent(cached?.sheet)) return cached.sheet
+  // A null result means every available source answered successfully with no
+  // lyric. Preserve any source failure when no usable fallback exists so React
+  // Query can apply its bounded retry policy and the visible error state can offer Retry.
+  if (!best && failures.length > 0) {
+    throw failures.find((failure) => failure.retryable) ?? failures[0]!
+  }
 
   // A stale request must never replace the cache under a newer source revision.
   if (best && serverId && currentSourceMatches(sourceRevision, sourceIdentity)) {

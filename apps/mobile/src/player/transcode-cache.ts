@@ -46,6 +46,7 @@ const REQUEST_TIMEOUT_MS = 15_000
 const MAX_SEGMENT_BYTES = 16 * 1024 * 1024
 /** 转码缓存的并发上限：这是一件很重的事，不与正在播放的那首抢带宽 */
 const MAX_PARALLEL = 1
+const MAX_QUEUED = 8
 
 export interface TranscodeCacheInput {
   serverId: string
@@ -60,9 +61,18 @@ export interface TranscodeCacheInput {
   shouldAbort?: () => boolean
 }
 
-let inflight = 0
 const running = new Map<string, Promise<void>>()
 const controllers = new Map<string, AbortController>()
+const active = new Set<string>()
+const activeJobs = new Map<string, QueuedTranscodeJob>()
+interface QueuedTranscodeJob {
+  input: TranscodeCacheInput
+  name: string
+  epoch: number
+  completion: Promise<void>
+  resolve: () => void
+}
+const queue: QueuedTranscodeJob[] = []
 /** 清空缓存时自增，让在途任务自行放弃 */
 let epoch = 0
 
@@ -83,38 +93,118 @@ export function invalidateTranscodeProduct(serverId: string, trackId: string): v
 export function abortTranscodeCaching(): void {
   epoch += 1
   for (const controller of controllers.values()) controller.abort()
+  for (const job of queue.splice(0)) settleQueuedJob(job)
 }
 
 /**
- * 开始缓存某首曲目的转码产物。**不 await 它的结果**（调用方 fire-and-forget）。
- * 同一首曲目已在跑时直接返回，不会重复下载。
+ * 开始缓存某首曲目的转码产物。可 fire-and-forget，也可 await 本地文件完成。
+ * 同一首曲目的排队或在途调用共享一个完成 Promise。
  */
-export function startTranscodeCaching(input: TranscodeCacheInput): void {
-  if (!isAutoCacheEnabled()) return
+export function startTranscodeCaching(input: TranscodeCacheInput): Promise<void> {
   const name = transcodeCacheFileName(input.serverId, input.trackId)
-  if (running.has(name)) return
-  if (inflight >= MAX_PARALLEL) return
+  pruneQueue()
+  if (!isAutoCacheEnabled()) return Promise.resolve()
 
-  const controller = new AbortController()
-  controllers.set(name, controller)
-  const task = run(input, name, controller.signal)
-    .catch((error: unknown) => {
-      // 缓存是加速与省 CPU 的手段，失败绝不影响播放
-      console.warn('转码产物缓存失败', error)
-    })
-    .finally(() => {
-      inflight -= 1
-      running.delete(name)
-      controllers.delete(name)
-      releaseCacheSpace(name)
-    })
-  inflight += 1
-  running.set(name, task)
+  const activeJob = activeJobs.get(name)
+  if (activeJob) {
+    const activeController = controllers.get(name)
+    const stale = activeJob.epoch !== epoch || activeController?.signal.aborted === true || shouldAbort(activeJob.input)
+    if (!stale) return running.get(name) ?? activeJob.completion
+    const staleQueued = queue.find((job) => job.name === name)
+    if (staleQueued && staleQueued.epoch === epoch && isAutoCacheEnabled() && !shouldAbort(staleQueued.input)) {
+      return staleQueued.completion
+    }
+    if (staleQueued) removeQueuedJob(staleQueued)
+    const replacement = createQueuedJob(input, name)
+    queue.push(replacement)
+    running.set(name, replacement.completion)
+    boundQueue()
+    activeController?.abort()
+    return replacement.completion
+  }
+
+  const existing = running.get(name)
+  if (existing) return existing
+
+  const job = createQueuedJob(input, name)
+  running.set(name, job.completion)
+  queue.push(job)
+  boundQueue()
+  pumpQueue()
+  return job.completion
 }
 
-async function run(input: TranscodeCacheInput, name: string, signal: AbortSignal): Promise<void> {
+function createQueuedJob(input: TranscodeCacheInput, name: string): QueuedTranscodeJob {
+  let resolve!: () => void
+  const completion = new Promise<void>((done) => { resolve = done })
+  return { input, name, epoch, completion, resolve }
+}
+
+function removeQueuedJob(job: QueuedTranscodeJob): void {
+  const index = queue.indexOf(job)
+  if (index >= 0) queue.splice(index, 1)
+  settleQueuedJob(job)
+}
+
+function pruneQueue(): void {
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    const job = queue[index]
+    if (job.epoch === epoch && isAutoCacheEnabled() && !shouldAbort(job.input)) continue
+    removeQueuedJob(job)
+  }
+}
+
+function boundQueue(): void {
+  while (queue.length > MAX_QUEUED) removeQueuedJob(queue[0])
+}
+
+function settleQueuedJob(job: QueuedTranscodeJob): void {
+  if (running.get(job.name) === job.completion) running.delete(job.name)
+  job.resolve()
+}
+
+function pumpQueue(): void {
+  pruneQueue()
+  while (active.size < MAX_PARALLEL && queue.length > 0) {
+    const job = queue.shift()!
+    if (!running.has(job.name)) continue
+    if (job.epoch !== epoch || !isAutoCacheEnabled() || shouldAbort(job.input)) {
+      settleQueuedJob(job)
+      continue
+    }
+    const controller = new AbortController()
+    active.add(job.name)
+    activeJobs.set(job.name, job)
+    controllers.set(job.name, controller)
+    const task = run(job.input, job.name, controller.signal, job.epoch)
+      .catch((error: unknown) => {
+        // 缓存是加速与省 CPU 的手段，失败绝不影响播放
+        console.warn('转码产物缓存失败', error)
+      })
+      .finally(() => {
+        active.delete(job.name)
+        if (activeJobs.get(job.name) === job) activeJobs.delete(job.name)
+        if (running.get(job.name) === job.completion) running.delete(job.name)
+        controllers.delete(job.name)
+        releaseCacheSpace(job.name)
+        job.resolve()
+        pumpQueue()
+      })
+    // Keep `running` pointed at the shared completion promise for queued and active callers.
+    void task
+  }
+}
+
+function shouldAbort(input: TranscodeCacheInput): boolean {
+  try {
+    return input.shouldAbort?.() ?? false
+  } catch {
+    return true
+  }
+}
+
+async function run(input: TranscodeCacheInput, name: string, signal: AbortSignal, startedEpoch: number): Promise<void> {
   const { playlistUrl, headers, sourceDurationSeconds, shouldAbort } = input
-  const startedEpoch = epoch
   const dir = cacheAudioDirectory()
   const finalFile = new File(dir, name)
   if (finalFile.exists) return

@@ -16,32 +16,22 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(playerSource).toContain('<CurrentTrackCard')
   })
 
-  it('歌词模式下平滑遮罩封面与播放控制区(PlayerDeck)，工具栏常驻底部', () => {
-    // 歌词模式与列表模式通过 stageViewport 双层覆盖与 GPU 景深转场平滑衔接
-    expect(playerSource).toContain('stageViewport')
-    expect(playerSource).toContain("pointerEvents={mode === 'lyrics' ? 'auto' : 'none'}")
-    expect(playerSource).toContain("pointerEvents={mode !== 'lyrics' ? 'auto' : 'none'}")
-    expect(playerSource).toContain('lyricsContainerAnimatedStyle')
-    expect(playerSource).toContain('coverListContainerAnimatedStyle')
-    // 底部工具栏常驻在主视图下方
-    expect(playerSource).toContain('<PlayerToolbar mode={mode} onModeChange={setMode}')
-    // 按钮与模式/路由状态的行为由 player-toolbar.test.tsx 的实际 React 渲染覆盖。
-    // 不再包含浮动控制区样式或隐藏计时器
-    expect(playerSource).not.toContain('floatingBottomControls')
-    expect(playerSource).not.toContain('CHROME_HIDE_IDLE_MS')
-    expect(playerSource).not.toContain('hideTimer')
+  it('歌词和列表共享切换层，三个模式只保留一个播放器实例', () => {
+    const transitionSource = readSource('components/player/player-mode-transition.tsx')
+    expect(playerSource).toContain('<PlayerModeLayer progress={lyricAnim}')
+    expect(playerSource).toContain('<PlayerModeLayer progress={listAnim}')
+    expect(playerSource.match(/<PlayerDeck\b/g)).toHaveLength(1)
+    expect(transitionSource).toContain("pointerEvents={active ? 'auto' : 'none'}")
+    expect(transitionSource).toContain('accessibilityElementsHidden={!active}')
+    expect(playerSource).toMatch(/<PlayerToolbar mode=\{mode\} onModeChange=\{/)
   })
 
-  it('封面、播放列表与歌词之间采用统一景深 scale 与微位移过渡，且禁用 layout 尺寸动画', () => {
+  it('切换共用时序，不通过隐藏布局反复重建视口', () => {
     const deckSource = readSource('components/player/player-deck.tsx')
-    // PlayerDeck 标题收起禁用 maxHeight 与 marginBottom 破坏性布局动画，保证播放控制按钮绝对稳定
     expect(deckSource).not.toContain('maxHeight')
-    expect(deckSource).not.toContain('marginBottom')
-    // player.tsx 具备统一的 lyricAnim 与 listAnim 贝塞尔曲线过渡
-    expect(playerSource).toContain('lyricAnim')
-    expect(playerSource).toContain('listAnim')
-    expect(playerSource).toContain('coverAnimatedStyle')
-    expect(playerSource).toContain('queueAnimatedStyle')
+    expect(deckSource).not.toMatch(/marginBottom:\s*interpolate/)
+    expect(playerSource).toContain('PLAYER_MODE_TIMING')
+    expect(playerSource).not.toContain("display: 'none'")
   })
 
   it('切换到歌词页时无动画直达正确位置，且对行偏移与初始视口进行缓存预热', () => {
@@ -81,7 +71,10 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('底部工具栏预留底边距，空状态提示词上下居中', () => {
-    expect(playerSource).toContain('bottomSpace={48 + insets.bottom}')
+    expect(playerSource).toContain('const bottomChromeInset = portraitChromeHeight + toolbarHeight')
+    expect(playerSource).toContain('onLayout={onPortraitChromeLayout}')
+    expect(playerSource).toContain('onLayout={onToolbarLayout}')
+    expect(playerSource).toContain('bottomSpace={bottomChromeInset}')
     expect(lyricViewSource).toContain('bottomSpace?: number')
     expect(lyricViewSource).toMatch(/styles\.center[\s\S]*?paddingBottom:\s*bottomSpace/)
     expect(lyricViewSource).toContain('暂无歌词')
@@ -91,7 +84,7 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     const deckSource = readSource('components/player/player-deck.tsx')
     expect(deckSource).toContain('export function PlayerTitleRow')
     expect(playerSource).toContain('PlayerTitleRow')
-    expect(playerSource).toContain('hideTitle={true}')
+    expect(playerSource).toMatch(/<PlayerDeck[^>]*\bhideTitle/)
     expect(playerSource).toContain('coverImageWrapper')
     expect(playerSource).toContain('titleRowWrapper')
   })
@@ -104,18 +97,6 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
     expect(lyricViewSource).toContain('translateY.value = -event.contentOffset.y')
     expect(lyricViewSource).toContain('contentAnimatedStyle')
     expect(lyricViewSource).toContain('transform: [{ translateY: scrollY.value }]')
-  })
-
-  it('暂停状态下歌词自由滑动不回跳，恢复播放后平滑跳转到当前行', () => {
-    // player.tsx 与 LyricView 接入 playing 状态
-    expect(playerSource).toContain('playing={playing}')
-    expect(lyricViewSource).toContain('playing?: boolean')
-    // 暂停状态下自由滑动不启动闲置恢复计时器
-    expect(lyricViewSource).toContain('if (!playing) return')
-    expect(lyricViewSource).toContain('if (!playing && userManualOverrideRef.current) return')
-    // 恢复播放检测与平滑居中跳转
-    expect(lyricViewSource).toContain('justResumed = playing && !prevPlayingRef.current')
-    expect(lyricViewSource).toContain('scrollToActiveIndex(activeIndex, { animated: true, forceCenter: true })')
   })
 
   it('歌词底板矩形宽度撑满对齐、顺滑圆角与按压态离开即消', () => {

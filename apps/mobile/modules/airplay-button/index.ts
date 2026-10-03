@@ -11,6 +11,7 @@ export interface AirplayRouteButtonProps extends ViewProps {
   /** Kept for API compatibility; the native icon uses tintColor for every state. */
   activeTintColor?: ColorValue
   onRouteChange?: (event: NativeSyntheticEvent<AirplayRouteChangeEvent>) => void
+  onPickerVisibilityChange?: (event: NativeSyntheticEvent<{ visible: boolean }>) => void
 }
 
 /**

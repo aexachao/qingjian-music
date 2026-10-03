@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 const scenario = vi.hoisted(() => ({
   revision: 1,
   services: [] as { id: string; type: 'netease' | 'lrcapi' | 'qq'; baseUrl: string; token?: string; useLyrics: boolean; useMusicInfo: boolean }[],
-  cached: null as null | { sheet: any; sourceIdentity?: string; sourceRevision?: number; metadataParsed?: boolean },
+  cached: null as null | { sheet: any; sourceIdentity?: string; sourceRevision?: number; parserVersion?: number },
   externalResult: null as any,
   readCachedLyric: vi.fn(),
   writeCachedLyric: vi.fn(),
@@ -12,6 +12,7 @@ const scenario = vi.hoisted(() => ({
 
 vi.mock('../../src/lib/lyric-cache', () => ({
   captureLyricCacheGeneration: () => 12,
+  LYRIC_CACHE_PARSER_VERSION: 2,
   readCachedLyric: (...args: any[]) => scenario.readCachedLyric(...args),
   writeCachedLyric: (...args: any[]) => scenario.writeCachedLyric(...args),
 }))
@@ -58,13 +59,26 @@ it('uses the current store revision and token-free identity when callers omit so
   const { externalSourceCacheIdentity } = await import('../../src/lib/external-source-cache-key')
   const identity = externalSourceCacheIdentity(scenario.services)
   const cached = sheet('word', 'current cached lyrics')
-  scenario.cached = { sheet: cached, sourceIdentity: identity, sourceRevision: 17, metadataParsed: true }
+  scenario.cached = { sheet: cached, sourceIdentity: identity, sourceRevision: 17, parserVersion: 2 }
 
   const { loadLyricSheet } = await import('../../src/lib/lyric-offset')
   const provider = { lyrics: vi.fn() }
   await expect(loadLyricSheet(provider as any, 'server', 'track', { title: 'title' })).resolves.toBe(cached)
   expect(provider.lyrics).not.toHaveBeenCalled()
   expect(scenario.fetchExternalLyricSheet).not.toHaveBeenCalled()
+})
+
+it('refreshes a matching word cache from an older parser while retaining it as fallback', async () => {
+  scenario.revision = 17
+  scenario.services = [{ id: 'source-1', type: 'netease', baseUrl: 'https://lyrics.example/api/', token: 'secret', useLyrics: true, useMusicInfo: false }]
+  const { externalSourceCacheIdentity } = await import('../../src/lib/external-source-cache-key')
+  const cached = sheet('word', 'cached with old parser')
+  scenario.cached = { sheet: cached, sourceIdentity: externalSourceCacheIdentity(scenario.services), sourceRevision: 17 }
+
+  const { loadLyricSheet } = await import('../../src/lib/lyric-loader')
+  const provider = { lyrics: vi.fn().mockResolvedValue(null) }
+  await expect(loadLyricSheet(provider as any, 'server', 'track', { title: 'title' })).resolves.toBe(cached)
+  expect(provider.lyrics).toHaveBeenCalledOnce()
 })
 
 it('prefers a fresh line lyric from the current source over stale cached word lyrics', async () => {
@@ -89,6 +103,7 @@ it('returns the saved lyric as an offline fallback when current sources fail', a
   scenario.services = [{ id: 'current-source', type: 'netease', baseUrl: 'https://current.example', useLyrics: true, useMusicInfo: false }]
   const saved = sheet('word', 'saved offline lyric')
   scenario.cached = { sheet: saved, sourceIdentity: 'previous-source', sourceRevision: 2 }
+  scenario.fetchExternalLyricSheet.mockRejectedValueOnce(new Error('external source offline'))
 
   const { loadLyricSheet } = await import('../../src/lib/lyric-offset')
   const provider = { lyrics: vi.fn().mockRejectedValue(new Error('offline')) }
@@ -147,6 +162,7 @@ it('does not let an old source response overwrite cache after configuration chan
 })
 
 it('does not write cache when the query is cancelled while its provider request is pending', async () => {
+  scenario.services = [{ id: 'source', type: 'lrcapi', baseUrl: 'https://lyrics.example', useLyrics: true, useMusicInfo: false }]
   let resolveProvider!: (value: any) => void
   const provider = { lyrics: vi.fn(() => new Promise((resolve) => { resolveProvider = resolve })) }
   const controller = new AbortController()
@@ -155,6 +171,7 @@ it('does not write cache when the query is cancelled while its provider request 
   controller.abort(new Error('cancelled by query client'))
   resolveProvider(sheet('line', 'late NAS lyric'))
   await expect(pending).rejects.toThrow('cancelled by query client')
+  expect(scenario.fetchExternalLyricSheet).not.toHaveBeenCalled()
   expect(scenario.writeCachedLyric).not.toHaveBeenCalled()
 })
 
@@ -168,6 +185,61 @@ it('retries an external source after it previously returned no lyric', async () 
   await expect(loadLyricSheet(provider as any, 'server', 'track', { title: 'title' })).resolves.toBeNull()
   expect(scenario.fetchExternalLyricSheet).toHaveBeenCalledTimes(2)
   expect(lyricStaleTime(null)).toBe(0)
+})
+
+it('keeps a confirmed no-match distinct from failed sources', async () => {
+  const { loadLyricSheet } = await import('../../src/lib/lyric-loader')
+  const provider = { lyrics: vi.fn().mockResolvedValue(null) }
+  await expect(loadLyricSheet(provider as any, 'server', 'track', { title: 'title' })).resolves.toBeNull()
+
+  provider.lyrics.mockRejectedValueOnce(new Error('network unavailable'))
+  await expect(loadLyricSheet(provider as any, 'server', 'track')).rejects.toMatchObject({
+    name: 'MusicError', code: 'network', retryable: true,
+  })
+})
+
+it('uses the shared bounded query retry policy for a transient lyric failure', async () => {
+  const { QueryClient } = await import('@tanstack/react-query')
+  const { isMusicError } = await import('@qj/core-domain')
+  const { lyricQueryOptions } = await import('../../src/lib/lyric-loader')
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: (failureCount, error) => isMusicError(error) && error.retryable && failureCount < 2 } },
+  })
+  const recovered = sheet('line', 'recovered lyric')
+  const provider = { lyrics: vi.fn().mockRejectedValueOnce(new Error('network unavailable')).mockResolvedValueOnce(recovered) }
+
+  await expect(client.fetchQuery(lyricQueryOptions(provider as any, 'server', 'track'))).resolves.toBe(recovered)
+  expect(provider.lyrics).toHaveBeenCalledTimes(2)
+  client.clear()
+})
+
+it('stops after two automatic retries and succeeds on a manual client refetch', async () => {
+  const { QueryClient, QueryObserver } = await import('@tanstack/react-query')
+  const { isMusicError } = await import('@qj/core-domain')
+  const { lyricQueryOptions } = await import('../../src/lib/lyric-loader')
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: (failureCount, error) => isMusicError(error) && error.retryable && failureCount < 2,
+        retryDelay: 0,
+      },
+    },
+  })
+  const recovered = sheet('line', 'manual retry lyric')
+  const provider = { lyrics: vi.fn().mockRejectedValue(new Error('network unavailable')) }
+  const options = lyricQueryOptions(provider as any, 'server', 'track')
+  const observer = new QueryObserver(client, options)
+  const unsubscribe = observer.subscribe(() => undefined)
+
+  await expect(client.fetchQuery(options)).rejects.toMatchObject({ code: 'network', retryable: true })
+  expect(provider.lyrics).toHaveBeenCalledTimes(3)
+
+  provider.lyrics.mockResolvedValueOnce(recovered)
+  await client.refetchQueries({ queryKey: options.queryKey, exact: true, type: 'all' }, { cancelRefetch: false })
+  expect(provider.lyrics).toHaveBeenCalledTimes(4)
+  expect(client.getQueryData(options.queryKey)).toBe(recovered)
+  unsubscribe()
+  client.clear()
 })
 
 

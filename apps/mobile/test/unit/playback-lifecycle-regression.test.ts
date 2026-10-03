@@ -1,5 +1,13 @@
-const network = vi.hoisted(() => ({ require: vi.fn(async () => undefined) }))
-vi.mock('@/player/network-access', () => ({ requirePlaybackNetwork: network.require, canUsePlaybackNetwork: () => true }))
+const network = vi.hoisted(() => ({ require: vi.fn(async () => undefined), allowed: true }))
+const cacheState = vi.hoisted(() => ({
+ enabled: false,
+ files: new Map<string, string>(),
+ cacheAudio: vi.fn(async (_target: any, _resource: any, _options?: any) => undefined),
+ protectTracks: vi.fn(),
+ startTranscodeCaching: vi.fn(async (_input: any) => undefined),
+ promote: vi.fn(async (_qid: string, _expected: string, _local: any) => true),
+}))
+vi.mock('@/player/network-access', () => ({ requirePlaybackNetwork: network.require, canUsePlaybackNetwork: () => network.allowed }))
 import { beforeEach, expect, it, vi } from 'vitest'
 
 /** Regression tests for stale playback intents and offline activation. */
@@ -11,7 +19,7 @@ const rntp = vi.hoisted(() => ({
  getQueue:vi.fn(async()=>[] as AddedTrack[]),
  getPlaybackState:vi.fn(async()=>({state:'paused'})),
  stop:vi.fn(async()=>{}),
- pause:vi.fn(async()=>{}), load:vi.fn(async(_track:any)=>{}), getProgress:vi.fn(async()=>({position:0})),
+ pause:vi.fn(async()=>{}), load:vi.fn(async(_track:any)=>{}), getProgress:vi.fn(async()=>({position:0,duration:180})),
   move: vi.fn<(from: number, to: number) => Promise<void>>(async () => undefined),
   remove: vi.fn<(indexes: number[]) => Promise<void>>(async () => undefined),
   reset: vi.fn<() => Promise<void>>(async () => undefined),
@@ -27,7 +35,7 @@ const rntp = vi.hoisted(() => ({
   play: vi.fn<() => Promise<void>>(async () => undefined),
   seekTo: vi.fn<(seconds: number) => Promise<void>>(async () => undefined),
   getActiveTrackIndex: vi.fn<() => Promise<number>>(async () => 0),
-  getActiveTrack: vi.fn(async () => ({ id: 'remote', url: 'https://example.invalid/active' })),
+  getActiveTrack: vi.fn<() => Promise<any>>(async () => ({ id: 'remote', url: 'https://example.invalid/active' })),
 }))
 
 const setup = vi.hoisted(() => ({ ensurePlayer: vi.fn(async () => undefined) }))
@@ -53,26 +61,35 @@ vi.mock('../../src/player/persist', () => ({
 vi.mock('../../src/player/transcode-cache', () => ({
   abortTranscodeCaching: vi.fn(),
   cachedTranscodeUri: vi.fn(() => undefined),
-  startTranscodeCaching: vi.fn(),
+  startTranscodeCaching: cacheState.startTranscodeCaching,
 }))
 vi.mock('../../src/player/transcode-prewarm', () => ({
   clearWarmTranscode: vi.fn(async () => undefined),
+  getWarmTranscode: vi.fn(() => undefined),
   setWarmTranscode: vi.fn(),
   takeWarmTranscode: vi.fn(() => undefined),
 }))
 vi.mock('../../src/player/transcode-session', () => ({
   hasTranscodeSession: vi.fn(() => false),
+  isTranscodeSessionCurrent: vi.fn(() => true),
   replaceTranscodeSession: vi.fn(),
   startTranscodeSession: vi.fn(),
   stopTranscodeSession: vi.fn(async () => undefined),
 }))
 
 
-vi.mock('@/player/audio-cache',()=>({cacheAudio:vi.fn(),cachedAudioUri:()=>undefined,protectTracks:vi.fn(),captureAudioCacheGeneration:()=>0,isAudioCacheGenerationCurrent:()=>true}))
+vi.mock('@/player/audio-cache',()=>({
+ cacheAudio:cacheState.cacheAudio,
+ cachedAudioUri:(target:any)=>cacheState.files.get(target.trackId),
+ protectTracks:cacheState.protectTracks,
+ captureAudioCacheGeneration:()=>0,
+ isAudioCacheGenerationCurrent:()=>true,
+}))
+vi.mock('@/player/native-queue-source',()=>({promoteUpcomingTrackSource:cacheState.promote}))
 vi.mock('@/player/artwork',()=>({cacheArtwork:vi.fn()}))
-vi.mock('@/lib/cache-preferences',()=>({isAutoCacheEnabled:()=>false}))
-const offline=vi.hoisted(()=>({downloaded:undefined as string|undefined}))
-vi.mock('@/player/downloads',()=>({downloadedUri:()=>offline.downloaded,downloadedContentType:()=> 'audio/mp4'}))
+vi.mock('@/lib/cache-preferences',()=>({isAutoCacheEnabled:()=>cacheState.enabled}))
+const offline=vi.hoisted(()=>({downloaded:undefined as string|undefined,contentType:undefined as string|undefined}))
+vi.mock('@/player/downloads',()=>({downloadedUri:()=>offline.downloaded,downloadedContentType:()=>offline.contentType ?? 'audio/mp4'}))
 const ctrl=await import('@/player/controller')
 const {selectCurrent,usePlayerStore}=await import('@/player/store')
 const {cachedTranscodeUri}=await import('@/player/transcode-cache')
@@ -91,7 +108,7 @@ async function settlesWithin(promise: Promise<unknown>, milliseconds = 100): Pro
   new Promise<boolean>((resolve) => setTimeout(() => resolve(false), milliseconds)),
  ])
 }
-beforeEach(async()=>{await ctrl.clearQueue();vi.clearAllMocks();network.require.mockReset().mockResolvedValue(undefined);rntp.getActiveTrack.mockReset().mockResolvedValue({id:'remote',url:'https://example.invalid/active'});offline.downloaded=undefined;vi.mocked(cachedTranscodeUri).mockReturnValue(undefined);provider.stream.mockReset().mockResolvedValue({url:'https://example.invalid/a'});ctrl.rememberProvider(provider)})
+beforeEach(async()=>{await ctrl.clearQueue();vi.clearAllMocks();network.require.mockReset().mockResolvedValue(undefined);network.allowed=true;cacheState.enabled=false;cacheState.files.clear();rntp.getActiveTrack.mockReset().mockResolvedValue({id:'remote',url:'https://example.invalid/active'});offline.downloaded=undefined;offline.contentType=undefined;vi.mocked(cachedTranscodeUri).mockReturnValue(undefined);provider.stream.mockReset().mockResolvedValue({url:'https://example.invalid/a'});ctrl.rememberProvider(provider)})
 it('restore cannot commit after logout-style clear',async()=>{
  let resolve!:any;let entered!:any
  const called=new Promise(r=>{entered=r})
@@ -121,6 +138,8 @@ it('initial playback uses existing transcode cache offline',async()=>{
 })
 it('activation preserves downloaded WMA offline',async()=>{
  offline.downloaded='file://downloaded.m4a'
+ network.allowed=false
+ rntp.getActiveTrack.mockResolvedValueOnce({id:item.qid,url:'https://example.invalid/previous'}).mockResolvedValueOnce({id:item.qid,url:'https://example.invalid/previous'})
  usePlayerStore.getState().setQueue([{...item,format:'wma'}],0,{kind:'tracks',label:'test'})
  await ctrl.ensureTranscodeForIndex(0)
  expect(provider.stream).not.toHaveBeenCalled()
@@ -396,6 +415,7 @@ it('restores paused without starting playback',async()=>{
 })
 it('local transcode activation respects resumePlayback false',async()=>{
  offline.downloaded='file://downloaded.m4a'
+ rntp.getActiveTrack.mockResolvedValueOnce({id:item.qid,url:'https://example.invalid/previous'}).mockResolvedValueOnce({id:item.qid,url:'https://example.invalid/previous'})
  usePlayerStore.getState().setQueue([{...item,format:'wma'}],0,{kind:'tracks',label:'test'})
  await ctrl.ensureTranscodeForIndex(0,{resumePlayback:false})
  expect(rntp.load).toHaveBeenCalled()
@@ -442,6 +462,17 @@ it('reconnect refreshes the URL and restores the same occurrence/position withou
   expect(rntp.play).toHaveBeenCalledOnce()
   expect(usePlayerStore.getState().history).toEqual([])
   expect(usePlayerStore.getState().queue[0]?.qid).toBe(item.qid)
+})
+it('network recovery reloads refreshed headers even when the URL text is unchanged', async () => {
+  usePlayerStore.getState().setQueue([item], 0)
+  rntp.getActiveTrack.mockResolvedValue({ id: item.qid, url: 'https://example.invalid/a' })
+  provider.stream.mockResolvedValueOnce({ url: 'https://example.invalid/a', headers: { Authorization: 'refreshed' } })
+  await ctrl.recoverPlaybackAfterNetwork(item.qid, 19, () => true)
+  expect(rntp.load).toHaveBeenCalledWith(expect.objectContaining({
+    id: item.qid,
+    url: 'https://example.invalid/a',
+    headers: { Authorization: 'refreshed' },
+  }))
 })
 it('pause during reconnect URL resolution prevents a delayed reload/play', async () => {
   const { getPlaybackIntent, setPlaybackIntent } = await import('@/player/playback-intent')
@@ -498,6 +529,137 @@ it('a native local URL can start without network permission', async () => {
   await ctrl.resumePlayback()
   expect(network.require).not.toHaveBeenCalled()
   expect(rntp.play).toHaveBeenCalledOnce()
+})
+it('normal pause/resume reuses the prepared native asset without loading or delayed store loading', async () => {
+  usePlayerStore.getState().setQueue([item], 0)
+  rntp.getActiveTrack.mockResolvedValue({ id: item.qid, url: 'file:///already-prepared.m4a' })
+  await ctrl.resumePlayback()
+  expect(rntp.load).not.toHaveBeenCalled()
+  expect(rntp.play).toHaveBeenCalledOnce()
+  expect(usePlayerStore.getState().isLoadingAudio).toBe(false)
+})
+it('offline resume rebinds a complete cached file with the same qid, progress, and artwork', async () => {
+  const cached = { ...item, format: 'flac' }
+  cacheState.files.set(cached.trackId, 'file:///cached.flac')
+  network.allowed = false
+  usePlayerStore.getState().setQueue([cached], 0)
+  rntp.getProgress.mockResolvedValueOnce({ position: 36, duration: 180 })
+  rntp.getActiveTrack
+    .mockResolvedValueOnce({ id: cached.qid, url: 'https://example.invalid/remote', artwork: 'file:///cover.jpg' })
+    .mockResolvedValueOnce({ id: cached.qid, url: 'file:///cached.flac' })
+  await ctrl.resumePlayback()
+  expect(rntp.load).toHaveBeenCalledWith(expect.objectContaining({
+    id: cached.qid,
+    url: 'file:///cached.flac',
+    artwork: 'file:///cover.jpg',
+  }))
+  expect(rntp.seekTo).toHaveBeenCalledWith(36)
+  expect(rntp.play).toHaveBeenCalledOnce()
+})
+it('offline local rebinding retires the previous transcode heartbeat', async () => {
+  const { stopTranscodeSession } = await import('@/player/transcode-session')
+  offline.downloaded = 'file:///downloaded.mp3'
+  network.allowed = false
+  usePlayerStore.getState().setQueue([{ ...item, format: 'mp3' }], 0)
+  rntp.getActiveTrack
+    .mockResolvedValueOnce({ id: item.qid, url: 'https://example.invalid/remote' })
+    .mockResolvedValueOnce({ id: item.qid, url: 'file:///downloaded.mp3' })
+  await ctrl.resumePlayback()
+  expect(stopTranscodeSession).toHaveBeenCalled()
+})
+it('a cached original becoming current retires the previous transcode heartbeat without reloading', async () => {
+  const { stopTranscodeSession } = await import('@/player/transcode-session')
+  cacheState.files.set(item.trackId, 'file:///cached-original.mp3')
+  usePlayerStore.getState().setQueue([{ ...item, format: 'mp3' }], 0)
+  rntp.getActiveTrack.mockResolvedValueOnce({ id: item.qid, url: 'https://example.invalid/original' })
+  await ctrl.ensureTranscodeForIndex(0)
+  expect(stopTranscodeSession).toHaveBeenCalled()
+  expect(rntp.load).not.toHaveBeenCalled()
+})
+it('offline resume restarts a completed track at zero after local rebinding', async () => {
+  const cached = { ...item, format: 'mp3' }
+  cacheState.files.set(cached.trackId, 'file:///cached.mp3')
+  network.allowed = false
+  usePlayerStore.getState().setQueue([cached], 0)
+  usePlayerStore.getState().setPlaybackEnded(true)
+  rntp.getProgress.mockResolvedValueOnce({ position: 180, duration: 180 })
+  rntp.getActiveTrack
+    .mockResolvedValueOnce({ id: cached.qid, url: 'https://example.invalid/remote' })
+    .mockResolvedValueOnce({ id: cached.qid, url: 'file:///cached.mp3' })
+  await ctrl.resumePlayback()
+  expect(rntp.seekTo).toHaveBeenCalledWith(0)
+  expect(rntp.seekTo).not.toHaveBeenCalledWith(180)
+  expect(rntp.play).toHaveBeenCalledOnce()
+})
+it('local download keeps its registered MIME and does not reload an already-loaded file', async () => {
+  const downloaded = { ...item, format: 'flac' }
+  offline.downloaded = 'file:///downloaded.flac'
+  offline.contentType = 'audio/flac'
+  usePlayerStore.getState().setQueue([downloaded], 0)
+  rntp.getActiveTrack.mockResolvedValue({ id: downloaded.qid, url: offline.downloaded })
+  await ctrl.ensureTranscodeForIndex(0)
+  expect(rntp.load).not.toHaveBeenCalled()
+  expect(rntp.play).not.toHaveBeenCalled()
+})
+it('manual next rechecks a cache completed after the native queue was built', async () => {
+  const next = { ...item, qid: 'srv:next:1', trackId: 'next', format: 'mp3' }
+  cacheState.files.set(next.trackId, 'file:///next.mp3')
+  usePlayerStore.getState().setQueue([item, next], 0)
+  rntp.getQueue.mockResolvedValue([
+    { id: item.qid, url: 'file:///current.mp3' },
+    { id: next.qid, url: 'https://example.invalid/next' },
+  ])
+  await ctrl.skipToIndex(1)
+  expect(cacheState.promote).toHaveBeenCalledWith(next.qid, 'https://example.invalid/next', {
+    url: 'file:///next.mp3',
+    contentType: expect.any(String),
+  })
+  expect(rntp.skip).toHaveBeenCalledWith(1)
+})
+it('starts prefetching next while the current full-file cache is still pending', async () => {
+  cacheState.enabled = true
+  const next = { ...item, qid: 'srv:next:1', trackId: 'next', format: 'mp3' }
+  usePlayerStore.getState().setQueue([{ ...item, format: 'mp3' }, next], 0)
+  const currentDownload = deferred<void>()
+  cacheState.cacheAudio.mockImplementation(async (target: any) => {
+    if (target.trackId === 'old') await currentDownload.promise
+    else cacheState.files.set(target.trackId, `file:///${target.trackId}.mp3`)
+  })
+  ctrl.schedulePrefetch(0)
+  await vi.waitFor(() => expect(cacheState.cacheAudio).toHaveBeenCalledTimes(2))
+  const started = cacheState.cacheAudio.mock.calls.map(([target]) => target.trackId)
+  expect(started).toContain('next')
+  expect(started).toContain('old')
+  currentDownload.resolve()
+})
+it('initial HLS playback starts a guarded transcode-cache job', async () => {
+  cacheState.enabled = true
+  const session = { id: 'hls-current', heartbeatIntervalMs: 60_000, heartbeat: vi.fn(async () => undefined), close: vi.fn(async () => undefined) }
+  provider.stream.mockResolvedValueOnce({ url: 'https://example.invalid/current.m3u8', transport: 'hls', session } as any)
+  await ctrl.playSingleTrack({
+    provider,
+    serverId: 'srv',
+    track: { ...track, audio: { format: 'wma' } },
+    source: { kind: 'tracks', label: 'HLS current' },
+  })
+  expect(cacheState.startTranscodeCaching).toHaveBeenCalledWith(expect.objectContaining({
+    serverId: 'srv',
+    trackId: 'old',
+    playlistUrl: 'https://example.invalid/current.m3u8',
+    shouldAbort: expect.any(Function),
+  }))
+})
+it('rescheduling the same warm next qid does not request a duplicate server session', async () => {
+  const next = { ...item, qid: 'srv:warm-next:1', trackId: 'warm-next', format: 'wma' }
+  usePlayerStore.getState().setQueue([item, next], 0)
+  const stream = deferred<any>()
+  provider.stream.mockImplementationOnce(() => stream.promise)
+  ctrl.schedulePrefetch(0)
+  ctrl.schedulePrefetch(0)
+  await vi.waitFor(() => expect(provider.stream).toHaveBeenCalledTimes(1))
+  stream.resolve({ url: 'https://example.invalid/warm.m3u8', transport: 'hls', session: { id: 'warm', heartbeatIntervalMs: 60_000, heartbeat: async () => undefined, close: vi.fn(async () => undefined) } })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(provider.stream).toHaveBeenCalledTimes(1)
 })
 it('manual skip checks the native target URL before allowing RNTP to switch tracks', async () => {
   const next = { ...item, qid: 'srv:next:1', trackId: 'next' }

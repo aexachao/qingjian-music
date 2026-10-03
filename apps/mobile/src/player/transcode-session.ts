@@ -1,5 +1,6 @@
 import TrackPlayer from 'react-native-track-player'
 import { isMusicError, type StreamSession } from '@qj/core-domain'
+import { isWarmTranscodeCurrent } from './transcode-prewarm'
 
 /**
  * 转码会话保活。飞牛的转码任务靠心跳判活：
@@ -25,6 +26,11 @@ export function setSessionLostHandler(handler: ((qid: string) => void) | null): 
 
 export function hasTranscodeSession(qid: string): boolean {
   return active?.qid === qid
+}
+
+/** True while this exact session is still owned by the current or warm slot. */
+export function isTranscodeSessionCurrent(qid: string, session: StreamSession): boolean {
+  return (active?.qid === qid && active.session === session) || isWarmTranscodeCurrent(qid, session)
 }
 
 async function beat(): Promise<void> {

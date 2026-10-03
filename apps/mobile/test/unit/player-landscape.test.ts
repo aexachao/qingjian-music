@@ -36,6 +36,16 @@ describe('横屏播放器双联屏组件复用与架构规范', () => {
     expect(landscapeSource).toContain('hideCurrentTrack={true}')
   })
 
+  it('模式共用父级动画并保持工作区与各图层几何稳定', () => {
+    expect(landscapeSource).not.toContain('FadeIn')
+    expect(landscapeSource).not.toContain('FadeOut')
+    expect(landscapeSource).toContain('<View style={[StyleSheet.absoluteFill, styles.workArea]}>')
+    expect(landscapeSource).toContain('active={mode === \'cover\'}')
+    expect(landscapeSource).toContain('active={mode === \'list\'}')
+    expect(landscapeSource).toContain('active={mode === \'lyrics\'}')
+    expect(landscapeSource).toContain('top: 12 + titleHeight + 18, bottom: 44')
+  })
+
   it('右侧下方为播放器控制台(PlayerDeck compact)，底部为工具栏(PlayerToolbar)', () => {
     expect(landscapeSource).toContain('hideTitle={true}')
     expect(landscapeSource).toContain('compact={true}')

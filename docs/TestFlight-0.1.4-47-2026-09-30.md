@@ -1,5 +1,7 @@
 # TestFlight 0.1.4（47）发布记录
 
+> 时点快照：记录当时的实现与验收情况，当前状态以代码和现状基线为准。
+
 - 应用：轻简音乐，com.chrisli.music，App Store Connect ID 6813079351。
 - 商店版，目标为现有“公开测试”组。
 - 公开链接：https://testflight.apple.com/join/tetMDTQY

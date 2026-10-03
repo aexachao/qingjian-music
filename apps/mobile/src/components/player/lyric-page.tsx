@@ -1,17 +1,15 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useActiveTrack, useIsPlaying, useProgress } from 'react-native-track-player'
 import type { SharedValue } from 'react-native-reanimated'
-import { IconButton, iconSize } from '@/components/icon'
 import { LyricAdjustmentSheet } from '@/components/player/lyric-adjustment-sheet'
 import { LyricView } from '@/components/lyric-view'
 import { useToast } from '@/components/toast'
 import { useLyricOffset } from '@/lib/lyric-offset'
 import { seekAndPlay as seekLyricAndPlay } from '@/player/controller'
 import { selectCurrent, usePlayerStore } from '@/player/store'
-import { getThemeColors, spacing } from '@/theme/tokens'
-
-const darkColors = getThemeColors('dark')
+import type { LyricStageMaskProps } from './lyric-stage-mask'
+import { spacing } from '@/theme/tokens'
 
 const LYRIC_TICK_MS = 100
 const LYRIC_IDLE_TICK_MS = 200
@@ -25,6 +23,23 @@ export interface LyricPageProps {
   onDismiss?: () => void
   playing?: boolean
   isLandscape?: boolean
+  stageMask?: LyricStageMaskProps
+  immersive?: boolean
+  onLyricsReadyChange?: (ready: boolean) => void
+  onLyricsErrorChange?: (error: boolean) => void
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
+  onReadingOverrideChange?: (manual: boolean) => void
+  onReadingPositionChange?: (showReturn: boolean) => void
+  onShareOpenChange?: (open: boolean) => void
+  onModalOpenChange?: (open: boolean) => void
+  onAdjustAvailabilityChange?: (enabled: boolean) => void
+  onRegisterAdjustHandler?: (handler: () => void) => void
+  onBlankTap?: () => void
+  controlsVisible?: boolean
+  foreground?: boolean
+  followLocked?: boolean
+  onFlingReveal?: () => void
 }
 
 export function LyricPage({
@@ -36,6 +51,23 @@ export function LyricPage({
   onDismiss,
   playing: propPlaying,
   isLandscape = false,
+  immersive = false,
+  onLyricsReadyChange,
+  onLyricsErrorChange,
+  onInteractionStart,
+  onInteractionEnd,
+  onReadingOverrideChange,
+  onReadingPositionChange,
+  onShareOpenChange,
+  onModalOpenChange,
+  onAdjustAvailabilityChange,
+  onRegisterAdjustHandler,
+  onBlankTap,
+  controlsVisible,
+  foreground,
+  followLocked,
+  onFlingReveal,
+  stageMask,
 }: LyricPageProps) {
   const toast = useToast()
   const { playing: hookPlaying } = useIsPlaying()
@@ -45,6 +77,10 @@ export function LyricPage({
   const current = usePlayerStore(selectCurrent)
   const lyricOffset = useLyricOffset(trackId)
   const [adjustOpen, setAdjustOpen] = useState(false)
+  useEffect(() => { onAdjustAvailabilityChange?.(lyricOffset.canAdjust) }, [lyricOffset.canAdjust, onAdjustAvailabilityChange])
+  const requestAdjust = useCallback(() => { setAdjustOpen(true); onModalOpenChange?.(true) }, [onModalOpenChange])
+  useEffect(() => { onRegisterAdjustHandler?.(requestAdjust); return () => onRegisterAdjustHandler?.(() => {}) }, [onRegisterAdjustHandler, requestAdjust])
+  useEffect(() => () => { if (adjustOpen) onModalOpenChange?.(false) }, [adjustOpen, onModalOpenChange])
 
   const seekAndPlay = useCallback(
     (seconds: number) => {
@@ -73,24 +109,26 @@ export function LyricPage({
         translateY={translateY}
         onDismiss={onDismiss}
         playing={playing}
+        immersive={immersive}
+        stageMask={stageMask}
+        onLyricsReadyChange={onLyricsReadyChange}
+        onLyricsErrorChange={onLyricsErrorChange}
+        onInteractionStart={onInteractionStart}
+        onInteractionEnd={onInteractionEnd}
+        onReadingOverrideChange={onReadingOverrideChange}
+        onReadingPositionChange={onReadingPositionChange}
+        onShareOpenChange={onShareOpenChange}
+        onBlankTap={onBlankTap}
+        controlsVisible={controlsVisible}
+        foreground={foreground}
+        followLocked={followLocked}
+        onFlingReveal={onFlingReveal}
       />
-      {active ? (
-        <View style={styles.lyricActions}>
-          <IconButton
-            name="lyricAdjust"
-            size={iconSize.lg}
-            color={darkColors.iconMid}
-            disabled={!lyricOffset.canAdjust}
-            onPress={() => setAdjustOpen(true)}
-            accessibilityLabel="调整歌词时间"
-          />
-        </View>
-      ) : null}
       <LyricAdjustmentSheet
         visible={adjustOpen}
         offsetMs={lyricOffset.offsetMs}
         onAdjust={lyricOffset.adjust}
-        onClose={() => setAdjustOpen(false)}
+        onClose={() => { setAdjustOpen(false); onModalOpenChange?.(false) }}
       />
     </View>
   )

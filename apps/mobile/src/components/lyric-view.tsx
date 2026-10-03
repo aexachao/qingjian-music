@@ -31,6 +31,7 @@ import * as Haptics from 'expo-haptics'
 import MaskedView from '@react-native-masked-view/masked-view'
 import { LinearGradient } from 'expo-linear-gradient'
 import type { LyricLine } from '@qj/core-domain'
+import { LyricStageMask, type LyricStageMaskProps } from '@/components/player/lyric-stage-mask'
 import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
 import { useLyricSheet } from '@/lib/lyric-offset'
@@ -43,11 +44,18 @@ const FALLBACK_LINE_MS = 4000
 const EMPTY_LINES: LyricLine[] = []
 /** 长按多久进入歌词分享 */
 const LONG_PRESS_MS = 320
-const LYRIC_MOTION = { focusMs: 180, wordMs: 100, readIdleMs: 3500, restingScale: 0.96 } as const
+const DOWNWARD_FLING_MIN_DISTANCE = 24
+const DOWNWARD_FLING_MIN_VELOCITY = 650
+const LYRIC_MOTION = { focusMs: 180, wordMs: 100, readIdleMs: 6000, restingScale: 0.96 } as const
 
 /** 跨组件与切页持久缓存的行坐标与视口高度，避免切回歌词页重新排版导致的滚动跳跃 */
 const trackOffsetsCache = new Map<string, number[]>()
-let lastKnownViewportHeight = 0
+const trackRowHeightsCache = new Map<string, number[]>()
+
+export function isDownwardRevealFling(translationY: number, velocityY: number): boolean {
+  'worklet'
+  return translationY >= DOWNWARD_FLING_MIN_DISTANCE && velocityY >= DOWNWARD_FLING_MIN_VELOCITY
+}
 
 interface LyricViewProps {
   trackId: string
@@ -76,6 +84,21 @@ interface LyricViewProps {
   onDismiss?: () => void
   /** 是否正在播放：暂停时自由滑动不自动回弹，恢复播放后立即平滑居中到当前时间戳歌词 */
   playing?: boolean
+  /** Shared immersive lyrics controls callbacks. */
+  stageMask?: LyricStageMaskProps
+  immersive?: boolean
+  onLyricsReadyChange?: (ready: boolean) => void
+  onLyricsErrorChange?: (error: boolean) => void
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
+  onReadingOverrideChange?: (manual: boolean) => void
+  onReadingPositionChange?: (showReturn: boolean) => void
+  onShareOpenChange?: (open: boolean) => void
+  onBlankTap?: () => void
+  controlsVisible?: boolean
+  foreground?: boolean
+  followLocked?: boolean
+  onFlingReveal?: () => void
 }
 
 /** 找到当前该高亮的行：最后一个开始时间 <= 当前时间的行 */
@@ -137,22 +160,53 @@ export function LyricView({
   translateY,
   onDismiss,
   playing: playingProp,
+  immersive = false,
+  controlsVisible = true,
+  foreground = true,
+  followLocked = false,
+  onFlingReveal,
+  onLyricsReadyChange,
+  onLyricsErrorChange,
+  onInteractionStart,
+  onInteractionEnd,
+  onReadingOverrideChange,
+  onReadingPositionChange,
+  onShareOpenChange,
+  onBlankTap,
+  stageMask,
 }: LyricViewProps) {
   const colors = useThemeColors()
   const styles = useStyles()
+  const maskTopInset = stageMask?.topInset ?? 0
+  const maskTopFloor = stageMask?.topFloor ?? 0
+  const maskBottomInset = stageMask?.bottomInset ?? 0
+  const maskBottomFloor = stageMask?.bottomFloor ?? 0
+  const maskOpacity = stageMask?.opacity
+  const returnPositionStyle = useAnimatedStyle(() => ({ top: spacing.md + maskTopFloor + (maskOpacity?.value ?? 0) * (maskTopInset - maskTopFloor) }), [maskTopInset, maskTopFloor, maskOpacity])
   const hookPlaying = useIsPlaying()
   const playing = playingProp !== undefined ? playingProp : Boolean(hookPlaying?.playing)
-  const { height: screenHeight } = useWindowDimensions()
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions()
   const reduceMotion = useReducedMotion()
   const storedOffsetMs = usePlayerStore((state) => state.lyricOffsetTrackId === trackId ? state.lyricOffsetMs : 0)
   const offsetMs = offsetProp ?? storedOffsetMs
   const scrollRef = useAnimatedRef<Animated.ScrollView>()
-  const offsets = useRef<number[]>(trackOffsetsCache.get(trackId) ?? [])
-  const [viewportHeight, setViewportHeight] = useState(lastKnownViewportHeight)
+  const layoutCacheKey = `${trackId}:${Math.round(screenWidth)}`
+  const offsets = useRef<number[]>(trackOffsetsCache.get(layoutCacheKey) ?? [])
+  const rowHeights = useRef<number[]>(trackRowHeightsCache.get(layoutCacheKey) ?? [])
+  const [viewportHeight, setViewportHeight] = useState(0)
   /** 用户手指按压下的行（按下显示圆角矩形板，手指离开后立即消失） */
   const [pressingRowIndex, setPressingRowIndex] = useState<number | null>(null)
   /** 长按某一行 → 进入分享面板并默认选中该句 */
   const [sheetOpenFor, setSheetOpenFor] = useState<number | null>(null)
+  const [showReturnToCurrent, setShowReturnToCurrent] = useState(false)
+  const momentumActiveRef = useRef(false)
+  const touchHeldRef = useRef(false)
+  const cancelRowTapRef = useRef(false)
+  const blankTouch = useRef<{ x: number; y: number; at: number } | null>(null)
+  const rowTouchUntilRef = useRef(0)
+  const returnVisibilityRef = useRef(false)
+
+  useEffect(() => () => { if (sheetOpenFor !== null) onShareOpenChange?.(false) }, [onShareOpenChange, sheetOpenFor])
 
   const query = useLyricSheet(trackId)
   const sheet = query.data ?? null
@@ -160,21 +214,25 @@ export function LyricView({
   const synced = sheet?.synced ?? false
 
   const atMs = positionMs + offsetMs
+  useEffect(() => { onLyricsReadyChange?.(lines.length > 0) }, [lines.length, onLyricsReadyChange])
+  useEffect(() => { onLyricsErrorChange?.(Boolean(query.isError && !sheet)) }, [onLyricsErrorChange, query.isError, sheet])
   const activeIndex = useMemo(() => (synced ? activeIndexOf(lines, atMs) : -1), [lines, atMs, synced])
 
   // contentOffset 是原生可写属性，随 activeIndex 更新会直接跳位，抢先打断 scrollTo 动画。
   // 只在挂载时读取一次缓存；后续定位全部经 scrollToActiveIndex，遵守交互锁。
   const [initialContentOffset] = useState(() => {
-    const cached = trackOffsetsCache.get(trackId)
-    const vh = lastKnownViewportHeight || 500
-    const effectiveH = Math.max(vh - (bottomSpace ?? 0), 120)
+    const cached = trackOffsetsCache.get(layoutCacheKey)
+    const vh = 500
+    const effectiveH = Math.max(vh - maskTopInset - (maskBottomInset || bottomSpace || 0), 120)
     const y = activeIndex >= 0 && cached?.[activeIndex] !== undefined
-      ? Math.max(cached[activeIndex]! - effectiveH * 0.38, 0)
+      ? Math.max(cached[activeIndex]! - maskTopInset - effectiveH * 0.38, 0)
       : 0
     return { x: 0, y }
   })
 
   const scrollY = useSharedValue(initialContentOffset.y)
+  const dragStartOffset = useSharedValue(0)
+  const dragStartedHidden = useSharedValue(false)
   const isAtTopRef = useSharedValue(true)
   const isDismissing = useSharedValue(false)
   const dragStartedAtTopRef = useSharedValue(false)
@@ -203,9 +261,11 @@ export function LyricView({
     if (lastLinesRef.current === lines) return
     lastLinesRef.current = lines
     offsets.current = []
-    trackOffsetsCache.delete(trackId)
+    rowHeights.current = []
+    trackOffsetsCache.delete(layoutCacheKey)
+    trackRowHeightsCache.delete(layoutCacheKey)
     hasPositionedForCurrentTrackRef.current = false
-  }, [lines, trackId])
+  }, [lines, layoutCacheKey])
 
   const clearIdleResumeTimer = useCallback(() => {
     if (idleResumeTimer.current) {
@@ -216,18 +276,26 @@ export function LyricView({
 
   // 切歌时重置手势与位移状态
   useEffect(() => {
-    offsets.current = trackOffsetsCache.get(trackId) ?? []
+    offsets.current = trackOffsetsCache.get(layoutCacheKey) ?? []
+    rowHeights.current = trackRowHeightsCache.get(layoutCacheKey) ?? []
     isInteractingRef.current = false
     isPressingRowRef.current = false
     isReadingSheetRef.current = false
+    momentumActiveRef.current = false
+    cancelRowTapRef.current = false
+    returnVisibilityRef.current = false
     userManualOverrideRef.current = false
     clearIdleResumeTimer()
     hasPositionedForCurrentTrackRef.current = false
-  }, [trackId, clearIdleResumeTimer])
+  }, [layoutCacheKey, clearIdleResumeTimer])
 
   useEffect(() => {
-    return clearIdleResumeTimer
-  }, [clearIdleResumeTimer])
+    return () => {
+      clearIdleResumeTimer()
+      if (touchHeldRef.current) onInteractionEnd?.()
+      if (momentumActiveRef.current) onInteractionEnd?.()
+    }
+  }, [clearIdleResumeTimer, onInteractionEnd])
 
   const scrollToActiveIndex = useCallback(
     (index: number, options?: { animated?: boolean; forceCenter?: boolean }) => {
@@ -237,17 +305,20 @@ export function LyricView({
       const targetY = offsets.current[index]
       if (targetY === undefined) return
 
-      const effectiveHeight = Math.max(viewportHeight - (bottomSpace ?? 0), 120)
+      const visibleTopInset = maskTopInset
+      const visibleBottomInset = maskBottomInset || bottomSpace || 0
+      const effectiveHeight = Math.max(viewportHeight - visibleTopInset - visibleBottomInset, 120)
 
       // 1. 手指按住、拖拽或惯性滑动中：硬锁定，绝对不自动滚动视口
       if (isInteractingRef.current) return
       if (isPressingRowRef.current || isReadingSheetRef.current) return
+      if (!active || !foreground || followLocked || (!playing && !forceCenter)) return
 
       // 整个阅读保护期都由用户掌握视口，当前行离屏也不能提前抢回。
       if (userManualOverrideRef.current && !forceCenter) return
 
       // 正常自动跟随：定位到屏幕中上部（约 40% 视口高）。
-      const targetScroll = Math.max(targetY - effectiveHeight * 0.38, 0)
+      const targetScroll = Math.max(targetY - visibleTopInset - effectiveHeight * 0.38, 0)
 
       if (animated) {
         scrollRef.current?.scrollTo({ y: targetScroll, animated: true })
@@ -255,60 +326,80 @@ export function LyricView({
         scrollRef.current?.scrollTo({ y: targetScroll, animated: false })
       }
     },
-    [synced, viewportHeight, bottomSpace, reduceMotion, scrollRef],
+    [synced, viewportHeight, bottomSpace, maskTopInset, maskBottomInset, reduceMotion, scrollRef, active, foreground, followLocked, playing],
   )
 
   // 计时器到期时跟随最新歌词，避免闭包还指向用户松手时的旧行。
-  const latestFollow = useRef({ activeIndex, active, playing, scrollToActiveIndex })
+  const latestFollow = useRef({ activeIndex, active, playing, foreground, followLocked, scrollToActiveIndex })
   useEffect(() => {
-    latestFollow.current = { activeIndex, active, playing, scrollToActiveIndex }
-  }, [activeIndex, active, playing, scrollToActiveIndex])
+    latestFollow.current = { activeIndex, active, playing, foreground, followLocked, scrollToActiveIndex }
+  }, [activeIndex, active, playing, foreground, followLocked, scrollToActiveIndex])
 
   const startIdleResumeTimer = useCallback(() => {
     clearIdleResumeTimer()
-    if (!playing) return
+    if (!playing || !active || !foreground || followLocked) return
     idleResumeTimer.current = setTimeout(() => {
       idleResumeTimer.current = null
       const latest = latestFollow.current
-      if (!latest.active || !latest.playing || isInteractingRef.current || isPressingRowRef.current || isReadingSheetRef.current) return
+      if (!latest.active || !latest.playing || !latest.foreground || latest.followLocked || isInteractingRef.current || isPressingRowRef.current || isReadingSheetRef.current) return
       userManualOverrideRef.current = false
+      returnVisibilityRef.current = false
+      setShowReturnToCurrent(false)
+      onReadingOverrideChange?.(false)
+      onReadingPositionChange?.(false)
       if (latest.activeIndex >= 0) {
         latest.scrollToActiveIndex(latest.activeIndex, { animated: true, forceCenter: true })
       }
     }, LYRIC_MOTION.readIdleMs)
-  }, [clearIdleResumeTimer, playing])
+  }, [clearIdleResumeTimer, playing, active, foreground, followLocked, onReadingOverrideChange, onReadingPositionChange])
 
-  const prevPlayingRef = useRef(playing)
-  // 恢复播放时：若之前有过手动滑动，立即平滑跳转到当前时间戳对应的歌词行
+  const beginTouch = useCallback(() => {
+    if (touchHeldRef.current) return
+    touchHeldRef.current = true
+    isInteractingRef.current = true
+    onInteractionStart?.()
+    clearIdleResumeTimer()
+  }, [clearIdleResumeTimer, onInteractionStart])
+  const endTouch = useCallback(() => {
+    if (!touchHeldRef.current) return
+    touchHeldRef.current = false
+    isInteractingRef.current = momentumActiveRef.current
+    onInteractionEnd?.()
+    if (!momentumActiveRef.current && userManualOverrideRef.current) startIdleResumeTimer()
+  }, [onInteractionEnd, startIdleResumeTimer])
+
   useEffect(() => {
-    const justResumed = playing && !prevPlayingRef.current
-    prevPlayingRef.current = playing
-
-    if (justResumed) {
-      userManualOverrideRef.current = false
-      clearIdleResumeTimer()
-      if (activeIndex >= 0 && viewportHeight > 0) {
-        scrollToActiveIndex(activeIndex, { animated: true, forceCenter: true })
-      }
-    } else if (!playing) {
-      // 从播放切换到暂停时，若之前有挂起的闲置定时器，立即清除，保持暂停停留位置
-      clearIdleResumeTimer()
+    if (foreground) return
+    endTouch()
+    clearIdleResumeTimer()
+    if (momentumActiveRef.current) {
+      momentumActiveRef.current = false
+      isInteractingRef.current = false
+      onInteractionEnd?.()
     }
-  }, [playing, activeIndex, viewportHeight, clearIdleResumeTimer, scrollToActiveIndex])
+  }, [foreground, endTouch, clearIdleResumeTimer, onInteractionEnd])
+
+  useEffect(() => {
+    clearIdleResumeTimer()
+    if (userManualOverrideRef.current) startIdleResumeTimer()
+  }, [active, playing, foreground, followLocked, startIdleResumeTimer, clearIdleResumeTimer])
 
   // 当用户切入歌词页（active: false -> true）时，立即无动画直达当前播放行
   useEffect(() => {
     const justActivated = active && !prevActiveRef.current
     prevActiveRef.current = active
 
-    if (justActivated) {
-      userManualOverrideRef.current = false
+    if (justActivated && !userManualOverrideRef.current) {
+      returnVisibilityRef.current = false
+      setShowReturnToCurrent(false)
+      onReadingOverrideChange?.(false)
+      onReadingPositionChange?.(false)
       skipFollowAfterActivationRef.current = true
       if (activeIndex >= 0 && viewportHeight > 0) {
         scrollToActiveIndex(activeIndex, { animated: false, forceCenter: true })
       }
     }
-  }, [active, activeIndex, viewportHeight, scrollToActiveIndex])
+  }, [active, activeIndex, viewportHeight, scrollToActiveIndex, onReadingOverrideChange, onReadingPositionChange])
 
   // 高亮行自然推进或首帧就绪时的滚动判定
   useEffect(() => {
@@ -340,11 +431,16 @@ export function LyricView({
       clearIdleResumeTimer()
       isInteractingRef.current = false
       isPressingRowRef.current = false
+      if (cancelRowTapRef.current) { cancelRowTapRef.current = false; return }
       userManualOverrideRef.current = false
+      returnVisibilityRef.current = false
+      setShowReturnToCurrent(false)
+      onReadingOverrideChange?.(false)
+      onReadingPositionChange?.(false)
       onSeek(Math.max(0, (lineAtMs - offsetMs) / 1000))
       scrollToActiveIndex(index, { animated: true, forceCenter: true })
     },
-    [offsetMs, onSeek, clearIdleResumeTimer, scrollToActiveIndex],
+    [offsetMs, onSeek, clearIdleResumeTimer, scrollToActiveIndex, onReadingOverrideChange, onReadingPositionChange],
   )
 
   const handleRowLongPress = useCallback((index: number) => {
@@ -352,21 +448,26 @@ export function LyricView({
     isPressingRowRef.current = false
     setPressingRowIndex(null)
     isReadingSheetRef.current = true
+    onShareOpenChange?.(true)
     setSheetOpenFor(index)
-  }, [clearIdleResumeTimer])
+  }, [clearIdleResumeTimer, onShareOpenChange])
 
   const closeLyricsSheet = useCallback(() => {
     isReadingSheetRef.current = false
+    onShareOpenChange?.(false)
     userManualOverrideRef.current = true
+    onReadingOverrideChange?.(true)
     setSheetOpenFor(null)
     // 关闭阅读面板后也保留一段阅读时间，不立刻把背后的歌词拉走。
     startIdleResumeTimer()
-  }, [startIdleResumeTimer])
+  }, [startIdleResumeTimer, onShareOpenChange, onReadingOverrideChange])
 
   const handleRowLayout = useCallback(
-    (index: number, y: number) => {
+    (index: number, y: number, height: number) => {
       offsets.current[index] = y
-      trackOffsetsCache.set(trackId, offsets.current)
+      trackOffsetsCache.set(layoutCacheKey, offsets.current)
+      rowHeights.current[index] = height
+      trackRowHeightsCache.set(layoutCacheKey, rowHeights.current)
 
       // 如果当前正在播放的行初次完成排版，且视口高度已就绪，立即无动画直达定位
       const latest = latestFollow.current
@@ -375,11 +476,13 @@ export function LyricView({
         latest.scrollToActiveIndex(index, { animated: false, forceCenter: true })
       }
     },
-    [trackId, viewportHeight],
+    [layoutCacheKey, viewportHeight],
   )
 
   const handleRowPressIn = useCallback((index: number) => {
     isPressingRowRef.current = true
+    cancelRowTapRef.current = momentumActiveRef.current
+    rowTouchUntilRef.current = Date.now() + 500
     clearIdleResumeTimer()
     setPressingRowIndex(index)
   }, [clearIdleResumeTimer])
@@ -389,9 +492,33 @@ export function LyricView({
     if (!isInteractingRef.current && !isReadingSheetRef.current) startIdleResumeTimer()
   }, [startIdleResumeTimer])
 
+  const updateReturnVisibility = useCallback((show: boolean) => {
+    if (returnVisibilityRef.current === show) return
+    returnVisibilityRef.current = show
+    setShowReturnToCurrent(show)
+    onReadingPositionChange?.(show)
+  }, [onReadingPositionChange])
+  const checkReadingPosition = useCallback((y: number) => {
+    if (!immersive || !userManualOverrideRef.current || !synced || activeIndex < 0) return
+    const lineY = offsets.current[activeIndex]
+    const lineBottom = lineY === undefined ? undefined : lineY + (rowHeights.current[activeIndex] ?? 1)
+    const opacity = maskOpacity?.value ?? 0
+    const topInset = maskTopFloor + opacity * (maskTopInset - maskTopFloor)
+    const bottomInset = maskBottomFloor + opacity * (maskBottomInset - maskBottomFloor)
+    const offscreen = lineY !== undefined && lineBottom !== undefined && (lineBottom < y + topInset || lineY > y + viewportHeight - bottomInset)
+    updateReturnVisibility(offscreen)
+  }, [activeIndex, immersive, synced, updateReturnVisibility, viewportHeight, maskOpacity, maskTopInset, maskTopFloor, maskBottomInset, maskBottomFloor])
+
+  useEffect(() => {
+    if (immersive && userManualOverrideRef.current && synced && activeIndex >= 0) {
+      checkReadingPosition(scrollY.value)
+    }
+  }, [activeIndex, checkReadingPosition, immersive, scrollY, synced])
+
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       scrollY.value = event.contentOffset.y
+      if (immersive) runOnJS(checkReadingPosition)(event.contentOffset.y)
       if (!isDismissing.value) {
         const isTop = event.contentOffset.y <= 2
         if (isTop !== isAtTopRef.value) {
@@ -404,7 +531,7 @@ export function LyricView({
 
       // 仅当手势是在歌词最顶部（已吸顶）发起时，才联动全屏模态框下移
       // 若在歌词下方内容区向下拉，播放器页面不动，专心执行歌词列表内部滚动与到顶回弹
-      if (translateY && !isDismissing.value && dragStartedAtTopRef.value) {
+      if (translateY && !isDismissing.value && dragStartedAtTopRef.value && !dragStartedHidden.value) {
         if (event.contentOffset.y < 0) {
           translateY.value = -event.contentOffset.y
         } else if (translateY.value > 0) {
@@ -416,18 +543,27 @@ export function LyricView({
       isDismissing.value = false
       // 记录手势起点：只有在最顶部（offset <= 1）开始拉动才算全屏下拉退场手势
       dragStartedAtTopRef.value = event.contentOffset.y <= 1
+      dragStartOffset.value = event.contentOffset.y
+      dragStartedHidden.value = !controlsVisible
     },
     onEndDrag: (event) => {
+      const finalOffset = event.contentOffset.y
+      const scrollDisplacement = dragStartOffset.value - finalOffset
+      const downwardVelocity = -(event.velocity?.y ?? 0) * 1000
+      if (immersive && dragStartedHidden.value && isDownwardRevealFling(scrollDisplacement, downwardVelocity)) {
+        if (onFlingReveal) runOnJS(onFlingReveal)()
+        if (translateY && translateY.value > 0) translateY.value = withTiming(0, { duration: 200 })
+        return
+      }
       // 若非顶部发起的手势，绝不触发退场，确保歌词列表自然回弹吸顶
-      if (!translateY || isDismissing.value || !dragStartedAtTopRef.value) {
+      if (!translateY || isDismissing.value || !dragStartedAtTopRef.value || dragStartedHidden.value) {
         return
       }
 
-      const pullDistance = -event.contentOffset.y
+      const pullDistance = Math.max(-finalOffset, scrollDisplacement)
       if (pullDistance > 0) {
         const exitTargetY = (screenHeight || 850) + 100
         // 将 iOS UIScrollView 速度（pt/ms，向下拉为负）转换为 pt/s，完全对齐播放页 PanGesture 的 velocityY
-        const downwardVelocity = -(event.velocity?.y ?? 0) * 1000
         // 动量投射：结合当前位移与松手瞬时速度（与播放页完全一致的 Apple 物理法则）
         const projectedY = pullDistance + downwardVelocity * 0.15
         const dismissThreshold = 130
@@ -473,7 +609,7 @@ export function LyricView({
     // 仅当手势是在歌词最顶部发起全屏下拉退场时，反向补偿歌词行 translateY，
     // 抵消 iOS UIScrollView 原生橡皮筋内部下移，让歌词在模态框内纹丝不动，作为一整块刚体同步下滑；
     // 而若手势是从歌词下方向上滑到顶部（dragStartedAtTopRef 为 false），不进行补偿，保留自然原生的到顶回弹动画。
-    if (dragStartedAtTopRef.value && scrollY.value < 0) {
+    if (dragStartedAtTopRef.value && !dragStartedHidden.value && scrollY.value < 0) {
       return {
         transform: [{ translateY: scrollY.value }],
       }
@@ -483,7 +619,7 @@ export function LyricView({
     }
   })
 
-  if (query.isPending) {
+  if (query.isPending && !sheet) {
     return (
       <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
         <ActivityIndicator color={colors.loadingIndicator} />
@@ -492,9 +628,12 @@ export function LyricView({
   }
 
   if (query.isError && !sheet) {
+    if (query.isFetching) {
+      return <View style={[styles.center, bottomSpace ? { paddingBottom: bottomSpace } : null]}><ActivityIndicator color={colors.loadingIndicator} /></View>
+    }
     return (
       <View style={[{ flex: 1 }, bottomSpace ? { paddingBottom: bottomSpace } : null]}>
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState error={query.error} onRetry={() => { if (!query.isFetching) void query.refetch() }} />
       </View>
     )
   }
@@ -519,9 +658,31 @@ export function LyricView({
   return (
     <View style={styles.wrapper}>
       {!synced ? <Text style={styles.unsyncedHint}>当前歌词不支持逐句同步</Text> : null}
+      {immersive && showReturnToCurrent && synced ? (
+        <Animated.View style={[styles.returnCurrent, returnPositionStyle]} pointerEvents="box-none">
+          <Pressable
+            style={({ pressed }) => [styles.returnCurrentPressable, pressed && styles.returnCurrentPressed]}
+            onPress={() => {
+              clearIdleResumeTimer()
+              returnVisibilityRef.current = false
+              userManualOverrideRef.current = false
+              setShowReturnToCurrent(false)
+              onReadingOverrideChange?.(false)
+              onReadingPositionChange?.(false)
+              if (activeIndex >= 0) scrollToActiveIndex(activeIndex, { animated: true, forceCenter: true })
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="回到当前句"
+          >
+            <View style={styles.returnCurrentVisual} pointerEvents="none">
+              <Text style={styles.returnCurrentText}>回到当前句</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+      ) : null}
       <MaskedView
         style={styles.maskContainer}
-        maskElement={
+        maskElement={stageMask ? <LyricStageMask {...stageMask} /> : (
           <LinearGradient
             colors={[
               'rgba(0,0,0,0)',
@@ -533,12 +694,12 @@ export function LyricView({
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
-        }
+        )}
       >
         <Animated.ScrollView
           ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={[styles.content, bottomSpace ? { paddingBottom: bottomSpace + 24 } : null]}
+          contentContainerStyle={[styles.content, (bottomSpace || stageMask) ? { paddingBottom: immersive ? Math.max((bottomSpace ?? 0) + (stageMask?.bottomInset ?? 24) + 24, viewportHeight * 0.6) : (bottomSpace ?? 0) + 24 } : null]}
           contentOffset={initialContentOffset}
           showsVerticalScrollIndicator={false}
           bounces={true}
@@ -546,15 +707,33 @@ export function LyricView({
           onLayout={(event) => {
             const h = event.nativeEvent.layout.height
             if (h > 0) {
-              lastKnownViewportHeight = h
               setViewportHeight(h)
             }
           }}
           scrollEventThrottle={16}
+          onTouchStart={(event) => {
+            beginTouch()
+            blankTouch.current = momentumActiveRef.current ? null : {
+              x: event.nativeEvent.pageX, y: event.nativeEvent.pageY, at: Date.now(),
+            }
+          }}
+          onTouchEnd={(event) => {
+            endTouch()
+            const start = blankTouch.current
+            blankTouch.current = null
+            if (!immersive || !start || Date.now() < rowTouchUntilRef.current || isInteractingRef.current || isReadingSheetRef.current) return
+            const dx = event.nativeEvent.pageX - start.x
+            const dy = event.nativeEvent.pageY - start.y
+            if (Date.now() - start.at <= 240 && Math.hypot(dx, dy) < 8) onBlankTap?.()
+          }}
           onScroll={scrollHandler}
-          onScrollBeginDrag={() => {
+          onTouchCancel={() => { endTouch(); blankTouch.current = null }}
+          onScrollBeginDrag={(event) => {
             isInteractingRef.current = true
             userManualOverrideRef.current = true
+            returnVisibilityRef.current = false
+            setShowReturnToCurrent(false)
+            onReadingOverrideChange?.(true)
             isPressingRowRef.current = false
             setPressingRowIndex(null)
             clearIdleResumeTimer()
@@ -562,21 +741,29 @@ export function LyricView({
           }}
           onScrollEndDrag={() => {
             // 边缘快速松手可能没有惯性回调；先结束拖拽，若产生惯性则由 onMomentumScrollBegin 重新锁定。
-            isInteractingRef.current = false
+            isInteractingRef.current = touchHeldRef.current || momentumActiveRef.current
             startIdleResumeTimer()
           }}
           onMomentumScrollBegin={() => {
+            // Programmatic lyric following must never restart the controls idle timer.
+            if (immersive && !userManualOverrideRef.current) return
+            if (momentumActiveRef.current) return
+            momentumActiveRef.current = true
             isInteractingRef.current = true
+            onInteractionStart?.()
             clearIdleResumeTimer()
           }}
           onMomentumScrollEnd={() => {
-            isInteractingRef.current = false
+            if (!momentumActiveRef.current) return
+            momentumActiveRef.current = false
+            isInteractingRef.current = touchHeldRef.current
+            onInteractionEnd?.()
             if (playing) {
               startIdleResumeTimer()
             }
           }}
         >
-          <Animated.View style={[styles.contentWrapper, contentAnimatedStyle]}>
+          <Animated.View style={[styles.contentWrapper, stageMask && { paddingTop: stageMask.topInset }, contentAnimatedStyle]}>
             {lines.map((line, index) => (
               <LyricRow
                 key={`${trackId}-${line.atMs}-${index}`}
@@ -632,7 +819,7 @@ interface LyricRowProps {
   onLongPress: (index: number) => void
   onPressIn: (index: number) => void
   onPressOut: (index: number) => void
-  onLayout: (index: number, y: number) => void
+  onLayout: (index: number, y: number, height: number) => void
 }
 
 /**
@@ -683,8 +870,8 @@ const LyricRow = memo(function LyricRow({
   const reduceMotion = useReducedMotion()
   // 仅当前行与相邻过渡行使用逐字节点，避免整首长歌词创建数千个动画订阅。
   // 自然换行时上一行保留文本树，随焦点渐隐；远离当前行后恢复普通文本。
-  const metadata = line.atMs < 0
-  const seekable = synced && !metadata
+  const untimedMetadata = line.atMs < 0
+  const seekable = synced && !untimedMetadata
   const karaoke = seekable && renderKaraoke
   const chars = useMemo(() => karaoke ? Array.from(line.text ?? '') : [], [karaoke, line.text])
 
@@ -703,7 +890,7 @@ const LyricRow = memo(function LyricRow({
       : withTiming(litProgress, { duration: LYRIC_MOTION.wordMs, easing: Easing.linear })
   }, [litProgress, lit, reduceMotion, viewActive])
 
-  const focused = !metadata && synced && active
+  const focused = !untimedMetadata && synced && active
   const activeAnim = useSharedValue(focused ? 1 : 0)
 
   useEffect(() => {
@@ -717,8 +904,8 @@ const LyricRow = memo(function LyricRow({
     const scale = reduceMotion ? 1 : interpolate(activeAnim.value, [0, 1], [LYRIC_MOTION.restingScale, 1.0])
     const opacity = interpolate(activeAnim.value, [0, 1], [0.38, 1.0])
     return {
-      opacity: metadata ? 0.65 : selected ? 1.0 : !synced ? 0.68 : opacity,
-      transform: [{ scale: metadata || !synced ? 1 : scale }],
+      opacity: selected ? 1.0 : !synced ? 0.68 : opacity,
+      transform: [{ scale: !synced ? 1 : scale }],
     }
   })
 
@@ -745,7 +932,7 @@ const LyricRow = memo(function LyricRow({
       onPressOut={() => onPressOut(index)}
       onLongPress={handleLongPress}
       delayLongPress={LONG_PRESS_MS}
-      onLayout={(event) => onLayout(index, event.nativeEvent.layout.y)}
+      onLayout={(event) => onLayout(index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}
       accessibilityRole={seekable ? 'button' : 'text'}
       accessibilityActions={[{ name: 'showLyrics', label: '选择分享歌词' }]}
       onAccessibilityAction={({ nativeEvent }) => {
@@ -754,7 +941,6 @@ const LyricRow = memo(function LyricRow({
       accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${seekable ? '，点按从这句开始播放，长按选择分享歌词' : '，长按选择分享歌词'}`}
       style={[
         styles.rowContainer,
-        metadata && styles.metadataRow,
         selected && styles.rowSelected,
       ]}
     >
@@ -763,7 +949,6 @@ const LyricRow = memo(function LyricRow({
           <Text
             style={[
               styles.line,
-              metadata && styles.metadataLine,
               active && !karaoke && styles.lineActive,
               karaoke && styles.lineKaraoke,
               selected && styles.lineSelected,
@@ -918,6 +1103,11 @@ function LyricsSheetModal({ title, artist, lines, initialIndex, onClose }: {
 const useStyles = createThemedStyles((colors) => ({
   sheetFeedback: { ...typography.footnote, color: colors.textSecondary, textAlign: 'center', paddingBottom: spacing.md },
   wrapper: { flex: 1 },
+  returnCurrent: { position: 'absolute', alignSelf: 'center', top: spacing.md, zIndex: 5, minHeight: 44, justifyContent: 'center' },
+  returnCurrentPressable: { minHeight: 44, justifyContent: 'center' },
+  returnCurrentPressed: { opacity: 0.8 },
+  returnCurrentVisual: { minHeight: 32, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.bgDropdown, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.hairlineBorder },
+  returnCurrentText: { ...typography.footnote, color: colors.textSecondary },
   unsyncedHint: { ...typography.footnote, color: colors.textSecondary, paddingVertical: spacing.xs },
   maskContainer: { flex: 1 },
   scroll: { flex: 1 },
@@ -940,14 +1130,11 @@ const useStyles = createThemedStyles((colors) => ({
     width: '100%',
     alignSelf: 'stretch',
     borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
     paddingVertical: 10,
     backgroundColor: 'transparent',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  metadataRow: { paddingVertical: spacing.xs },
-  metadataLine: { ...typography.callout, color: colors.textPrimary },
   rowSelected: {
     backgroundColor: colors.bgListItem,
     borderRadius: radius.lg,

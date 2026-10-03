@@ -17,7 +17,7 @@ import type {
   MusicLibrary,
   BackgroundTask,
 } from '@qj/core-domain'
-import { LYRIC_TIER_RANK, lyricTier, extractLyricMetadata } from '@qj/core-domain'
+import { LYRIC_TIER_RANK, lyricTier, parseLyricMetadata } from '@qj/core-domain'
 import type { FnAlbum, FnArtist, FnAudioSpec, FnGenre, FnLyricEntry, FnPlaylist, FnSharedLibrary, FnTask, FnTrack, FnUser } from './schemas'
 
 /** null -> undefined，领域模型里统一只用 undefined 表示缺失 */
@@ -178,9 +178,11 @@ export function parseLyrics(raw: string, source?: string): LyricSheet {
   for (const rawLine of raw.split(/\r?\n/)) {
     const line = rawLine.trim()
     if (!line) continue
-    const metadata = extractLyricMetadata(line)
+    const metadata = parseLyricMetadata(line)
     if (metadata) {
-      lines.push({ atMs: metaIndex++, text: metadata })
+      const atMs = metadata.atMs ?? metaIndex++
+      lines.push({ atMs, text: metadata.text })
+      if (metadata.atMs !== undefined) synced = true
       continue
     }
     if (line.startsWith('{')) continue
@@ -245,8 +247,8 @@ export function mapLyricSheet(entries: FnLyricEntry[], preferredGuid?: string | 
   const candidates = usable.map((entry) => {
     const source = entry.source === null || entry.source === undefined ? undefined : String(entry.source)
     const sheet = parseLyrics(entry.content!, source)
-    // 服务端的 isLRC 覆盖解析结果（服务端把纯文本标成 LRC 时以它为准）
-    const synced = entry.isLRC ?? sheet.synced
+    // Parsed timestamps are authoritative even if the server's isLRC flag is false.
+    const synced = sheet.synced || entry.isLRC === true
     return { entry, sheet, synced, tier: lyricTier({ lines: sheet.lines, synced }) }
   }).filter((candidate) => candidate.sheet.lines.some((line) => line.atMs >= 0))
   if (candidates.length === 0) return null

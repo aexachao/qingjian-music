@@ -7,10 +7,17 @@ import UIKit
 /// 没有公开 API 能用代码直接打开，所以这里包一层原生视图给 RN 用。
 /// AVRoutePickerView 仍然铺满并负责点击，图标层只是不可交互的 SF Symbol 覆盖层。
 @MainActor
-final class AirplayRouteButtonView: ExpoView {
+final class AirplayRouteButtonView: ExpoView, AVRoutePickerViewDelegate {
+  private struct RouteDescription {
+    let name: String
+    let external: Bool
+    let symbolName: String
+  }
+
   private let picker = AVRoutePickerView()
   private let routeIconView = UIImageView()
   let onRouteChange = EventDispatcher()
+  let onPickerVisibilityChange = EventDispatcher()
 
   private var routeObserver: NSObjectProtocol?
   private var iconTintColor: UIColor = .label
@@ -20,6 +27,7 @@ final class AirplayRouteButtonView: ExpoView {
     super.init(appContext: appContext)
 
     picker.prioritizesVideoDevices = false
+    picker.delegate = self
     picker.tintColor = .clear
     picker.activeTintColor = .clear
     picker.accessibilityLabel = "音频输出"
@@ -64,6 +72,14 @@ final class AirplayRouteButtonView: ExpoView {
     reportCurrentRoute()
   }
 
+  func routePickerViewWillBeginPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+    onPickerVisibilityChange(["visible": true])
+  }
+
+  func routePickerViewDidEndPresentingRoutes(_ routePickerView: AVRoutePickerView) {
+    onPickerVisibilityChange(["visible": false])
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     picker.frame = bounds
@@ -90,7 +106,7 @@ final class AirplayRouteButtonView: ExpoView {
     lastEmittedRoute = (name: route.name, external: route.external)
     onRouteChange([
       "name": route.name,
-      "external": route.external,
+      "external": route.external
     ])
   }
 
@@ -105,7 +121,7 @@ final class AirplayRouteButtonView: ExpoView {
     routeIconView.tintColor = iconTintColor
   }
 
-  private func currentRoute() -> (name: String, external: Bool, symbolName: String) {
+  private func currentRoute() -> RouteDescription {
     let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
     let names = outputs
       .map(\.portName)
@@ -125,7 +141,7 @@ final class AirplayRouteButtonView: ExpoView {
       }
     }
 
-    return (
+    return RouteDescription(
       name: names.joined(separator: ", "),
       external: !externalOutputs.isEmpty,
       symbolName: symbolName(for: externalOutputs)
@@ -198,7 +214,7 @@ public class AirplayButtonModule: Module {
     Name("AirplayButton")
 
     View(AirplayRouteButtonView.self) {
-      Events("onRouteChange")
+      Events("onRouteChange", "onPickerVisibilityChange")
       OnViewDidUpdateProps { (view: AirplayRouteButtonView) in
         view.didApplyProps()
       }

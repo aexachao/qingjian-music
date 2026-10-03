@@ -1,6 +1,6 @@
 import type { LyricSheet } from '@qj/core-domain'
-import { lyricTier, parseLrc, parseYrc } from '@qj/core-domain'
-import { fetchBoundedText } from '@/lib/bounded-fetch'
+import { lyricTier, MusicError, parseLrc, parseYrc, toMusicError } from '@qj/core-domain'
+import { BoundedFetchError, fetchBoundedText } from '@/lib/bounded-fetch'
 import { getLyricsSource, normalizeBaseUrl, type ResolvedSource } from '@/lib/external-source'
 
 /**
@@ -21,8 +21,22 @@ const TIMEOUT_MS = 8000
 const JSON_MAX_BYTES = 1024 * 1024
 const LRC_MAX_BYTES = 512 * 1024
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+function mapFetchError(error: unknown): Error {
+  if (!(error instanceof BoundedFetchError)) {
+    const mapped = toMusicError(error, '外部歌词源请求失败')
+    if (mapped.code === 'network' && /timed out|timeout/i.test(mapped.message)) {
+      return new MusicError({ code: 'timeout', message: '外部歌词源请求超时', cause: error })
+    }
+    return mapped
+  }
+  if (error.status === 401) return new MusicError({ code: 'unauthorized', message: '外部歌词源认证失败', status: 401, cause: error })
+  if (error.status === 403) return new MusicError({ code: 'forbidden', message: '外部歌词源拒绝访问', status: 403, cause: error })
+  if (error.status === 404) return new MusicError({ code: 'notFound', message: '未找到歌词', status: 404, cause: error })
+  if (error.status === 408) return new MusicError({ code: 'timeout', message: '外部歌词源请求超时', status: 408, cause: error })
+  if (error.status === 429 || (error.status !== undefined && error.status >= 500)) {
+    return new MusicError({ code: 'server', message: '外部歌词源暂时不可用', status: error.status, cause: error })
+  }
+  return new MusicError({ code: 'protocol', message: error.message, status: error.status, cause: error })
 }
 
 async function getJson(url: string, token: string | undefined, signal?: AbortSignal): Promise<unknown | null> {
@@ -35,8 +49,10 @@ async function getJson(url: string, token: string | undefined, signal?: AbortSig
     })
     return JSON.parse(text) as unknown
   } catch (error) {
-    if (signal?.aborted || isAbortError(error)) throw error
-    return null
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
+    if (error instanceof BoundedFetchError && error.status === 404) return null
+    if (error instanceof SyntaxError) throw new MusicError({ code: 'protocol', message: '外部歌词源返回了无效数据', cause: error })
+    throw mapFetchError(error)
   }
 }
 
@@ -49,8 +65,9 @@ async function getText(url: string, token: string | undefined, signal?: AbortSig
       headers: token ? { Authorization: token } : undefined,
     })
   } catch (error) {
-    if (signal?.aborted || isAbortError(error)) throw error
-    return null
+    if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
+    if (error instanceof BoundedFetchError && error.status === 404) return null
+    throw mapFetchError(error)
   }
 }
 
@@ -92,7 +109,14 @@ async function fetchNetease(
   const lrc = lyric.lrc?.lyric ?? ''
 
   const wordLines = yrc ? parseYrc(yrc) : []
-  if (wordLines.some((line) => line.atMs >= 0)) {
+  // A timed JSON credit is a display row, not a YRC lyric. Require a real
+  // word-timing record in the source before it can suppress the LRC fallback.
+  const hasTimedYrcLyric = yrc.split(/\r?\n/).some((rawLine) => {
+    const line = rawLine.trim()
+    return /^\[\d+,\d+\]/.test(line)
+      && /\(\d+,\d+,\d+\)([^()\r\n]*\S[^()\r\n]*)/.test(line)
+  })
+  if (hasTimedYrcLyric && wordLines.some((line) => line.atMs >= 0)) {
     return {
       synced: true,
       lines: wordLines,
@@ -158,13 +182,8 @@ export async function fetchExternalLyricSheet(
   const base = normalizeBaseUrl(config.baseUrl)
   if (config.type === 'none' || !base) return null
   const token = config.token?.trim() || undefined
-  try {
-    if (config.type === 'netease') return await fetchNetease(base, token, meta, signal)
-    if (config.type === 'lrcapi') return await fetchLrcApi(base, token, meta, signal)
-  } catch (error) {
-    if (signal?.aborted || isAbortError(error)) throw error
-    return null
-  }
+  if (config.type === 'netease') return fetchNetease(base, token, meta, signal)
+  if (config.type === 'lrcapi') return fetchLrcApi(base, token, meta, signal)
   return null
 }
 

@@ -30,6 +30,8 @@ interface ProgressBarProps {
   onSeek: (seconds: number) => void
   /** 位于开始时间与结束时间正中间的音源规格信息（如：原文件 · FLAC · 716 kbps） */
   centerLabel?: string
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
 }
 
 function formatTime(seconds: number): string {
@@ -42,7 +44,7 @@ function formatTime(seconds: number): string {
  * 自绘进度条：拖动时用手势值，松手才 seek，避免与播放回调打架。
  * 按住时整条轨道放大、已播部分从半透明白变纯白，松手还原。
  */
-export function ProgressBar({ position, duration, onSeek, centerLabel }: ProgressBarProps) {
+export function ProgressBar({ position, duration, onSeek, centerLabel, onInteractionStart, onInteractionEnd }: ProgressBarProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const width = useSharedValue(0)
@@ -74,6 +76,7 @@ export function ProgressBar({ position, duration, onSeek, centerLabel }: Progres
     .failOffsetY([-14, 14])
     .hitSlop({ top: 16, bottom: 16 }) // 扩大手势感应区，保持视觉紧凑的同时满足 HIG 标准
     .onBegin(() => {
+      if (onInteractionStart) runOnJS(onInteractionStart)()
       runOnJS(Haptics.selectionAsync)()
       pressed.value = withSpring(1, SPRING_CONFIG)
       dragRatio.value = ratio
@@ -90,6 +93,7 @@ export function ProgressBar({ position, duration, onSeek, centerLabel }: Progres
       runOnJS(commitSeek)(value)
     })
     .onFinalize(() => {
+      if (onInteractionEnd) runOnJS(onInteractionEnd)()
       pressed.value = withTiming(0, { duration: 250 })
     })
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const scenario = vi.hoisted(() => ({
   sheet: { synced: true, lines: [] as { atMs: number; text: string; words?: { atMs: number; text: string }[] }[] },
+  queryOverride: {} as Record<string, unknown>, refetch: vi.fn(),
   copy: vi.fn(), share: vi.fn(), offsetMs: 0, reduceMotion: false, scrollTo: vi.fn(), themeReads: vi.fn(), timing: vi.fn(),
 }))
 vi.mock('react-native', () => ({
@@ -30,7 +31,7 @@ vi.mock('expo-clipboard', () => ({ setStringAsync: scenario.copy }))
 vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(), impactAsync: vi.fn(), ImpactFeedbackStyle: {} }))
 vi.mock('../../src/components/list-states', () => ({ ErrorState: 'ErrorState' }))
 vi.mock('../../src/components/icon', () => ({ Icon: 'Icon', IconButton: 'IconButton', iconSize: {} }))
-vi.mock('../../src/lib/lyric-offset', () => ({ useLyricSheet: () => ({ data: scenario.sheet }) }))
+vi.mock('../../src/lib/lyric-offset', () => ({ useLyricSheet: () => ({ data: scenario.sheet, refetch: scenario.refetch, ...scenario.queryOverride }) }))
 vi.mock('../../src/player/store', () => ({ usePlayerStore: () => scenario.offsetMs }))
 vi.mock('../../src/theme/theme-provider', () => ({
   useThemeColors: () => { scenario.themeReads(); return { textPrimary: 'white', textSecondary: 'gray', textTertiary: 'gray' } },
@@ -39,7 +40,7 @@ vi.mock('../../src/theme/theme-provider', () => ({
     return () => styles
   },
 }))
-import { LyricView } from '../../src/components/lyric-view'
+import { LyricView, isDownwardRevealFling } from '../../src/components/lyric-view'
 
 // Real React renders/effects/memo. Native drawing is stubbed: this does NOT measure FPS or inertia.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -61,18 +62,22 @@ async function mount() {
   })
   await act(async () => { scroll().props.onLayout({ nativeEvent: { layout: { height: 500 } } }) })
   await act(async () => {
-    rows().forEach((row, index) => row.props.onLayout({ nativeEvent: { layout: { y: index * 100 } } }))
+    rows().forEach((row, index) => row.props.onLayout?.({ nativeEvent: { layout: { y: index * 100, height: 70 } } }))
   })
   scenario.scrollTo.mockClear()
   scenario.themeReads.mockClear()
 }
 async function dragAndRelease(y = 0) {
+  await act(async () => { scroll().props.onTouchStart({ nativeEvent: { pageX: 40, pageY: 200 } }) })
   await act(async () => { scroll().props.onScrollBeginDrag() })
   await act(async () => { scroll().props.onScrollEndDrag(event(y)) })
+  await act(async () => { scroll().props.onTouchEnd({ nativeEvent: { pageX: 40, pageY: 260 } }) })
 }
 beforeEach(() => {
   vi.useFakeTimers()
   scenario.sheet = { synced: true, lines: Array.from({ length: 12 }, (_, i) => ({ atMs: i * 1000, text: `Line ${i}` })) }
+  scenario.queryOverride = {}
+  scenario.refetch.mockReset().mockResolvedValue(undefined)
   scenario.copy.mockReset().mockResolvedValue(undefined)
   scenario.share.mockReset().mockResolvedValue({ action: 'dismissedAction' })
   scenario.offsetMs = 0
@@ -85,6 +90,59 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 describe('lyric follow interaction', () => {
+  it('offers retry for failed lyrics, shows loading during retry, then reports recovered content', async () => {
+    const ready = vi.fn()
+    const failed = vi.fn()
+    props = { ...props, onLyricsReadyChange: ready, onLyricsErrorChange: failed }
+    scenario.queryOverride = { data: null, isError: true, isFetching: false, error: new Error('Network interrupted') }
+    await act(async () => { renderer = create(<LyricView key={props.trackId} {...props} />) })
+    expect(ready).toHaveBeenLastCalledWith(false)
+    expect(failed).toHaveBeenLastCalledWith(true)
+    const errorState = renderer.root.findByType('ErrorState' as never)
+    await act(async () => { errorState.props.onRetry() })
+    expect(scenario.refetch).toHaveBeenCalledOnce()
+    scenario.queryOverride = { ...scenario.queryOverride, isFetching: true }
+    await update({})
+    expect(renderer.root.findAllByType('ErrorState' as never)).toHaveLength(0)
+    expect(renderer.root.findAllByType('ActivityIndicator' as never)).toHaveLength(1)
+    scenario.queryOverride = {}
+    await update({})
+    expect(ready).toHaveBeenLastCalledWith(true)
+    expect(failed).toHaveBeenLastCalledWith(false)
+    expect(scroll()).toBeTruthy()
+  })
+
+  it('retains usable lyrics when a background refresh fails', async () => {
+    const failed = vi.fn()
+    props = { ...props, onLyricsErrorChange: failed }
+    scenario.queryOverride = { isError: true, error: new Error('Refresh failed') }
+    await mount()
+    expect(renderer.root.findAllByType('ErrorState' as never)).toHaveLength(0)
+    expect(rows().length).toBeGreaterThan(0)
+    expect(failed).toHaveBeenLastCalledWith(false)
+  })
+
+  it('classifies only a downward fling that clears both release thresholds', () => {
+    expect(isDownwardRevealFling(24, 650)).toBe(true)
+    expect(isDownwardRevealFling(23, 900)).toBe(false)
+    expect(isDownwardRevealFling(80, 649)).toBe(false)
+    expect(isDownwardRevealFling(80, -900)).toBe(false)
+  })
+
+  it('reveals controls on a qualifying hidden-start fling and consumes the gesture before dismissal', async () => {
+    const translation = { value: 0, get: vi.fn(() => 0), set: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), modify: vi.fn() }
+    const dismiss = vi.fn()
+    const reveal = vi.fn()
+    props = { ...props, translateY: translation, onDismiss: dismiss, immersive: true, controlsVisible: false, onFlingReveal: reveal }
+    await mount()
+    const handler = scroll().props.onScroll
+    handler.onBeginDrag({ contentOffset: { y: 0 } })
+    handler.onScroll({ contentOffset: { y: -40 } })
+    handler.onEndDrag({ contentOffset: { y: -40 }, velocity: { y: -0.7 } })
+    expect(reveal).toHaveBeenCalledOnce()
+    expect(dismiss).not.toHaveBeenCalled()
+    expect(translation.value).toBe(0)
+  })
   it('only dismisses when a pull starts at the top, never when browsing reaches the top', async () => {
     const translation = { value: 0, get: vi.fn(() => 0), set: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), modify: vi.fn() }
     const dismiss = vi.fn()
@@ -108,12 +166,82 @@ describe('lyric follow interaction', () => {
     expect(dismiss).toHaveBeenCalledOnce()
   })
 
+  it('does not reveal or move the sheet for an upward fling or a slow downward pull that started hidden', async () => {
+    const translation = { value: 0, get: vi.fn(() => 0), set: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), modify: vi.fn() }
+    const reveal = vi.fn()
+    const dismiss = vi.fn()
+    props = { ...props, immersive: true, controlsVisible: false, onFlingReveal: reveal, translateY: translation, onDismiss: dismiss }
+    await mount()
+    const handler = scroll().props.onScroll
+    handler.onBeginDrag({ contentOffset: { y: 0 } })
+    handler.onScroll({ contentOffset: { y: -140 } })
+    expect(translation.value).toBe(0)
+    handler.onEndDrag({ contentOffset: { y: -140 }, velocity: { y: -0.2 } })
+    handler.onBeginDrag({ contentOffset: { y: 140 } })
+    handler.onEndDrag({ contentOffset: { y: 400 }, velocity: { y: 1.2 } })
+    expect(reveal).not.toHaveBeenCalled()
+    expect(dismiss).not.toHaveBeenCalled()
+  })
+
+  it('starts the six-second reading window after inertia ends and follows the latest line', async () => {
+    await mount()
+    await dragAndRelease(400)
+    await act(async () => scroll().props.onMomentumScrollBegin())
+    await update({ positionMs: 6000 })
+    await act(async () => { vi.advanceTimersByTime(10000) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => scroll().props.onMomentumScrollEnd())
+    await act(async () => { vi.advanceTimersByTime(5999) })
+    await update({ positionMs: 8000 })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+  })
+
+  it('holds reading position under a blank-area touch and restarts the full window when cancelled', async () => {
+    await mount()
+    await dragAndRelease(400)
+    await act(async () => { vi.advanceTimersByTime(5000) })
+    await act(async () => scroll().props.onTouchStart({ nativeEvent: { pageX: 12, pageY: 300 } }))
+    await update({ positionMs: 8000 })
+    await act(async () => { vi.advanceTimersByTime(10000) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => scroll().props.onTouchCancel())
+    await act(async () => { vi.advanceTimersByTime(5999) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+  })
+
+  it.each([{ followLocked: true }, { foreground: false }])('protects manual reading while locked: %j', async (lock) => {
+    await mount()
+    await dragAndRelease(400)
+    await update({ ...lock, positionMs: 8000 })
+    await act(async () => { vi.advanceTimersByTime(10000) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await update({ followLocked: false, foreground: true })
+    await act(async () => { vi.advanceTimersByTime(5999) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+  })
+
+  it('removes the return chip when timed following resumes', async () => {
+    props = { ...props, immersive: true }
+    await mount()
+    await dragAndRelease(800)
+    await act(async () => scroll().props.onScroll.onScroll({ contentOffset: { y: 800 } }))
+    expect(renderer.root.findAllByProps({ accessibilityLabel: '回到当前句' })).toHaveLength(1)
+    await act(async () => { vi.advanceTimersByTime(6000) })
+    expect(renderer.root.findAllByProps({ accessibilityLabel: '回到当前句' })).toHaveLength(0)
+  })
+
   it('recovers after a fast drag at the edge when native momentum never begins', async () => {
     await mount()
     await act(async () => scroll().props.onScrollBeginDrag())
     await act(async () => scroll().props.onScrollEndDrag({ nativeEvent: { contentOffset: { y: 0 }, velocity: { y: 2 } } }))
     await update({ positionMs: 8000 })
-    await act(async () => { vi.advanceTimersByTime(3500) })
+    await act(async () => { vi.advanceTimersByTime(6000) })
     expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
   })
 
@@ -121,10 +249,11 @@ describe('lyric follow interaction', () => {
     await mount()
     await dragAndRelease()
     await update({ positionMs: 9000 })
-    await act(async () => { vi.advanceTimersByTime(3499) })
+    await act(async () => { vi.advanceTimersByTime(5999) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
     expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 710, animated: true })
+    expect(renderer.root.findAllByProps({ accessibilityLabel: '回到当前句' })).toHaveLength(0)
   })
   it('does not scroll under a held lyric or while the full lyric sheet is open', async () => {
     await mount()
@@ -138,9 +267,65 @@ describe('lyric follow interaction', () => {
     await act(async () => renderer.root.findByType('Modal' as never).props.onRequestClose())
     await update({ positionMs: 9000 })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
-    await act(async () => { vi.advanceTimersByTime(3500) })
+    await act(async () => { vi.advanceTimersByTime(6000) })
     expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 710, animated: true })
   })
+  it('keeps a lyric row tap from toggling portrait controls and cancels a tap that began during inertia', async () => {
+    const blankTap = vi.fn()
+    props = { ...props, immersive: true, onBlankTap: blankTap }
+    await mount()
+    const start = { nativeEvent: { pageX: 120, pageY: 200 } }
+    const end = { nativeEvent: { pageX: 120, pageY: 200 } }
+    await act(async () => scroll().props.onTouchStart(start))
+    await act(async () => rows()[1]!.props.onPressIn())
+    await act(async () => rows()[1]!.props.onPressOut())
+    await act(async () => rows()[1]!.props.onPress())
+    await act(async () => scroll().props.onTouchEnd(end))
+    expect(blankTap).not.toHaveBeenCalled()
+    expect(props.onSeek).toHaveBeenCalledOnce()
+
+    props.onSeek = vi.fn()
+    await update({ positionMs: 0 })
+    await dragAndRelease(100)
+    await act(async () => scroll().props.onMomentumScrollBegin())
+    await act(async () => rows()[0]!.props.onPressIn())
+    await act(async () => scroll().props.onMomentumScrollEnd())
+    await act(async () => rows()[0]!.props.onPressOut())
+    await act(async () => rows()[0]!.props.onPress())
+    expect(props.onSeek).not.toHaveBeenCalled()
+    expect(blankTap).not.toHaveBeenCalled()
+  })
+
+  it('does not treat automatic lyric following as a user interaction', async () => {
+    const start = vi.fn()
+    const end = vi.fn()
+    props = { ...props, immersive: true, onInteractionStart: start, onInteractionEnd: end }
+    await mount()
+    await update({ positionMs: 3000 })
+    await act(async () => scroll().props.onMomentumScrollBegin())
+    await act(async () => scroll().props.onMomentumScrollEnd())
+    expect(start).not.toHaveBeenCalled()
+    expect(end).not.toHaveBeenCalled()
+    await dragAndRelease(100)
+    await act(async () => scroll().props.onMomentumScrollBegin())
+    await act(async () => scroll().props.onMomentumScrollEnd())
+    expect(start).toHaveBeenCalledTimes(2)
+    expect(end).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers return to current only after a manual browse moves the active line offscreen', async () => {
+    const showReturn = vi.fn()
+    props = { ...props, immersive: true, onReadingPositionChange: showReturn }
+    await mount()
+    await act(async () => scroll().props.onScrollBeginDrag())
+    const handler = scroll().props.onScroll
+    await act(async () => handler.onScroll({ contentOffset: { y: 800 } }))
+    expect(showReturn).toHaveBeenLastCalledWith(true)
+    expect(renderer.root.findAllByProps({ accessibilityLabel: '回到当前句' })).toHaveLength(1)
+    await update({ positionMs: 9000 })
+    expect(showReturn).toHaveBeenCalledWith(true)
+  })
+
   it('confirms copying only after the clipboard succeeds, and keeps retry available on failure', async () => {
     await mount()
     await act(async () => rows()[0]!.props.onLongPress())
@@ -211,6 +396,20 @@ describe('lyric follow interaction', () => {
     expect(rows()[2]?.props.accessibilityLabel).toContain('正在播放')
     expect(rows()[1]?.props.accessibilityLabel).not.toContain('正在播放')
   })
+  it('treats timestamped information rows as ordinary seekable lyric rows', async () => {
+    scenario.sheet.lines = [
+      { atMs: 0, text: '第一句' },
+      { atMs: 500, text: '演唱：示例' },
+      { atMs: 1000, text: '第二句' },
+    ]
+    await mount()
+    expect(rows()[1]?.props.onPress).toBeTypeOf('function')
+    expect(rows()[1]?.props.accessibilityRole).toBe('button')
+    await update({ positionMs: 500 })
+    expect(rows()[1]?.props.accessibilityLabel).toContain('正在播放')
+    await act(async () => rows()[1]?.props.onPress())
+    expect(props.onSeek).toHaveBeenLastCalledWith(0.5)
+  })
   it('applies the current song offset at the exact line boundary', async () => {
     props.offsetMs = 500
     props.positionMs = 499
@@ -249,16 +448,19 @@ describe('lyric follow interaction', () => {
     await dragAndRelease()
     await update({ positionMs: 3000 })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
-    await act(async () => { vi.advanceTimersByTime(3500) })
+    await act(async () => { vi.advanceTimersByTime(6000) })
     expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 110, animated: true })
   })
-  it('stays at the manual position while paused and follows the latest line on resume', async () => {
+  it('stays at the manual position while paused and gives a full reading interval on resume', async () => {
     await mount()
     await dragAndRelease()
     await update({ playing: false, positionMs: 4000 })
     await act(async () => { vi.advanceTimersByTime(4000) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await update({ playing: true })
+    await act(async () => { vi.advanceTimersByTime(5999) })
+    expect(scenario.scrollTo).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(1) })
     expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 210, animated: true })
   })
   it('does not let the idle timer move a hidden page', async () => {

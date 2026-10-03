@@ -1,5 +1,7 @@
 # TestFlight 0.1.4（63）发布记录
 
+> 时点快照：记录当时的实现与验收情况，当前状态以代码和现状基线为准。
+
 - 应用：轻简音乐，`com.chrisli.music`，App Store Connect ID `6813079351`。
 - Build ID: `4b34a224-7772-4bf5-b0e7-46f09d66d587`（Build 63）
 - 公开测试链接：https://testflight.apple.com/join/tetMDTQY

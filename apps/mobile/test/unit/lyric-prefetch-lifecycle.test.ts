@@ -14,6 +14,7 @@ function subscribe(set: Set<() => void>, fn: () => void) { set.add(fn); return (
 vi.mock('react-native', () => ({ AppState: { get currentState() { return h.app.currentState }, addEventListener: (_type: string, fn: () => void) => ({ remove: subscribe(h.appListeners, fn) }) } }))
 vi.mock('expo-network', () => ({ addNetworkStateListener: (fn: () => void) => ({ remove: subscribe(h.networkListeners, fn) }) }))
 vi.mock('../../src/lib/lyric-prefetch', () => ({ LYRIC_PREFETCH_AHEAD: 10, createLyricPrefetcher: () => ({ update: h.update, dispose: h.dispose }) }))
+vi.mock('@/lib/lyric-loader', () => ({ lyricQueryOptions: (_provider: unknown, serverId: string, trackId: string) => ({ queryKey: ['lyrics', serverId, trackId] }) }))
 vi.mock('../../src/lib/external-source', () => ({ useExternalSourcesStore: { getState: () => h.sources, subscribe: (fn: () => void) => subscribe(h.sourceListeners, fn) } }))
 vi.mock('../../src/lib/playback-network-preferences', () => ({ usePlaybackNetworkPreferences: { subscribe: (fn: () => void) => subscribe(h.policyListeners, fn) } }))
 vi.mock('../../src/player/store', () => ({ usePlayerStore: { getState: () => h.player, subscribe: (fn: () => void) => subscribe(h.queueListeners, fn) } }))
@@ -69,4 +70,98 @@ it('logout disposal unsubscribes and ignores an already queued refresh', async (
   expect(h.dispose).toHaveBeenCalledOnce()
   expect(h.update).not.toHaveBeenCalled()
   for (const set of [h.queueListeners, h.sourceListeners, h.intentListeners, h.policyListeners, h.appListeners, h.networkListeners]) expect(set.size).toBe(0)
+})
+
+it('recovers the observed current lyric once after network eligibility returns while paused', async () => {
+  stop()
+  h.player = {
+    queue: [{ qid: 'current', serverId: 's', trackId: 'current-track', title: 'Song', artistText: 'Artist' }],
+    index: 0,
+    pendingCurrent: undefined,
+  }
+  h.intent.wantsPlay = false
+  const query = { getObserversCount: () => 1, state: { fetchStatus: 'idle', status: 'error', data: undefined } }
+  const client = {
+    getQueryCache: () => ({ find: () => query }),
+    fetchQuery: vi.fn().mockResolvedValue(null),
+  } as unknown as QueryClient
+  stop = startLyricPrefetch({} as MusicProvider, 's', client)
+  await flush()
+  expect(client.fetchQuery).toHaveBeenCalledOnce()
+  expect(h.update).toHaveBeenLastCalledWith(expect.any(Array), false)
+
+  emit(h.networkListeners)
+  await flush()
+  expect(client.fetchQuery).toHaveBeenCalledOnce()
+
+  h.allowed = false
+  emit(h.networkListeners)
+  await flush()
+  h.allowed = true
+  emit(h.networkListeners)
+  await flush()
+  expect(client.fetchQuery).toHaveBeenCalledTimes(2)
+})
+
+it('does not auto-recover an inactive, background, denied, or unobserved lyric query', async () => {
+  stop()
+  h.player = {
+    queue: [{ qid: 'current', serverId: 's', trackId: 'current-track', title: 'Song' }],
+    index: 0,
+    pendingCurrent: undefined,
+  }
+  const query = { getObserversCount: () => 0, state: { fetchStatus: 'idle', status: 'error', data: undefined } }
+  const client = {
+    getQueryCache: () => ({ find: () => query }),
+    fetchQuery: vi.fn().mockResolvedValue(null),
+  } as unknown as QueryClient
+  h.app.currentState = 'background'
+  stop = startLyricPrefetch({} as MusicProvider, 's', client)
+  await flush()
+  h.app.currentState = 'active'; h.allowed = false; emit(h.appListeners); await flush()
+  h.allowed = true; emit(h.networkListeners); await flush()
+  expect(client.fetchQuery).not.toHaveBeenCalled()
+})
+
+it('keeps usable cached lyrics when their background refresh ended in error', async () => {
+  stop()
+  h.player = {
+    queue: [{ qid: 'current', serverId: 's', trackId: 'current-track', title: 'Song' }],
+    index: 0,
+    pendingCurrent: undefined,
+  }
+  const query = {
+    getObserversCount: () => 1,
+    state: { fetchStatus: 'idle', status: 'error', data: { lines: [{ atMs: 0, text: 'saved lyric' }] } },
+  }
+  const client = {
+    getQueryCache: () => ({ find: () => query }),
+    fetchQuery: vi.fn().mockResolvedValue(null),
+  } as unknown as QueryClient
+  stop = startLyricPrefetch({} as MusicProvider, 's', client)
+  await flush()
+  expect(client.fetchQuery).not.toHaveBeenCalled()
+})
+
+it('leaves an in-flight current query alone and recovers the newly selected track', async () => {
+  stop()
+  const item = (trackId: string) => ({ qid: trackId, serverId: 's', trackId, title: trackId })
+  h.player = { queue: [item('old-track')], index: 0, pendingCurrent: undefined }
+  const queries = new Map([
+    ['old-track', { getObserversCount: () => 1, state: { fetchStatus: 'fetching', status: 'pending', data: undefined } }],
+    ['new-track', { getObserversCount: () => 1, state: { fetchStatus: 'idle', status: 'error', data: undefined } }],
+  ])
+  const client = {
+    getQueryCache: () => ({ find: ({ queryKey }: { queryKey: readonly unknown[] }) => queries.get(String(queryKey[2])) }),
+    fetchQuery: vi.fn().mockImplementation(() => new Promise(() => undefined)),
+  } as unknown as QueryClient
+  stop = startLyricPrefetch({} as MusicProvider, 's', client)
+  await flush()
+  expect(client.fetchQuery).not.toHaveBeenCalled()
+
+  h.player = { queue: [item('new-track')], index: 0, pendingCurrent: undefined }
+  emit(h.queueListeners)
+  await flush()
+  expect(client.fetchQuery).toHaveBeenCalledOnce()
+  expect(vi.mocked(client.fetchQuery).mock.calls[0]?.[0]).toMatchObject({ queryKey: ['lyrics', 's', 'new-track'] })
 })

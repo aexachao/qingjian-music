@@ -740,42 +740,66 @@ index afa6b0f335714de0cc8741d5bbdd51b4e04bb3bb..e8cfe0a57ef4098dfbbc22d87e6ab650
              ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
              ?.emit(event, payload)
      }
-diff --git a/ios/RNTrackPlayer/RNTrackPlayerBridge.m b/ios/RNTrackPlayer/RNTrackPlayerBridge.m
-index 7741994191921ed86f7577f7ce589b3939d9dd49..776c09ec0ae450daa4dc9031ccd3ff4baba016d3 100644
---- a/ios/RNTrackPlayer/RNTrackPlayerBridge.m
-+++ b/ios/RNTrackPlayer/RNTrackPlayerBridge.m
-@@ -151,17 +151,4 @@ RCT_EXTERN_METHOD(updateNowPlayingMetadata:(NSDictionary *)metadata
-                   resolver:(RCTPromiseResolveBlock)resolve
-                   rejecter:(RCTPromiseRejectBlock)reject);
- 
--RCT_EXTERN_METHOD(getSleepTimerProgress:(RCTPromiseResolveBlock)resolve
--              rejecter:(RCTPromiseRejectBlock)reject);
--
--RCT_EXTERN_METHOD(setSleepTimer:(double)time
--                  resolver:(RCTPromiseResolveBlock)resolve
--                  rejecter:(RCTPromiseRejectBlock)reject);
--
--RCT_EXTERN_METHOD(sleepWhenActiveTrackReachesEnd:(RCTPromiseResolveBlock)resolve
--                  rejecter:(RCTPromiseRejectBlock)reject);
--
--RCT_EXTERN_METHOD(clearSleepTimer:(RCTPromiseResolveBlock)resolve
--              rejecter:(RCTPromiseRejectBlock)reject);
--
- @end
 diff --git a/ios/RNTrackPlayer/Models/Track.swift b/ios/RNTrackPlayer/Models/Track.swift
-index 0c4cc61..8e1a862 100644
+index 0c4cc610ab18de7d51ae4da5d41f5d223c0ae206..c453d3025d7f37eed14d4a63dd9c773be227275b 100644
 --- a/ios/RNTrackPlayer/Models/Track.swift
 +++ b/ios/RNTrackPlayer/Models/Track.swift
-@@ -12,6 +12,8 @@ import AVFoundation
+@@ -10,9 +10,12 @@ import Foundation
+ import MediaPlayer
+ import AVFoundation
  import SwiftAudioEx
++import SDWebImageWebPCoder
  
  class Track: AudioItem, TimePitching, AssetOptionsProviding {
+-    let url: MediaURL
 +    static var allowsCellularAccess = false
 +
-     let url: MediaURL
++    private(set) var url: MediaURL
  
      @objc var title: String?
-@@ -125,6 +127,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
+     @objc var artist: String?
+@@ -22,7 +25,7 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
+     var genre: String?
+     var duration: Double?
+     var artworkURL: MediaURL?
+-    let headers: [String: Any]?
++    private(set) var headers: [String: Any]?
+     var userAgent: String?
+     let pitchAlgorithm: String?
+     var isLiveStream: Bool?
+@@ -49,6 +52,21 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
+         return originalObject
+     }
+ 
++    // Called only for inactive items on the module's main queue. Preserve all metadata.
++    func promoteLocalSource(urlString: String, contentType: String?) -> Bool {
++        guard let value = URL(string: urlString), value.isFileURL,
++              FileManager.default.fileExists(atPath: value.path),
++              let source = MediaURL(object: urlString) else { return false }
++        url = source
++        headers = nil
++        originalObject["url"] = urlString
++        originalObject.removeValue(forKey: "headers")
++        originalObject.removeValue(forKey: "type")
++        originalObject.removeValue(forKey: "contentType")
++        if let contentType = contentType { originalObject["contentType"] = contentType }
++        return true
++    }
++
+     func updateMetadata(dictionary: [String: Any]) {
+         self.title = (dictionary["title"] as? String) ?? self.title
+         self.artist = (dictionary["artist"] as? String) ?? self.artist
+@@ -88,7 +106,8 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
+     func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
+         if let artworkURL = artworkURL?.value {
+             if(self.artworkURL?.isLocal ?? false){
+-                let image = UIImage.init(contentsOfFile: artworkURL.path);
++                let data = try? Data(contentsOf: artworkURL)
++                let image = data.flatMap { UIImage(data: $0) ?? SDImageWebPCoder.shared.decodedImage(with: $0, options: nil) }
+                 handler(image);
+             } else {
+                 URLSession.shared.dataTask(with: artworkURL, completionHandler: { (data, _, error) in
+@@ -125,6 +144,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
  
      func getAssetOptions() -> [String: Any] {
          var options: [String: Any] = [:]
@@ -786,10 +810,20 @@ index 0c4cc61..8e1a862 100644
              options["AVURLAssetHTTPHeaderFieldsKey"] = headers
          }
 diff --git a/ios/RNTrackPlayer/RNTrackPlayer.swift b/ios/RNTrackPlayer/RNTrackPlayer.swift
-index 3be1342..89470ab 100644
+index 3be13427343cf70212d3fff9bab792b488a75a69..7820711d17a29aef67ac63c3a6ea28a86f105fae 100644
 --- a/ios/RNTrackPlayer/RNTrackPlayer.swift
 +++ b/ios/RNTrackPlayer/RNTrackPlayer.swift
-@@ -322,6 +322,12 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+@@ -54,6 +54,9 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+         return true;
+     }
+ 
++    // Serialize JS queue mutations with native auto-advance / remote commands.
++    @objc public override var methodQueue: DispatchQueue { DispatchQueue.main }
++
+     @objc(constantsToExport)
+     override public func constantsToExport() -> [AnyHashable: Any] {
+         return [
+@@ -322,6 +325,12 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
      public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
          if (rejectWhenNotInitialized(reject: reject)) { return }
  
@@ -802,7 +836,7 @@ index 3be1342..89470ab 100644
          var capabilitiesStr = options["capabilities"] as? [String] ?? []
          if (capabilitiesStr.contains("play") && capabilitiesStr.contains("pause")) {
              capabilitiesStr.append("togglePlayPause");
-@@ -349,6 +355,20 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+@@ -349,6 +358,20 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
          resolve(NSNull())
      }
  
@@ -823,57 +857,77 @@ index 3be1342..89470ab 100644
      private func configureProgressUpdateEvent(interval: Double) {
          shouldEmitProgressEvent = interval > 0
          self.player.timeEventFrequency = shouldEmitProgressEvent
-diff --git a/src/interfaces/UpdateOptions.ts b/src/interfaces/UpdateOptions.ts
-index 9657cae..b35c680 100644
---- a/src/interfaces/UpdateOptions.ts
-+++ b/src/interfaces/UpdateOptions.ts
-@@ -11,6 +11,8 @@ export interface UpdateOptions {
-   progressUpdateEventInterval?: number; // in seconds
+@@ -732,6 +755,22 @@ public class RNTrackPlayer: RCTEventEmitter, AudioSessionControllerDelegate {
+         resolve(getPlaybackStateBodyKeyValues(state: player.playerState))
+     }
  
-   // ios
-+  /** Whether iOS may load remote audio over a cellular connection. */
-+  allowsCellularAccess?: boolean;
-   likeOptions?: FeedbackOptions;
-   dislikeOptions?: FeedbackOptions;
-   bookmarkOptions?: FeedbackOptions;
-diff --git a/lib/src/interfaces/UpdateOptions.d.ts b/lib/src/interfaces/UpdateOptions.d.ts
-index 7190c90..c7809b5 100644
---- a/lib/src/interfaces/UpdateOptions.d.ts
-+++ b/lib/src/interfaces/UpdateOptions.d.ts
-@@ -8,6 +8,8 @@ export interface UpdateOptions {
-     forwardJumpInterval?: number;
-     backwardJumpInterval?: number;
-     progressUpdateEventInterval?: number;
-+    /** Whether iOS may load remote audio over a cellular connection. */
-+    allowsCellularAccess?: boolean;
-     likeOptions?: FeedbackOptions;
-     dislikeOptions?: FeedbackOptions;
-     bookmarkOptions?: FeedbackOptions;
-diff --git a/ios/RNTrackPlayer/Models/Track.swift b/ios/RNTrackPlayer/Models/Track.swift
---- a/ios/RNTrackPlayer/Models/Track.swift
-+++ b/ios/RNTrackPlayer/Models/Track.swift
-@@ -9,4 +9,5 @@
- import Foundation
- import MediaPlayer
- import AVFoundation
- import SwiftAudioEx
-+import SDWebImageWebPCoder
-@@ -90,4 +91,5 @@
-     func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
-         if let artworkURL = artworkURL?.value {
-             if(self.artworkURL?.isLocal ?? false){
--                let image = UIImage.init(contentsOfFile: artworkURL.path);
-+                let data = try? Data(contentsOf: artworkURL)
-+                let image = data.flatMap { UIImage(data: $0) ?? SDImageWebPCoder.shared.decodedImage(with: $0, options: nil) }
++    // Do not remove/reinsert entries: auto-advance could otherwise race a JS replacement.
++    @objc(promoteUpcomingTrackSource:expectedURL:source:resolver:rejecter:)
++    public func promoteUpcomingTrackSource(qid: String, expectedURL: String, source: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
++        if (rejectWhenNotInitialized(reject: reject)) { return }
++        guard let localURL = source["url"] as? String else { resolve(false); return }
++        for (index, item) in player.items.enumerated() {
++            guard let track = item as? Track,
++                  track.toObject()["id"] as? String == qid else { continue }
++            guard index != player.currentIndex,
++                  track.toObject()["url"] as? String == expectedURL else { resolve(false); return }
++            resolve(track.promoteLocalSource(urlString: localURL, contentType: source["contentType"] as? String))
++            return
++        }
++        resolve(false)
++    }
++
+     @objc(updateMetadataForTrack:metadata:resolver:rejecter:)
+     public func updateMetadata(for trackIndex: NSNumber, metadata: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+         let index = trackIndex.intValue;
+diff --git a/ios/RNTrackPlayer/RNTrackPlayerBridge.m b/ios/RNTrackPlayer/RNTrackPlayerBridge.m
+index 7741994191921ed86f7577f7ce589b3939d9dd49..ca1284b1f1ca702026b12c2b40f3ee8ce1ed446e 100644
+--- a/ios/RNTrackPlayer/RNTrackPlayerBridge.m
++++ b/ios/RNTrackPlayer/RNTrackPlayerBridge.m
+@@ -36,6 +36,12 @@ RCT_EXTERN_METHOD(load:(NSDictionary *)trackDict
+                   resolver:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject);
+ 
++RCT_EXTERN_METHOD(promoteUpcomingTrackSource:(NSString *)qid
++                  expectedURL:(NSString *)expectedURL
++                  source:(NSDictionary *)source
++                  resolver:(RCTPromiseResolveBlock)resolve
++                  rejecter:(RCTPromiseRejectBlock)reject);
++
+ RCT_EXTERN_METHOD(remove:(NSArray *)objects
+                   resolver:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject);
+@@ -151,17 +157,4 @@ RCT_EXTERN_METHOD(updateNowPlayingMetadata:(NSDictionary *)metadata
+                   resolver:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject);
+ 
+-RCT_EXTERN_METHOD(getSleepTimerProgress:(RCTPromiseResolveBlock)resolve
+-              rejecter:(RCTPromiseRejectBlock)reject);
+-
+-RCT_EXTERN_METHOD(setSleepTimer:(double)time
+-                  resolver:(RCTPromiseResolveBlock)resolve
+-                  rejecter:(RCTPromiseRejectBlock)reject);
+-
+-RCT_EXTERN_METHOD(sleepWhenActiveTrackReachesEnd:(RCTPromiseResolveBlock)resolve
+-                  rejecter:(RCTPromiseRejectBlock)reject);
+-
+-RCT_EXTERN_METHOD(clearSleepTimer:(RCTPromiseResolveBlock)resolve
+-              rejecter:(RCTPromiseRejectBlock)reject);
+-
+ @end
 diff --git a/ios/RNTrackPlayer/Utils/Metadata.swift b/ios/RNTrackPlayer/Utils/Metadata.swift
+index 70c094d2d61d94eb9683ad0c2827d90ab269c788..25bfe8c339296b4accc619235b98e473dadf3336 100644
 --- a/ios/RNTrackPlayer/Utils/Metadata.swift
 +++ b/ios/RNTrackPlayer/Utils/Metadata.swift
-@@ -8,3 +8,4 @@
+@@ -9,6 +9,7 @@
  import Foundation
  import MediaPlayer
  import SwiftAudioEx
 +import SDWebImageWebPCoder
-@@ -44,16 +45,25 @@
+ 
+ struct Metadata {
+     private static var currentImageTask: URLSessionDataTask?
+@@ -44,16 +45,25 @@ struct Metadata {
          player.nowPlayingInfoController.set(keyValues: ret)
          
          if let artworkURL = MediaURL(object: metadata["artwork"]) {
@@ -908,11 +962,39 @@ diff --git a/ios/RNTrackPlayer/Utils/Metadata.swift b/ios/RNTrackPlayer/Utils/Me
          } else {
              player.nowPlayingInfoController.set(keyValue: MediaItemProperty.artwork(nil))
          }
+diff --git a/lib/src/interfaces/UpdateOptions.d.ts b/lib/src/interfaces/UpdateOptions.d.ts
+index 7190c9018f9c332a8f20658a498f4f1419cc3101..c7809b5436ed6fe09593fa329cdcb9ca18ff2134 100644
+--- a/lib/src/interfaces/UpdateOptions.d.ts
++++ b/lib/src/interfaces/UpdateOptions.d.ts
+@@ -8,6 +8,8 @@ export interface UpdateOptions {
+     forwardJumpInterval?: number;
+     backwardJumpInterval?: number;
+     progressUpdateEventInterval?: number;
++    /** Whether iOS may load remote audio over a cellular connection. */
++    allowsCellularAccess?: boolean;
+     likeOptions?: FeedbackOptions;
+     dislikeOptions?: FeedbackOptions;
+     bookmarkOptions?: FeedbackOptions;
 diff --git a/react-native-track-player.podspec b/react-native-track-player.podspec
+index 9209aa218a668432b00cc2986094a374210dac1a..4633004bd121df9a24a52b3c1ce26146447a514b 100644
 --- a/react-native-track-player.podspec
 +++ b/react-native-track-player.podspec
-@@ -19,3 +19,4 @@
+@@ -19,4 +19,5 @@ Pod::Spec.new do |s|
+ 
    s.dependency "React-Core"
    s.dependency "SwiftAudioEx", "1.1.0"
 +  s.dependency "SDWebImageWebPCoder", "~> 0.14.6"
  end
+diff --git a/src/interfaces/UpdateOptions.ts b/src/interfaces/UpdateOptions.ts
+index 9657caec9a817093f3240cfa3cd4a572e664e172..b35c680a0ea3f2f65e627c76b142270323b8ca2d 100644
+--- a/src/interfaces/UpdateOptions.ts
++++ b/src/interfaces/UpdateOptions.ts
+@@ -11,6 +11,8 @@ export interface UpdateOptions {
+   progressUpdateEventInterval?: number; // in seconds
+ 
+   // ios
++  /** Whether iOS may load remote audio over a cellular connection. */
++  allowsCellularAccess?: boolean;
+   likeOptions?: FeedbackOptions;
+   dislikeOptions?: FeedbackOptions;
+   bookmarkOptions?: FeedbackOptions;

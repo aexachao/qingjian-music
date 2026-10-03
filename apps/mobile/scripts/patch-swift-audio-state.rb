@@ -3,6 +3,7 @@
 # so invoking the delegate under that barrier creates a lock-order inversion.
 def patch_swift_audio_state(installer)
   patch_swift_audio_queue_lock(installer)
+  patch_swift_audio_end_notification(installer)
   file = File.join(installer.sandbox.root.to_s, 'SwiftAudioEx/Sources/SwiftAudioEx/AVPlayerWrapper/AVPlayerWrapper.swift')
   source = File.read(file)
   marker = '// QJ: deliver state outside the stateQueue barrier.'
@@ -35,4 +36,31 @@ def patch_swift_audio_queue_lock(installer)
   replacement = "        recursiveLock.lock()\n        #{marker}\n        defer { recursiveLock.unlock() }\n        return try action()"
   File.chmod(File.stat(file).mode | 0200, file)
   File.write(file, source.sub(original, replacement))
+end
+
+# Serialize automatic queue advancement with RNTP's main-queue commands. A delayed
+# end notification must not advance a new item selected in the meantime.
+def patch_swift_audio_end_notification(installer)
+  file = File.join(installer.sandbox.root.to_s, 'SwiftAudioEx/Sources/SwiftAudioEx/Observer/AVPlayerItemNotificationObserver.swift')
+  source = File.read(file)
+  marker = '// QJ: serialize auto-advance and reject stale end notifications.'
+  return if source.include?(marker)
+  original = "    @objc private func itemDidPlayToEndTime() {\n        delegate?.itemDidPlayToEndTime()\n    }"
+  raise 'SwiftAudioEx end notification changed; review queue serialization' unless source.scan(original).length == 1
+  replacement = <<~'SWIFT'.rstrip
+      @objc private func itemDidPlayToEndTime(_ notification: Notification) {
+          // QJ: serialize auto-advance and reject stale end notifications.
+          guard let item = notification.object as? AVPlayerItem else { return }
+          let deliver = { [weak self, weak item] in
+              guard let self = self, let item = item, self.observingItem === item else { return }
+              self.delegate?.itemDidPlayToEndTime()
+          }
+          if Thread.isMainThread { deliver() }
+          else { DispatchQueue.main.async(execute: deliver) }
+      }
+  SWIFT
+  replacement = replacement.lines.map { |line| '    ' + line }.join
+  source = source.sub('#selector(itemDidPlayToEndTime)', '#selector(itemDidPlayToEndTime(_:))').sub(original, replacement)
+  File.chmod(File.stat(file).mode | 0200, file)
+  File.write(file, source)
 end

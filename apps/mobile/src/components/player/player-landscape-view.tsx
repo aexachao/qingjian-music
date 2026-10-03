@@ -1,17 +1,18 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GestureDetector, Gesture, type PanGesture } from 'react-native-gesture-handler'
 import type { QueueItem } from '@qj/core-domain'
-import Animated, { FadeIn, FadeOut, type AnimatedStyle, type SharedValue } from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, type AnimatedStyle, type SharedValue } from 'react-native-reanimated'
 import { IconButton, iconSize } from '@/components/icon'
 import { PlayerTitleRow, PlayerDeck } from '@/components/player/player-deck'
 import { PlayerToolbar } from '@/components/player/player-toolbar'
 import { PlayerQueue } from '@/components/player/player-queue'
 import { LyricPage } from '@/components/player/lyric-page'
 import { ViewportCover } from '@/components/player/immersive-cover'
+import { PlayerModeLayer } from '@/components/player/player-mode-transition'
 import type { AmbientPalette } from '@/theme/ambient-palette'
-import { getThemeColors, spacing } from '@/theme/tokens'
+import { getThemeColors } from '@/theme/tokens'
 
 const darkColors = getThemeColors('dark')
 
@@ -27,11 +28,28 @@ export interface PlayerLandscapeViewProps {
   onMenuOpenChange?: (open: boolean) => void
   isMenuOpen?: boolean
   coverScaleStyle: AnimatedStyle<any>
+  coverAnim: SharedValue<number>
+  listAnim: SharedValue<number>
+  lyricAnim: SharedValue<number>
+  hasEnteredList: boolean
+  hasEnteredLyrics: boolean
   handleDismissGesture?: PanGesture
   coverDismissGesture?: PanGesture
   translateY?: SharedValue<number>
   playing?: boolean
   onListTopStateChange?: (atTop: boolean) => void
+  controlsVisible?: boolean
+  controlsOpacity?: SharedValue<number>
+  foreground?: boolean
+  followLocked?: boolean
+  onLyricsReadyChange?: (ready: boolean) => void
+  onLyricsErrorChange?: (error: boolean) => void
+  onInteractionStart?: () => void
+  onInteractionEnd?: () => void
+  onShareOpenChange?: (open: boolean) => void
+  onRoutePickerVisibilityChange?: (open: boolean) => void
+  onBlankTap?: () => void
+  onFlingReveal?: () => void
 }
 
 export function PlayerLandscapeView({
@@ -44,11 +62,28 @@ export function PlayerLandscapeView({
   onMenuOpenChange,
   isMenuOpen = false,
   coverScaleStyle,
+  coverAnim,
+  listAnim,
+  lyricAnim,
+  hasEnteredList,
+  hasEnteredLyrics,
   handleDismissGesture,
   coverDismissGesture,
   translateY,
   playing,
   onListTopStateChange,
+  controlsVisible = true,
+  controlsOpacity,
+  foreground,
+  followLocked,
+  onLyricsReadyChange,
+  onLyricsErrorChange,
+  onInteractionStart,
+  onInteractionEnd,
+  onShareOpenChange,
+  onRoutePickerVisibilityChange,
+  onBlankTap,
+  onFlingReveal,
 }: PlayerLandscapeViewProps) {
   const insets = useSafeAreaInsets()
   const { width, height } = useWindowDimensions()
@@ -76,6 +111,15 @@ export function PlayerLandscapeView({
 
   const rightColumnTop = paddingTop + Math.max(0, (stageHeight - coverSize) / 2)
   const rightColumnWidth = Math.max(0, stageWidth - coverSize - columnGap)
+  const [titleHeight, setTitleHeight] = useState(60)
+  const titleAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = controlsOpacity?.value ?? 1
+    return { opacity, transform: [{ translateY: -(1 - opacity) * 16 }] }
+  }, [controlsOpacity])
+  const toolbarAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = controlsOpacity?.value ?? 1
+    return { opacity, transform: [{ translateY: (1 - opacity) * 24 }] }
+  }, [controlsOpacity])
 
   const fallbackPan = useMemo(() => Gesture.Pan().enabled(false), [])
   const activeHandleGesture = handleDismissGesture ?? fallbackPan
@@ -129,49 +173,52 @@ export function PlayerLandscapeView({
         {/* 右列：严格等高 coverSize，底对齐封面底边 */}
         <View style={[styles.rightColumn, { height: coverSize }]}>
           {/* 1. 顶部：正在播放歌曲信息（距封面顶部 12pt） */}
-          <View style={styles.titleWrapper}>
+          <Animated.View
+            onLayout={(event) => {
+              const nextHeight = Math.ceil(event.nativeEvent.layout.height)
+              setTitleHeight((previous) => Math.abs(previous - nextHeight) > 1 ? nextHeight : previous)
+            }}
+            style={[styles.titleWrapper, mode === 'lyrics' && titleAnimatedStyle]}
+            pointerEvents={mode === 'lyrics' && !controlsVisible ? 'none' : 'auto'}
+            accessibilityElementsHidden={mode === 'lyrics' && !controlsVisible}
+            importantForAccessibility={mode === 'lyrics' && !controlsVisible ? 'no-hide-descendants' : 'auto'}>
+
             <PlayerTitleRow
               current={current}
               onDismissWithAction={onDismissWithAction}
               onMenuOpenChange={onMenuOpenChange}
             />
-          </View>
+          </Animated.View>
 
           {/* 2. 中间工作区：播放控件保持成组居中，与歌名和底部工具栏留出分隔。 */}
-          <View style={[styles.workArea, mode === 'list' && styles.workAreaList]}>
-            {mode === 'lyrics' ? (
-              /* 歌词模式：全高沉浸式同步滚动歌词 */
-              <Animated.View
-                key="lyrics"
-                entering={FadeIn.duration(200)}
-                exiting={FadeOut.duration(150)}
-                style={StyleSheet.absoluteFill}
-              >
-                <LyricPage
-                  key={current.qid}
-                  trackId={current.trackId}
-                  bottomSpace={0}
-                  active={true}
-                  translateY={translateY}
-                  onDismiss={onDismiss}
-                  playing={playing}
-                  isLandscape={true}
-                />
-              </Animated.View>
-            ) : mode === 'list' ? (
-              /* 播放列表模式：全高展开循环控制与歌曲队列 */
-              <Animated.View
-                key="list"
-                entering={FadeIn.duration(200)}
-                exiting={FadeOut.duration(150)}
-                style={StyleSheet.absoluteFill}
-              >
+          <View style={[StyleSheet.absoluteFill, styles.workArea]}>
+            <PlayerModeLayer
+              progress={coverAnim}
+              active={mode === 'cover'}
+              style={{ ...styles.deckWrapper, top: 12 + titleHeight, bottom: 44 }}
+            >
+              <PlayerDeck
+                current={current}
+                hideTitle={true}
+                hideVolume={false}
+                compact={true}
+                onDismissWithAction={onDismissWithAction}
+                onMenuOpenChange={onMenuOpenChange}
+              />
+            </PlayerModeLayer>
+
+            <PlayerModeLayer
+              progress={listAnim}
+              active={mode === 'list'}
+              style={{ top: 12 + titleHeight + 18, bottom: 44 }}
+            >
+              {hasEnteredList || mode === 'list' ? (
                 <PlayerQueue
                   palette={palette}
                   hideCurrentTrack={true}
                   isLandscape={true}
                   bottomSpace={0}
-                  stageTopOffset={rightColumnTop + 12 + 48 + 18}
+                  stageTopOffset={rightColumnTop + 12 + titleHeight + 18}
                   stageLeftOffset={paddingLeft + coverSize + columnGap}
                   stageWidth={rightColumnWidth}
                   onDismissWithAction={onDismissWithAction}
@@ -180,36 +227,51 @@ export function PlayerLandscapeView({
                   onDismiss={onDismiss}
                   onTopStateChange={onListTopStateChange}
                 />
-              </Animated.View>
-            ) : (
-              /* 默认播放器模式：整体居中，组内使用固定间距保持凝聚感。 */
-              <Animated.View
-                key="deck"
-                entering={FadeIn.duration(200)}
-                exiting={FadeOut.duration(150)}
-                style={[StyleSheet.absoluteFill, styles.deckWrapper]}
-              >
-                <PlayerDeck
-                  current={current}
-                  hideTitle={true}
-                  hideVolume={false}
-                  compact={true}
-                  onDismissWithAction={onDismissWithAction}
-                  onMenuOpenChange={onMenuOpenChange}
+              ) : null}
+            </PlayerModeLayer>
+
+            <PlayerModeLayer progress={lyricAnim} active={mode === 'lyrics'}>
+              {hasEnteredLyrics || mode === 'lyrics' ? (
+                <LyricPage
+                  key={current.qid}
+                  trackId={current.trackId}
+                  bottomSpace={0}
+                  active={mode === 'lyrics'}
+                  translateY={translateY}
+                  onDismiss={onDismiss}
+                  playing={playing}
+                  isLandscape={true}
+                  immersive
+                  controlsVisible={controlsVisible}
+                  foreground={foreground}
+                  followLocked={followLocked}
+                  onFlingReveal={onFlingReveal}
+                  onLyricsReadyChange={onLyricsReadyChange}
+                  onLyricsErrorChange={onLyricsErrorChange}
+                  onInteractionStart={onInteractionStart}
+                  onInteractionEnd={onInteractionEnd}
+                  onShareOpenChange={onShareOpenChange}
+                  onBlankTap={onBlankTap}
+                  stageMask={controlsOpacity ? { opacity: controlsOpacity, topInset: 12 + titleHeight + 18, bottomInset: 44 } : undefined}
                 />
-              </Animated.View>
-            )}
+              ) : null}
+            </PlayerModeLayer>
           </View>
 
           {/* 3. 底部：常驻工具栏（严格贴合封面底边基线，两端对齐） */}
-          <View style={styles.toolbarWrapper}>
+          <Animated.View
+            style={[styles.toolbarWrapper, mode === 'lyrics' && toolbarAnimatedStyle]}
+            pointerEvents={mode === 'lyrics' && !controlsVisible ? 'none' : 'auto'}
+            accessibilityElementsHidden={mode === 'lyrics' && !controlsVisible}
+            importantForAccessibility={mode === 'lyrics' && !controlsVisible ? 'no-hide-descendants' : 'auto'}>
             <PlayerToolbar
               mode={mode}
               onModeChange={onModeChange}
               bottomInset={0}
               compact={true}
+              onRoutePickerVisibilityChange={onRoutePickerVisibilityChange}
             />
-          </View>
+          </Animated.View>
         </View>
       </View>
     </View>
@@ -258,24 +320,22 @@ const styles = StyleSheet.create({
   },
   rightColumn: {
     flex: 1,
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-  },
-  titleWrapper: {},
-  workArea: {
-    flex: 1,
-    overflow: 'hidden',
     position: 'relative',
   },
-  workAreaList: {
-    marginTop: 18,
+  titleWrapper: { position: 'absolute', left: 0, right: 0, top: 12, zIndex: 3 },
+  workArea: {
+    overflow: 'hidden',
   },
   deckWrapper: {
     justifyContent: 'center',
   },
   toolbarWrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     height: 44,
     justifyContent: 'center',
+    zIndex: 3,
   },
 })

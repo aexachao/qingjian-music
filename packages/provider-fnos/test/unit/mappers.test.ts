@@ -170,6 +170,20 @@ it('preserves provider credits without turning technical tags into lyrics', () =
   expect(sheet.lines[3]?.atMs).toBe(3000)
 })
 
+it('preserves real JSON credit timestamps as synced rows, including zero', () => {
+  const content = '{"t":0,"c":[{"tx":"前奏"}]}\n{"t":1800,"c":[{"tx":"演唱：甲"}]}\n[00:03]正文'
+  const sheet = parseLyrics(content)
+  expect(sheet.synced).toBe(true)
+  expect(sheet.lines.map(({ atMs, text }) => [atMs, text])).toEqual([
+    [0, '前奏'],
+    [1800, '演唱：甲'],
+    [3000, '正文'],
+  ])
+  const mapped = mapLyricSheet([{ guid: 'timed-credit', content, isLRC: false }])
+  expect(mapped?.synced).toBe(true)
+  expect(mapped?.lines[0]).toEqual({ atMs: 0, text: '前奏' })
+})
+
 it('does not treat credits alone as a playable lyric candidate', () => {
   expect(mapLyricSheet([{ guid: 'credits', content: '[ar:歌手]\n[作词:甲]', isLRC: true }])).toBeNull()
 })

@@ -26,6 +26,8 @@ const INDEX_NAME = 'index.json'
 const LYRIC_COUNT_LIMIT = 2000
 /** 索引写盘防抖 */
 const FLUSH_DELAY_MS = 1_500
+/** Bump when parsing changes require saved sheets to be fetched and reparsed. */
+export const LYRIC_CACHE_PARSER_VERSION = 2
 
 interface LyricCacheIndex {
   version: 1
@@ -145,7 +147,7 @@ function splitKey(key: string): [string, string] {
 export function readCachedLyric(
   serverId: string,
   trackId: string,
-): { sheet: LyricSheet; sourceIdentity?: string; sourceRevision?: number; metadataParsed: boolean } | null {
+): { sheet: LyricSheet; sourceIdentity?: string; sourceRevision?: number; parserVersion?: number } | null {
   let current: LyricCacheIndex
   try {
     current = loadIndex()
@@ -162,13 +164,13 @@ export function readCachedLyric(
         scheduleFlush()
         continue
       }
-      const sheet = JSON.parse(file.textSync()) as LyricSheet & { metadataParsed?: boolean }
+      const sheet = JSON.parse(file.textSync()) as LyricSheet & { metadataParsed?: boolean; parserVersion?: number }
       if (!sheet || !Array.isArray(sheet.lines)) throw new Error('歌词缓存结构不对')
       current.entries[key] = { ...current.entries[key]!, lastUsedAt: Date.now() }
       scheduleFlush()
       return {
         sheet,
-        metadataParsed: sheet.metadataParsed === true,
+        parserVersion: sheet.parserVersion,
         ...(current.entries[key]!.sourceIdentity === undefined ? {} : { sourceIdentity: current.entries[key]!.sourceIdentity }),
         ...(current.entries[key]!.sourceRevision === undefined ? {} : { sourceRevision: current.entries[key]!.sourceRevision }),
       }
@@ -192,7 +194,7 @@ export function writeCachedLyric(
   try {
     const file = new File(lyricDir(), lyricCacheFileName(serverId, trackId, sheet.tier))
     if (!file.exists) file.create({ intermediates: true, overwrite: true })
-    file.write(JSON.stringify({ ...sheet, metadataParsed: true }))
+    file.write(JSON.stringify({ ...sheet, parserVersion: LYRIC_CACHE_PARSER_VERSION }))
     const current = loadIndex()
     const now = Date.now()
     current.entries[lyricCacheKey(serverId, trackId, sheet.tier)] = {
