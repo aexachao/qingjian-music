@@ -76,3 +76,14 @@ graphify-out/
 # 含本机绝对路径的 MCP / agent 配置
 opencode.json
 .mcp.json
+
+# 一次性代码改写脚本（正则 patch artist-detail.tsx 等，已完成使命，属过程产物）
+/fix-*.js
+/patch*.js
+/rewrite.js
+
+# 本机 agent 工具链配置（Blitz IDE / MCP / Codex，含本机路径，属内部工作流）
+/.claude/
+/.agents/
+/.codex/
+/CLAUDE.md
