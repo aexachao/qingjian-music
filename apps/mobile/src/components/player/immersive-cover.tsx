@@ -20,10 +20,14 @@ export function ViewportCover({
   artwork,
   coverId,
   fill = false,
+  transition = 220,
+  onImageLoad,
 }: {
   artwork?: HttpResource | undefined
   coverId?: string | undefined
   fill?: boolean
+  transition?: number
+  onImageLoad?: () => void
 }) {
   const colors = useThemeColors()
   const { provider } = useServerSession()
@@ -47,8 +51,9 @@ export function ViewportCover({
           source={{ uri: source.url, headers: source.headers }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
-          transition={220}
+          transition={transition}
           cachePolicy="memory-disk"
+          onLoad={onImageLoad}
           accessibilityIgnoresInvertColors
         />
       </View>

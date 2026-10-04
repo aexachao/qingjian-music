@@ -6,6 +6,7 @@ import { MenuView } from '@react-native-menu/menu'
 import { useToast } from '@/components/toast'
 import { useConfirm } from '@/components/confirm-modal'
 import { Icon } from '@/components/icon'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import {
   useExternalSourcesStore,
   normalizeBaseUrl,
@@ -57,7 +58,12 @@ export function ExternalSourcesScreen() {
               }}
               actions={ADD_SOURCE_ACTIONS}
             >
-              <Pressable style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }} accessibilityRole="button" accessibilityLabel="添加外部数据源">
+              <Pressable
+                hitSlop={12}
+                style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
+                accessibilityRole="button"
+                accessibilityLabel="添加外部数据源"
+              >
                 <Icon name="add" size={24} color={colors.textPrimary} />
               </Pressable>
             </MenuView>

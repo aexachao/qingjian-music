@@ -6,6 +6,7 @@ import { useConfirm } from '@/components/confirm-modal'
 import { Icon, iconSize } from '@/components/icon'
 import { EmptyState, ErrorState, LoadingState } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import { useToast } from '@/components/toast'
 import { useBottomSpace } from '@/lib/bottom-space'
 import { hasActiveScan, libraryDisplayName, libraryUpdatedLabel } from '@/lib/scan-progress-policy'
@@ -98,11 +99,11 @@ export function LibraryManageScreen() {
             <Pressable
               onPress={() => setNavMenuOpen(true)}
               hitSlop={12}
-              style={styles.navMore}
+              style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
               accessibilityRole="button"
               accessibilityLabel="更多操作"
             >
-              <Icon name="more" size={iconSize.lg} color={colors.textPrimary} />
+              <Icon name="more" size={iconSize.xl} color={colors.textPrimary} />
             </Pressable>
           ) : null,
       }}
@@ -218,7 +219,6 @@ export function LibraryManageScreen() {
 const useStyles = createThemedStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.pageMargin, gap: spacing.sectionGap },
-  navMore: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

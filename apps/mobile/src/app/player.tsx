@@ -1,7 +1,7 @@
 import { useToast } from '@/components/toast'
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useIsPlaying } from 'react-native-track-player'
@@ -44,18 +44,25 @@ type PlayerMode = 'cover' | 'lyrics' | 'list'
 export default function PlayerScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { width, height } = useWindowDimensions()
-  const [, setScreenOrient] = useState<ScreenOrientation.Orientation | null>(null)
+  const window = useWindowDimensions()
+  const [viewport, setViewport] = useState(() => ({ width: window.width, height: window.height }))
+  const { width, height } = viewport
+  const onViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    const next = {
+      width: Math.round(event.nativeEvent.layout.width),
+      height: Math.round(event.nativeEvent.layout.height),
+    }
+    setViewport((previous) => (
+      Math.abs(previous.width - next.width) > 1 || Math.abs(previous.height - next.height) > 1
+        ? next
+        : previous
+    ))
+  }, [])
 
   // 播放页方向管理：进入播放页解锁重力感应全向旋转；离开时恢复并锁定为竖屏
   useEffect(() => {
     void ScreenOrientation.unlockAsync().catch(() => {})
-    void ScreenOrientation.getOrientationAsync().then(setScreenOrient).catch(() => {})
-    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
-      setScreenOrient(evt.orientationInfo.orientation)
-    })
     return () => {
-      ScreenOrientation.removeOrientationChangeListener(sub)
       void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {})
     }
   }, [])
@@ -63,6 +70,19 @@ export default function PlayerScreen() {
   const isLandscape = width > height
   
   const current = usePlayerStore(selectCurrent)
+  const coverIdentity = current?.coverId ?? current?.artwork?.url ?? ''
+  const coverIdentityRef = useRef(coverIdentity)
+  const [transitioningCoverIdentity, setTransitioningCoverIdentity] = useState('')
+  useEffect(() => {
+    if (coverIdentityRef.current === coverIdentity) return
+    const shouldAnimate = Boolean(coverIdentityRef.current && coverIdentity)
+    coverIdentityRef.current = coverIdentity
+    setTransitioningCoverIdentity(shouldAnimate ? coverIdentity : '')
+  }, [coverIdentity])
+  const onCoverImageLoad = useCallback(() => {
+    setTransitioningCoverIdentity((identity) => identity === coverIdentity ? '' : identity)
+  }, [coverIdentity])
+  const coverTransition = transitioningCoverIdentity === coverIdentity && coverIdentity ? 220 : 0
   const { playing } = useIsPlaying()
   const isAudioLoading = useIsAudioLoading()
   const networkWaiting = usePlaybackIntent((state) => state.waitingForNetwork)
@@ -139,6 +159,12 @@ export default function PlayerScreen() {
 
   const stageHeight = useSharedValue(initialStageHeight)
   const stageTopOffset = insets.top + spacing.sm + 50 + spacing.xs
+  const stageViewportKey = `${width}x${height}`
+  const committedStageViewportKey = useRef(stageViewportKey)
+  useLayoutEffect(() => {
+    committedStageViewportKey.current = stageViewportKey
+    if (!isLandscape) stageHeight.value = initialStageHeight
+  }, [initialStageHeight, isLandscape, stageHeight, stageViewportKey])
 
   const coverAnim = useSharedValue(mode === 'cover' ? 1 : 0)
   const listAnim = useSharedValue(0)
@@ -357,24 +383,32 @@ export default function PlayerScreen() {
 
   if (!current) {
     return (
-      <DarkThemeScope>
-        <StatusBar style="light" />
-        <EmptyPlayerState onDismiss={dismiss} />
-      </DarkThemeScope>
+      <View style={styles.viewport} onLayout={onViewportLayout}>
+        <DarkThemeScope>
+          <Stack.Screen options={{ autoHideHomeIndicator: false }} />
+          <StatusBar style="light" />
+          <EmptyPlayerState onDismiss={dismiss} />
+        </DarkThemeScope>
+      </View>
     )
   }
 
   if (isLandscape) {
     return (
-      <DarkThemeScope>
-        <StatusBar hidden={true} />
-        <AuthGate group="protected">
-          <GestureDetector gesture={dismissGesture}>
-            <Animated.View style={[styles.root, rootAnimatedStyle]}>
-              <CoverBackdrop artwork={current.artwork} palette={palette} />
-              <ImmersiveDarkOverlay />
-              <PlayerLandscapeView
+      <View style={styles.viewport} onLayout={onViewportLayout}>
+        <DarkThemeScope>
+          <Stack.Screen options={{ autoHideHomeIndicator: true }} />
+          <StatusBar hidden={true} />
+          <AuthGate group="protected">
+            <GestureDetector gesture={dismissGesture}>
+              <Animated.View key="landscape-player-canvas" style={[styles.root, { width, height }, rootAnimatedStyle]}>
+                <CoverBackdrop artwork={current.artwork} palette={palette} />
+                <ImmersiveDarkOverlay />
+                <PlayerLandscapeView
                 current={current}
+                viewport={{ width, height, insets }}
+                coverTransition={coverTransition}
+                onCoverImageLoad={onCoverImageLoad}
                 palette={palette}
                 mode={mode}
                 onModeChange={setMode}
@@ -405,26 +439,29 @@ export default function PlayerScreen() {
                 onBlankTap={controls.toggle}
                 onFlingReveal={controls.show}
                 onListTopStateChange={setIsListAtTop}
-              />
-              {menuOpen ? (
-                <Pressable
-                  style={[StyleSheet.absoluteFill, styles.menuScrim]}
-                  onPress={() => setMenuOpen(false)}
                 />
-              ) : null}
-            </Animated.View>
-          </GestureDetector>
-        </AuthGate>
-      </DarkThemeScope>
+                {menuOpen ? (
+                  <Pressable
+                    style={[StyleSheet.absoluteFill, styles.menuScrim]}
+                    onPress={() => setMenuOpen(false)}
+                  />
+                ) : null}
+              </Animated.View>
+            </GestureDetector>
+          </AuthGate>
+        </DarkThemeScope>
+      </View>
     )
   }
 
   return (
-    <DarkThemeScope>
-      <StatusBar style="light" />
-      <AuthGate group="protected">
+    <View style={styles.viewport} onLayout={onViewportLayout}>
+      <DarkThemeScope>
+        <Stack.Screen options={{ autoHideHomeIndicator: false }} />
+        <StatusBar style="light" />
+        <AuthGate group="protected">
       <GestureDetector gesture={dismissGesture}>
-        <Animated.View style={[styles.root, rootAnimatedStyle, { paddingTop: insets.top + spacing.sm }]}>
+        <Animated.View key="portrait-player-canvas" style={[styles.root, { width, height, paddingTop: insets.top + spacing.sm }, rootAnimatedStyle]}>
           <CoverBackdrop artwork={current.artwork} palette={palette} />
           {/* 沉浸式暗化渐变遮罩：在 CoverBackdrop 之上、内容之下，切歌词/列表时平滑淡出 */}
           <Animated.View style={[StyleSheet.absoluteFill, immersiveCoverStyle]} pointerEvents="none">
@@ -450,6 +487,7 @@ export default function PlayerScreen() {
                 <View
                   style={styles.stage}
                   onLayout={(e) => {
+                    if (committedStageViewportKey.current !== stageViewportKey) return
                     const h = Math.round(e.nativeEvent.layout.height)
                     if (Math.abs(stageHeight.value - h) > 2) {
                       stageHeight.value = h
@@ -488,7 +526,7 @@ export default function PlayerScreen() {
                         {/* 视口核心舞台：导航栏底部至歌名行顶部，按屏幕宽度展示专辑图 */}
                         <View style={styles.coverImageWrapper}>
                           <Animated.View style={[styles.coverScaleLayer, coverScaleStyle]}>
-                            <ViewportCover artwork={current.artwork} coverId={current.coverId} />
+                            <ViewportCover artwork={current.artwork} coverId={current.coverId} transition={coverTransition} onImageLoad={onCoverImageLoad} />
                           </Animated.View>
                         </View>
                         <View style={styles.titleRowWrapper}>
@@ -602,16 +640,17 @@ export default function PlayerScreen() {
             />
           ) : null}
         </Animated.View>
-      </GestureDetector>
-    </AuthGate>
-  </DarkThemeScope>
+        </GestureDetector>
+        </AuthGate>
+      </DarkThemeScope>
+    </View>
   )
 }
 
 function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
   const colors = darkColors
   return (
-    <View style={[styles.root, styles.center]}>
+    <View style={[styles.root, styles.center, styles.emptyRoot]}>
       <Text style={styles.empty}>还没有正在播放的歌曲</Text>
       <IconButton
         name="chevronDown"
@@ -627,7 +666,9 @@ function EmptyPlayerState({ onDismiss }: { onDismiss: () => void }) {
 const darkColors = getThemeColors('dark')
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: darkColors.bgPrimary },
+  viewport: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  root: { backgroundColor: darkColors.bgPrimary },
+  emptyRoot: { flex: 1, width: '100%' },
   center: { alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   empty: { ...typography.subhead, color: darkColors.textSecondary },
   header: {

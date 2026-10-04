@@ -16,7 +16,7 @@ describe('关键交互无障碍语义', () => {
   it('曲目行向辅助技术暴露当前播放选中态', () => {
     const trackRow = readSource('components/track-row.tsx')
     // 非选择态暴露「正在播放」，选择态暴露「已选中」——两条都要在（第 2 轮加的多选）
-    expect(trackRow).toContain('{ selected: playing }')
+    expect(trackRow).toContain('{ selected: playing, disabled: isDisabled }')
     expect(trackRow).toContain('{ selected: selection.selected }')
     expect(trackRow).toContain('accessibilityRole="checkbox"')
   })

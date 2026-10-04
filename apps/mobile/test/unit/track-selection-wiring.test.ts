@@ -21,7 +21,7 @@ describe('多选是模态弹窗，列表页自己不进入选择态', () => {
   it('两个宿主都用 TrackSelectionModal 并只负责开关', () => {
     for (const path of ['screens/track-list-screen.tsx', 'screens/album-detail.tsx']) {
       expect(hasCode(path, '<TrackSelectionModal'), path).toBe(true)
-      expect(hasCode(path, 'onStartSelection={() => setSelecting(true)}'), path).toBe(true)
+      expect(hasCode(path, path.includes('album-detail') ? 'onStartSelection={toolbarActionsVisible ? () => setSelecting(true) : undefined}' : 'onStartSelection={() => setSelecting(true)}'), path).toBe(true)
       expect(hasCode(path, 'visible={selecting}'), path).toBe(true)
     }
   })
@@ -80,7 +80,7 @@ describe('选择态里的行与动作', () => {
 
   it('列表行右侧只有「···」：收藏已挪进菜单（第 4 轮），选择态里连「···」也收起', () => {
     const row = 'components/track-row.tsx'
-    expect(hasCode(row, '{!selection ? <TrackMoreButton')).toBe(true)
+    expect(hasCode(row, 'track && !selection ? <TrackMoreButton')).toBe(true)
     // 行里不该再有收藏按钮（收藏在「···」菜单里）
     expect(hasNoCode(row, '加入收藏')).toBe(true)
     expect(hasNoCode(row, 'favoriteBtn')).toBe(true)

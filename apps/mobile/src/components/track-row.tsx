@@ -10,7 +10,12 @@ import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
 interface TrackRowProps {
-  track: Track
+  track?: Track
+  /** Read-only catalog row that deliberately has no local playback identity. */
+  display?: { title: string; subtitle: string }
+  /** A trailing state label replaces the local-track menu. */
+  statusLabel?: string
+  disabled?: boolean
   /** 专辑内用序号，其它列表用封面 */
   leading: 'index' | 'cover'
   index: number
@@ -32,13 +37,16 @@ interface TrackRowProps {
  * - 正在播放时，音符动效位于歌曲标题左侧（11pt 小巧律动）；
  * - 歌曲名称下方仅展示歌手名称，并在歌手名称前显示音频格式 Tag（如 FLAC、MP3 等）。
  */
-export function TrackRow({ track, leading, index, playing = false, onPress, selection }: TrackRowProps) {
+export function TrackRow({ track, display, statusLabel, disabled = false, leading, index, playing = false, onPress, selection }: TrackRowProps) {
   const styles = useStyles()
   const colors = useThemeColors()
-  const artistText = track.artists.map((artist) => artist.name).join(' / ') || '未知艺术家'
+  const artistText = display?.subtitle ?? (track?.artists.map((artist) => artist.name).join(' / ') || '未知艺术家')
+  const title = display?.title ?? track?.title ?? ''
+  const isDisabled = disabled || !track
 
   const handlePress = () => {
     if (isGlobalMenuInteracting()) return
+    if (isDisabled) return
     // 选择态里点整行 = 切换选中，不再播放（否则想多选就会误触播放）
     if (selection) {
       selection.onToggle()
@@ -56,7 +64,7 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
           style={styles.checkSlot}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: selection.selected }}
-          accessibilityLabel={`${selection.selected ? '取消选择' : '选择'} ${track.title}`}
+          accessibilityLabel={`${selection.selected ? '取消选择' : '选择'} ${title}`}
         >
           <Icon
             name={selection.selected ? 'checkmarkCircle' : 'circle'}
@@ -70,13 +78,16 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
       <Pressable
         style={({ pressed }) => [styles.trackMain, pressed && styles.trackMainPressed]}
         onPress={handlePress}
-        accessibilityRole="button"
+        disabled={isDisabled}
+        accessibilityRole={isDisabled ? 'text' : 'button'}
         accessibilityLabel={
           selection
-            ? `${selection.selected ? '已选中' : '未选中'} ${track.title}，${artistText}`
-            : `${playing ? '正在播放' : '播放'} ${track.title}，${artistText}`
+            ? `${selection.selected ? '已选中' : '未选中'} ${title}，${artistText}`
+            : isDisabled
+              ? `${title}，${artistText}，${statusLabel ?? '不可播放'}`
+              : `${playing ? '正在播放' : '播放'} ${title}，${artistText}`
         }
-        accessibilityState={selection ? { selected: selection.selected } : { selected: playing }}
+        accessibilityState={selection ? { selected: selection.selected } : { selected: playing, disabled: isDisabled }}
       >
         {leading === 'index' ? (
           <View style={styles.trackNoSlot}>
@@ -90,7 +101,7 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
           </View>
         ) : (
           <CoverImage
-            coverId={track.coverId ?? track.album?.coverId}
+            coverId={track?.coverId ?? track?.album?.coverId}
             size={48}
             borderRadius={radius.sm}
           />
@@ -101,13 +112,13 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
           <View style={styles.titleRow}>
             {playing && leading === 'cover' ? <LivePlayingBars size={11} /> : null}
             <Text numberOfLines={1} style={[styles.title, playing && styles.playing]}>
-              {track.title}
+              {title}
             </Text>
           </View>
 
           {/* 副标题行：格式 Tag + 歌手名称 */}
           <View style={styles.subtitleRow}>
-            <FormatBadge track={track} />
+            {track ? <FormatBadge track={track} /> : null}
             <Text numberOfLines={1} style={styles.subtitle}>
               {artistText}
             </Text>
@@ -116,7 +127,11 @@ export function TrackRow({ track, leading, index, playing = false, onPress, sele
       </Pressable>
 
       {/* 右侧只有「···」：收藏已挪进这个菜单（第 4 轮），行里不再摆第二个按钮 */}
-      {!selection ? <TrackMoreButton track={track} /> : null}
+      {statusLabel ? (
+        <View style={styles.statusSlot}>
+          <Text style={styles.statusText}>{statusLabel}</Text>
+        </View>
+      ) : track && !selection ? <TrackMoreButton track={track} /> : null}
     </View>
   )
 }
@@ -179,5 +194,17 @@ const useStyles = createThemedStyles((colors) => ({
     fontSize: 13,
     color: colors.textSecondary,
     flexShrink: 1,
+  },
+  statusSlot: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusText: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
 }))

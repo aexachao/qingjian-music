@@ -107,6 +107,7 @@ const OUTLINE_VARIANTS = {
   play: 'play-outline',
   pause: 'pause-outline',
   next: 'play-forward-outline',
+  heart: 'heart-outline',
   albums: 'albums-outline',
   library: 'albums-outline',
   musicLibrary: 'albums-outline',

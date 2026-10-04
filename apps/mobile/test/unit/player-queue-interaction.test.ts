@@ -78,8 +78,8 @@ describe('播放器队列 Tab 交互', () => {
     const deckSource = readSource('components/player/player-deck.tsx')
     const queueSrc = readSource('components/player/player-queue.tsx')
 
-    // OUTLINE_VARIANTS 不再包含 heart，全局 heart 恒为面性 glyph
-    expect(iconSource).not.toContain("heart: 'heart-outline'")
+    // 通用图标支持线性收藏；播放器仍显式固定为面性。
+    expect(iconSource).toContain("heart: 'heart-outline'")
 
     // PlayerDeck 使用 Apple Music 星标收藏，PlayerQueue 保留收藏 icon
     // PlayerDeck 和 PlayerQueue 均使用 filled={true} 的心形收藏

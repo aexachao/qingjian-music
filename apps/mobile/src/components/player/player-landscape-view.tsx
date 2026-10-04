@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Pressable, StyleSheet, View } from 'react-native'
+import type { EdgeInsets } from 'react-native-safe-area-context'
 import { GestureDetector, Gesture, type PanGesture } from 'react-native-gesture-handler'
 import type { QueueItem } from '@qj/core-domain'
 import Animated, { useAnimatedStyle, type AnimatedStyle, type SharedValue } from 'react-native-reanimated'
@@ -20,6 +20,9 @@ type PlayerMode = 'cover' | 'lyrics' | 'list'
 
 export interface PlayerLandscapeViewProps {
   current: QueueItem
+  viewport: { width: number; height: number; insets: EdgeInsets }
+  coverTransition?: number
+  onCoverImageLoad?: () => void
   palette: AmbientPalette
   mode: PlayerMode
   onModeChange: (mode: PlayerMode) => void
@@ -54,6 +57,9 @@ export interface PlayerLandscapeViewProps {
 
 export function PlayerLandscapeView({
   current,
+  viewport,
+  coverTransition = 220,
+  onCoverImageLoad,
   palette,
   mode,
   onModeChange,
@@ -85,12 +91,12 @@ export function PlayerLandscapeView({
   onBlankTap,
   onFlingReveal,
 }: PlayerLandscapeViewProps) {
-  const insets = useSafeAreaInsets()
-  const { width, height } = useWindowDimensions()
+  // PlayerScreen derives these from SafeAreaProvider's atomic frame/insets update.
+  const { width, height, insets } = viewport
 
   // 1. 横屏安全边距与舞台尺寸计算：保证与 Apple Music 相同的透气感
-  const paddingLeft = Math.max(insets.left, 24)
-  const paddingRight = Math.max(insets.right, 24)
+  const paddingLeft = Math.max(insets.left, 72)
+  const paddingRight = Math.max(insets.right, 72)
   const paddingTop = Math.max(insets.top, 16)
   const paddingBottom = Math.max(insets.bottom, 16)
 
@@ -166,7 +172,7 @@ export function PlayerLandscapeView({
         {/* 左列：大封面独立舞台，全尺寸填满 coverSize，底边严格达到右侧工具栏底边 */}
         <GestureDetector gesture={activeCoverGesture}>
           <View style={[styles.leftColumn, styles.coverStage, { width: coverSize, height: coverSize }]}>
-            <ViewportCover artwork={current.artwork} coverId={current.coverId} fill={true} />
+            <ViewportCover artwork={current.artwork} coverId={current.coverId} fill={true} transition={coverTransition} onImageLoad={onCoverImageLoad} />
           </View>
         </GestureDetector>
 

@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router'
 import { IconButton, iconSize } from '@/components/icon'
 import { useThemeColors } from '@/theme/theme-provider'
 
-export function StackBackButton({ fallbackRoute = '/(tabs)/library' }: { fallbackRoute?: string }) {
+export function StackBackButton({ fallbackRoute = '/(tabs)/library', color }: { fallbackRoute?: string; color?: string }) {
   const router = useRouter()
   const colors = useThemeColors()
 
@@ -18,7 +18,7 @@ export function StackBackButton({ fallbackRoute = '/(tabs)/library' }: { fallbac
     <IconButton
       name="back"
       size={iconSize.xl}
-      color={colors.textPrimary}
+      color={color ?? colors.textPrimary}
       onPress={handlePress}
       accessibilityLabel="返回"
     />

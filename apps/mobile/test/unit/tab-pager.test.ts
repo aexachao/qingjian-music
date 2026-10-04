@@ -11,9 +11,13 @@ describe('Tab 切换过渡动画与组件规范', () => {
 
   it('艺术家详情页在页签切换时同步折叠阈值以内的滚动距离', () => {
     const artistDetail = readSource('screens/artist-detail.tsx')
-    expect(artistDetail).toContain('overviewListRef')
+    expect(artistDetail).toContain("useState<ArtistTab>('tracks')")
     expect(artistDetail).toContain('albumsListRef')
     expect(artistDetail).toContain('tracksListRef')
+    expect(artistDetail.indexOf("{ key: 'tracks', label: '歌曲' }")).toBeLessThan(artistDetail.indexOf("{ key: 'albums', label: '专辑' }"))
+    expect(artistDetail.indexOf('ref={tracksListRef}')).toBeLessThan(artistDetail.indexOf('ref={albumsListRef}'))
+    expect(artistDetail).not.toContain('overviewListRef')
+    expect(artistDetail).not.toContain('topTracksQuery')
     expect(artistDetail).toContain('Math.min(220')
   })
 

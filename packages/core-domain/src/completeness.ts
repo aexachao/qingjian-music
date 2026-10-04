@@ -14,15 +14,21 @@ export interface CanonicalTrack {
   title: string
   /** 曲目号,信息源给了才有 */
   trackNo?: number
+  /** Disc number, when supplied by the catalog. */
+  discNo?: number
+  externalId?: string
 }
 
 /** 规范专辑(来自信息源的艺人作品集) */
 export interface CanonicalAlbum {
   name: string
   year?: number
+  artistName?: string
+  edition?: string
+  externalId?: string
 }
 
-export type TrackStatus = 'inLibrary' | 'missing'
+export type TrackStatus = 'inLibrary' | 'missing' | 'ambiguous'
 
 export interface AlbumTrackEntry {
   canonical: CanonicalTrack
@@ -36,54 +42,72 @@ export interface AlbumCompleteness {
   entries: AlbumTrackEntry[]
   /** 本地有、但规范表里没有的曲目(规范不全时兜底展示) */
   extraLocal: Track[]
+  /** 能匹配多个规范条目，不能安全归属的本地曲目 */
+  ambiguousLocal: Track[]
   total: number
   owned: number
   missing: number
+  ambiguous: number
 }
 
-/** 归一化名字用于匹配:小写、去括号内容、去标点空白 */
+/** Normalize punctuation and spacing while preserving parenthetical edition words. */
 export function normalizeName(s: string): string {
   return (s ?? '')
     .toLowerCase()
-    .replace(/[（(【\[《].*?[)）】\]》]/g, '')
-    .replace(/[\s·・.,'"!?！？、，。—\-_/\\]/g, '')
+    .replace(/[\s·・.,'"!?！？、，。—\-_/\\()[\]{}（）【】《》]/g, '')
     .trim()
+}
+
+function sameTrackTitle(canonical: CanonicalTrack, local: Track): boolean {
+  return normalizeName(canonical.title) === normalizeName(local.title)
+}
+
+function canMatchTrack(canonical: CanonicalTrack, local: Track): boolean {
+  if (!sameTrackTitle(canonical, local)) return false
+  if (canonical.discNo !== undefined && local.discNo !== undefined && canonical.discNo !== local.discNo) return false
+  if (canonical.trackNo !== undefined && local.trackNo !== undefined && canonical.trackNo !== local.trackNo) return false
+  return true
 }
 
 /**
  * 专辑完整度:把本地曲目对齐到规范曲目表。
- * 匹配对「已有」宽松(归一化名相等即算命中),避免把"其实我有"误判成缺失。
+ * 只在规范曲目与本地曲目形成唯一的一对一匹配时标记「已有」。
  */
 export function computeAlbumCompleteness(local: Track[], canonical: CanonicalTrack[]): AlbumCompleteness {
-  const localByName = new Map<string, Track>()
-  for (const t of local) {
-    const key = normalizeName(t.title)
-    if (key && !localByName.has(key)) localByName.set(key, t)
-  }
-
   const usedLocalIds = new Set<string>()
-  const entries: AlbumTrackEntry[] = canonical.map((c) => {
-    const key = normalizeName(c.title)
-    const hit = key ? localByName.get(key) : undefined
-    if (hit && !usedLocalIds.has(hit.id)) {
+  const titleLocalCandidates = canonical.map((entry) => local.filter((track) => sameTrackTitle(entry, track)))
+  const localCandidates = canonical.map((entry) => local.filter((track) => canMatchTrack(entry, track)))
+  const canonicalCandidates = local.map((track) => canonical.filter((entry) => canMatchTrack(entry, track)))
+  const entries: AlbumTrackEntry[] = canonical.map((c, index) => {
+    const candidates = localCandidates[index] ?? []
+    const hit = candidates.length === 1 && canonicalCandidates[local.indexOf(candidates[0]!) ]?.length === 1
+      ? candidates[0]
+      : undefined
+    if (hit) {
       usedLocalIds.add(hit.id)
       return { canonical: c, local: hit, status: 'inLibrary' as const }
     }
-    return { canonical: c, status: 'missing' as const }
+    return { canonical: c, status: (titleLocalCandidates[index]?.length ?? 0) > 0 ? 'ambiguous' as const : 'missing' as const }
   })
 
   const extraLocal = local.filter((t) => !usedLocalIds.has(t.id))
+  const ambiguousLocal = local.filter((t) => !usedLocalIds.has(t.id) && canonical.some((entry) => sameTrackTitle(entry, t)))
+  const trueExtraLocal = extraLocal.filter((t) => !ambiguousLocal.some((ambiguous) => ambiguous.id === t.id))
   const owned = entries.filter((e) => e.status === 'inLibrary').length
+  const missing = entries.filter((e) => e.status === 'missing').length
+  const ambiguous = entries.filter((e) => e.status === 'ambiguous').length
   return {
     entries,
-    extraLocal,
+    extraLocal: trueExtraLocal,
+    ambiguousLocal,
     total: canonical.length,
     owned,
-    missing: canonical.length - owned,
+    missing,
+    ambiguous,
   }
 }
 
-export type AlbumStatus = 'inLibrary' | 'missing'
+export type AlbumStatus = 'inLibrary' | 'missing' | 'ambiguous'
 
 export interface ArtistAlbumEntry {
   canonical: CanonicalAlbum
@@ -96,9 +120,33 @@ export interface ArtistCompleteness {
   entries: ArtistAlbumEntry[]
   /** 本地有、规范作品集里没有的专辑 */
   extraLocal: Album[]
+  /** 能匹配多个规范条目，不能安全归属的本地专辑 */
+  ambiguousLocal: Album[]
   total: number
   owned: number
   missing: number
+  ambiguous: number
+}
+
+function meaningfulEdition(value: string | undefined): string {
+  return normalizeName(value ?? '')
+    .replace(/录音室版|录音室|专辑|album|single|ep|studio/g, '')
+}
+
+function canMatchAlbum(canonical: CanonicalAlbum, local: Album): boolean {
+  const canonicalName = normalizeName(canonical.name)
+  const localName = normalizeName(local.name)
+  const edition = meaningfulEdition(canonical.edition)
+  if (edition) {
+    if (!localName.includes(edition)) return false
+    if (canonicalName.replace(edition, '') !== localName.replace(edition, '')) return false
+  } else if (canonicalName !== localName) {
+    return false
+  }
+  if (canonical.artistName && !local.artists.some((artist) => normalizeName(artist.name) === normalizeName(canonical.artistName!))) return false
+  const localYear = local.releaseDate?.slice(0, 4)
+  if (canonical.year && localYear && Number(localYear) !== canonical.year) return false
+  return true
 }
 
 /**
@@ -106,31 +154,35 @@ export interface ArtistCompleteness {
  * v1 只区分「已入库 / 未入库」(专辑级);「部分入库」需逐张拉曲目表,留待后续。
  */
 export function computeArtistCompleteness(localAlbums: Album[], canonical: CanonicalAlbum[]): ArtistCompleteness {
-  const localByName = new Map<string, Album>()
-  for (const a of localAlbums) {
-    const key = normalizeName(a.name)
-    if (key && !localByName.has(key)) localByName.set(key, a)
-  }
-
   const usedIds = new Set<string>()
-  const entries: ArtistAlbumEntry[] = canonical.map((c) => {
-    const key = normalizeName(c.name)
-    const hit = key ? localByName.get(key) : undefined
-    if (hit && !usedIds.has(hit.id)) {
+  const localCandidates = canonical.map((entry) => localAlbums.filter((album) => canMatchAlbum(entry, album)))
+  const canonicalCandidates = localAlbums.map((album) => canonical.filter((entry) => canMatchAlbum(entry, album)))
+  const entries: ArtistAlbumEntry[] = canonical.map((c, index) => {
+    const candidates = localCandidates[index] ?? []
+    const hit = candidates.length === 1 && canonicalCandidates[localAlbums.indexOf(candidates[0]!) ]?.length === 1
+      ? candidates[0]
+      : undefined
+    if (hit) {
       usedIds.add(hit.id)
       return { canonical: c, local: hit, status: 'inLibrary' as const }
     }
-    return { canonical: c, status: 'missing' as const }
+    return { canonical: c, status: candidates.length > 0 ? 'ambiguous' as const : 'missing' as const }
   })
 
   const extraLocal = localAlbums.filter((a) => !usedIds.has(a.id))
+  const ambiguousLocal = localAlbums.filter((a, index) => !usedIds.has(a.id) && (canonicalCandidates[index]?.length ?? 0) > 0)
+  const trueExtraLocal = extraLocal.filter((a) => !ambiguousLocal.some((ambiguous) => ambiguous.id === a.id))
   const owned = entries.filter((e) => e.status === 'inLibrary').length
+  const missing = entries.filter((e) => e.status === 'missing').length
+  const ambiguous = entries.filter((e) => e.status === 'ambiguous').length
   return {
     entries,
-    extraLocal,
+    extraLocal: trueExtraLocal,
+    ambiguousLocal,
     total: canonical.length,
     owned,
-    missing: canonical.length - owned,
+    missing,
+    ambiguous,
   }
 }
 

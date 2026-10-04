@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { Playlist } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { Icon, iconSize } from '@/components/icon'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import { ListToolbarBar, useListSort } from '@/components/list-toolbar'
 import { ErrorState, PaginationFooter } from '@/components/list-states'
 import { TrackListSkeleton } from '@/components/skeleton'
@@ -64,8 +65,9 @@ export function PlaylistsScreen() {
       headerRight: canWrite
         ? () => (
             <Pressable
-              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               onPress={handleCreate}
+              hitSlop={12}
+              style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
               accessibilityRole="button"
               accessibilityLabel="新建歌单"
             >
@@ -74,7 +76,7 @@ export function PlaylistsScreen() {
           )
         : undefined,
     }),
-    [canWrite, handleCreate, colors.textPrimary],
+    [canWrite, handleCreate, colors.textPrimary, colors.bgListItemHover],
   )
 
   if (query.isPending) return <TrackListSkeleton />

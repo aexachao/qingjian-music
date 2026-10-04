@@ -20,6 +20,7 @@ import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
 import { StackBackButton } from '@/components/stack-back-button'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { TrackRow } from '@/components/track-row'
 import { VinylDisc } from '@/components/vinyl-disc'
@@ -107,9 +108,10 @@ export function GenreDetailScreen() {
     {
       id: 'append-to-queue',
       title: '添加到当前播放队列',
-      image: Platform.OS === 'ios' ? 'text.badge.plus' : undefined,
+      image: Platform.OS === 'ios' ? 'text.append' : undefined,
+      imageColor: colors.iconBright,
     },
-  ], [])
+  ], [colors.iconBright])
 
   const handleMenuAction = ({ nativeEvent }: NativeActionEvent) => {
     if (nativeEvent.event === 'append-to-queue') {
@@ -166,6 +168,10 @@ export function GenreDetailScreen() {
       transform: [{ scale }],
     }
   })
+
+  const ambientBackgroundAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -scrollY.value }],
+  }))
 
   const navBgAnimatedStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
@@ -242,8 +248,8 @@ export function GenreDetailScreen() {
             <View style={styles.navRightRow}>
               {pinned ? (
                 <Pressable
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
+                  hitSlop={12}
+                  style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
                   onPress={() => {
                     void play(0)
                   }}
@@ -262,7 +268,8 @@ export function GenreDetailScreen() {
                 onPressAction={handleMenuAction}
               >
                 <Pressable
-                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
+                  hitSlop={12}
+                  style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel="流派菜单"
@@ -275,8 +282,10 @@ export function GenreDetailScreen() {
         }}
       />
 
-      {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} coverId={firstTrackCoverId} />
+      {/* 氛围背景从屏幕顶端开始，并与可滚动头部保持相同滚动位移。 */}
+      <Animated.View style={[StyleSheet.absoluteFill, ambientBackgroundAnimatedStyle]} pointerEvents="none">
+        <AmbientHeaderBackground palette={palette} coverId={firstTrackCoverId} />
+      </Animated.View>
 
       <Animated.FlatList
         data={items}
@@ -442,9 +451,9 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
     gap: spacing.xs + 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.bgButtonSecondary,
+    backgroundColor: colors.detailActionSurface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderDefault,
+    borderColor: colors.borderEmphasis,
   },
   secondaryButtonLabel: {
     ...typography.subhead,
@@ -457,16 +466,6 @@ const useStyles = createThemedStyles((colors) => ({
   buttonPressed: {
     opacity: 0.75,
     transform: [{ scale: 0.96 }],
-  },
-  navIconButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-  },
-  navIconButtonPressed: {
-    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',

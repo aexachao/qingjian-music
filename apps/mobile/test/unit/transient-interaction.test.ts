@@ -51,7 +51,7 @@ describe('临时交互层手势优先级', () => {
 
   it('专辑 / 艺术家 / 流派 / 歌单四个二级页头部显式配置返回按钮', () => {
     for (const path of ['album-detail', 'artist-detail', 'genre-detail', 'playlist-detail']) {
-      expect(source(`screens/${path}.tsx`), path).toContain('headerLeft: () => <StackBackButton />')
+      expect(source(`screens/${path}.tsx`), path).toContain('headerLeft: () => <StackBackButton')
     }
   })
 
@@ -59,7 +59,7 @@ describe('临时交互层手势优先级', () => {
     for (const path of ['album-detail', 'genre-detail', 'playlist-detail']) {
       const screen = source(`screens/${path}.tsx`)
       const actions = screen.slice(screen.indexOf('headerRight:'), screen.indexOf('<MenuView', screen.indexOf('headerRight:')))
-      expect(actions, path).toContain('{pinned ? (')
+      expect(actions, path).toContain(path === 'album-detail' ? '{pinned && queueTracks.length > 0 && localAlbumConfirmed ? (' : '{pinned ? (')
       expect(actions, path).toContain(') : null}')
       expect(screen, path).not.toContain('navPlayAnimatedStyle')
     }

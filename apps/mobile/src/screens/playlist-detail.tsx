@@ -22,6 +22,7 @@ import { useConfirm } from '@/components/confirm-modal'
 import { usePrompt } from '@/components/prompt-modal'
 import { useToast } from '@/components/toast'
 import { StackBackButton } from '@/components/stack-back-button'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, PaginationFooter } from '@/components/list-states'
 import { TrackListSkeleton } from '@/components/skeleton'
@@ -137,6 +138,10 @@ export function PlaylistDetailScreen() {
     }
   })
 
+  const ambientBackgroundAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -scrollY.value }],
+  }))
+
   const navBgAnimatedStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       scrollY.value,
@@ -246,7 +251,8 @@ export function PlaylistDetailScreen() {
       {
         id: 'append-to-queue',
         title: '添加到当前播放队列',
-        image: Platform.OS === 'ios' ? 'text.badge.plus' : undefined,
+        image: Platform.OS === 'ios' ? 'text.append' : undefined,
+        imageColor: colors.iconBright,
       },
     ]
     if (canWrite) {
@@ -254,16 +260,18 @@ export function PlaylistDetailScreen() {
         id: 'rename-playlist',
         title: '重命名歌单',
         image: Platform.OS === 'ios' ? 'pencil' : undefined,
+        imageColor: colors.iconBright,
       })
       actions.push({
         id: 'delete-playlist',
         title: '删除歌单',
         image: Platform.OS === 'ios' ? 'trash' : undefined,
+        imageColor: colors.iconBright,
         attributes: { destructive: true },
       })
     }
     return actions
-  }, [canWrite])
+  }, [canWrite, colors.iconBright])
 
   const handleMenuAction = ({ nativeEvent }: NativeActionEvent) => {
     switch (nativeEvent.event) {
@@ -344,8 +352,8 @@ export function PlaylistDetailScreen() {
             <View style={styles.navRightRow}>
               {pinned ? (
                 <Pressable
-                  hitSlop={8}
-                  style={styles.navIconButton}
+                  hitSlop={12}
+                  style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
                   onPress={() => {
                     void play(0)
                   }}
@@ -364,7 +372,8 @@ export function PlaylistDetailScreen() {
                 onPressAction={handleMenuAction}
               >
                 <Pressable
-                  style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
+                  hitSlop={12}
+                  style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel="歌单菜单"
@@ -377,8 +386,10 @@ export function PlaylistDetailScreen() {
         }}
       />
 
-      {/* 顶部柔和流体弥散氛围光底色 */}
-      <AmbientHeaderBackground palette={palette} coverId={playlist?.coverId} />
+      {/* 氛围背景从屏幕顶端开始，并与可滚动头部保持相同滚动位移。 */}
+      <Animated.View style={[StyleSheet.absoluteFill, ambientBackgroundAnimatedStyle]} pointerEvents="none">
+        <AmbientHeaderBackground palette={palette} coverId={playlist?.coverId} />
+      </Animated.View>
 
       <Animated.FlatList
         data={items}
@@ -576,9 +587,9 @@ const useStyles = createThemedStyles((colors) => ({
     justifyContent: 'center',
     gap: spacing.xs + 2,
     borderRadius: radius.pill,
-    backgroundColor: colors.bgButtonSecondary,
+    backgroundColor: colors.detailActionSurface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderDefault,
+    borderColor: colors.borderEmphasis,
   },
   actionButtonActive: {
     borderColor: colors.borderEmphasis,
@@ -594,16 +605,6 @@ const useStyles = createThemedStyles((colors) => ({
   buttonPressed: {
     opacity: 0.75,
     transform: [{ scale: 0.96 }],
-  },
-  navIconButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-  },
-  navIconButtonPressed: {
-    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',

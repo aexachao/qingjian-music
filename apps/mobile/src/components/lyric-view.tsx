@@ -35,6 +35,7 @@ import { LyricStageMask, type LyricStageMaskProps } from '@/components/player/ly
 import { ErrorState } from '@/components/list-states'
 import { Icon, iconSize, IconButton } from '@/components/icon'
 import { useLyricSheet } from '@/lib/lyric-offset'
+import { lyricScrollGeometry } from '@/lib/lyric-scroll-geometry'
 import { usePlayerStore } from '@/player/store'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
@@ -194,6 +195,7 @@ export function LyricView({
   const offsets = useRef<number[]>(trackOffsetsCache.get(layoutCacheKey) ?? [])
   const rowHeights = useRef<number[]>(trackRowHeightsCache.get(layoutCacheKey) ?? [])
   const [viewportHeight, setViewportHeight] = useState(0)
+  const [lastRowHeight, setLastRowHeight] = useState(() => trackRowHeightsCache.get(layoutCacheKey)?.at(-1) ?? 0)
   /** 用户手指按压下的行（按下显示圆角矩形板，手指离开后立即消失） */
   const [pressingRowIndex, setPressingRowIndex] = useState<number | null>(null)
   /** 长按某一行 → 进入分享面板并默认选中该句 */
@@ -223,9 +225,15 @@ export function LyricView({
   const [initialContentOffset] = useState(() => {
     const cached = trackOffsetsCache.get(layoutCacheKey)
     const vh = 500
-    const effectiveH = Math.max(vh - maskTopInset - (maskBottomInset || bottomSpace || 0), 120)
     const y = activeIndex >= 0 && cached?.[activeIndex] !== undefined
-      ? Math.max(cached[activeIndex]! - maskTopInset - effectiveH * 0.38, 0)
+      ? lyricScrollGeometry({
+          viewportHeight: vh,
+          rowTop: cached[activeIndex]!,
+          rowHeight: trackRowHeightsCache.get(layoutCacheKey)?.[activeIndex] ?? 0,
+          topInset: maskTopInset,
+          bottomInset: Math.max(maskBottomInset, bottomSpace ?? 0),
+          contentTopInset: spacing.sm,
+        }).targetScrollY
       : 0
     return { x: 0, y }
   })
@@ -262,6 +270,7 @@ export function LyricView({
     lastLinesRef.current = lines
     offsets.current = []
     rowHeights.current = []
+    setLastRowHeight(0)
     trackOffsetsCache.delete(layoutCacheKey)
     trackRowHeightsCache.delete(layoutCacheKey)
     hasPositionedForCurrentTrackRef.current = false
@@ -278,6 +287,7 @@ export function LyricView({
   useEffect(() => {
     offsets.current = trackOffsetsCache.get(layoutCacheKey) ?? []
     rowHeights.current = trackRowHeightsCache.get(layoutCacheKey) ?? []
+    setLastRowHeight(rowHeights.current.at(-1) ?? 0)
     isInteractingRef.current = false
     isPressingRowRef.current = false
     isReadingSheetRef.current = false
@@ -305,9 +315,14 @@ export function LyricView({
       const targetY = offsets.current[index]
       if (targetY === undefined) return
 
-      const visibleTopInset = maskTopInset
-      const visibleBottomInset = maskBottomInset || bottomSpace || 0
-      const effectiveHeight = Math.max(viewportHeight - visibleTopInset - visibleBottomInset, 120)
+      const geometry = lyricScrollGeometry({
+        viewportHeight,
+        rowTop: targetY,
+        rowHeight: rowHeights.current[index] ?? 0,
+        topInset: maskTopInset,
+        bottomInset: Math.max(maskBottomInset, bottomSpace ?? 0),
+        contentTopInset: spacing.sm,
+      })
 
       // 1. 手指按住、拖拽或惯性滑动中：硬锁定，绝对不自动滚动视口
       if (isInteractingRef.current) return
@@ -317,8 +332,8 @@ export function LyricView({
       // 整个阅读保护期都由用户掌握视口，当前行离屏也不能提前抢回。
       if (userManualOverrideRef.current && !forceCenter) return
 
-      // 正常自动跟随：定位到屏幕中上部（约 40% 视口高）。
-      const targetScroll = Math.max(targetY - visibleTopInset - effectiveHeight * 0.38, 0)
+      // Keep every line on the same visible-stage anchor; long lines pin to its top.
+      const targetScroll = geometry.targetScrollY
 
       if (animated) {
         scrollRef.current?.scrollTo({ y: targetScroll, animated: true })
@@ -424,7 +439,7 @@ export function LyricView({
 
     // 首次定位之外都使用可被手指打断的原生滚动，倒退/跨行跳转也不瞬移。
     scrollToActiveIndex(activeIndex, { animated: true })
-  }, [activeIndex, active, playing, viewportHeight, scrollToActiveIndex])
+  }, [activeIndex, active, playing, viewportHeight, lastRowHeight, scrollToActiveIndex])
 
   const handleRowTap = useCallback(
     (index: number, lineAtMs: number) => {
@@ -468,6 +483,7 @@ export function LyricView({
       trackOffsetsCache.set(layoutCacheKey, offsets.current)
       rowHeights.current[index] = height
       trackRowHeightsCache.set(layoutCacheKey, rowHeights.current)
+      if (index === lines.length - 1) setLastRowHeight(height)
 
       // 如果当前正在播放的行初次完成排版，且视口高度已就绪，立即无动画直达定位
       const latest = latestFollow.current
@@ -476,8 +492,19 @@ export function LyricView({
         latest.scrollToActiveIndex(index, { animated: false, forceCenter: true })
       }
     },
-    [layoutCacheKey, viewportHeight],
+    [layoutCacheKey, viewportHeight, lines.length],
   )
+
+  const tailPadding = viewportHeight > 0
+    ? lyricScrollGeometry({
+        viewportHeight,
+        rowTop: 0,
+        rowHeight: lastRowHeight,
+        topInset: maskTopInset,
+        bottomInset: Math.max(maskBottomInset, bottomSpace ?? 0),
+        contentTopInset: spacing.sm,
+      }).tailPadding
+    : 240
 
   const handleRowPressIn = useCallback((index: number) => {
     isPressingRowRef.current = true
@@ -699,7 +726,7 @@ export function LyricView({
         <Animated.ScrollView
           ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={[styles.content, (bottomSpace || stageMask) ? { paddingBottom: immersive ? Math.max((bottomSpace ?? 0) + (stageMask?.bottomInset ?? 24) + 24, viewportHeight * 0.6) : (bottomSpace ?? 0) + 24 } : null]}
+          contentContainerStyle={[styles.content, { paddingBottom: tailPadding }]}
           contentOffset={initialContentOffset}
           showsVerticalScrollIndicator={false}
           bounces={true}
@@ -1113,7 +1140,7 @@ const useStyles = createThemedStyles((colors) => ({
   scroll: { flex: 1 },
   content: {
     paddingTop: spacing.sm,
-    paddingBottom: 240,
+    paddingBottom: 0,
     gap: spacing.sm,
     alignItems: 'stretch',
     width: '100%',

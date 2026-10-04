@@ -15,7 +15,7 @@ describe('排序选中项进入 queryKey，换排序会重新取数', () => {
   })
 
   it('专辑详情：sortKey 进 queryKey，sort 透传给 albumTracks', () => {
-    expect(hasCode('screens/album-detail.tsx', "['album-tracks', connection?.id, id, sortKey]")).toBe(true)
+    expect(hasCode('screens/album-detail.tsx', "['album-tracks', connection?.id, localAlbumId, sortKey]")).toBe(true)
     expect(hasCode('screens/album-detail.tsx', 'size: 100, sort }')).toBe(true)
   })
 

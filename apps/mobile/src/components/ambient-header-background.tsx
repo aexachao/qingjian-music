@@ -11,6 +11,7 @@ export interface AmbientHeaderBackgroundProps {
   palette: AmbientPalette
   height?: number
   coverId?: string
+  coverUrl?: string
 }
 
 /**
@@ -21,7 +22,7 @@ export interface AmbientHeaderBackgroundProps {
  * - 浅色模式下采用无黑色介入的自然渐变衰减，避免彩色弥散与浅灰底色相交产生发灰/发脏的泥泞感；
  * - 广泛应用于 专辑、歌单、流派与收藏 详情页。
  */
-export function AmbientHeaderBackground({ palette, height = 480, coverId }: AmbientHeaderBackgroundProps) {
+export function AmbientHeaderBackground({ palette, height = 480, coverId, coverUrl }: AmbientHeaderBackgroundProps) {
   const { colors, mode } = useAppTheme()
   const styles = useStyles()
   const { provider } = useServerSession()
@@ -36,9 +37,10 @@ export function AmbientHeaderBackground({ palette, height = 480, coverId }: Ambi
   }, [mode, colors.bgPrimary])
 
   const resource = useMemo(() => {
+    if (coverUrl) return { url: coverUrl, headers: {} }
     if (!coverId || !provider) return null
     return provider.image(coverId, 400)
-  }, [coverId, provider])
+  }, [coverId, coverUrl, provider])
 
   return (
     <View style={[styles.ambientRoot, { height }]} pointerEvents="none">
@@ -46,9 +48,10 @@ export function AmbientHeaderBackground({ palette, height = 480, coverId }: Ambi
         {resource ? (
           <Image
             source={{ uri: resource.url, headers: resource.headers }}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, { transform: [{ scale: 1.35 }] }]}
             contentFit="cover"
-            blurRadius={Platform.OS === 'ios' ? 60 : 40}
+            blurRadius={120}
+            cachePolicy="memory-disk"
           />
         ) : (
           <>
@@ -69,11 +72,12 @@ export function AmbientHeaderBackground({ palette, height = 480, coverId }: Ambi
           </>
         )}
       </View>
-      <BlurView
+      {resource ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bgPrimary, opacity: mode === 'dark' ? 0.38 : 0.18 }]} /> : null}
+      {!resource ? <BlurView
         intensity={Platform.OS === 'ios' ? 90 : 100}
         tint={mode === 'dark' ? 'dark' : 'light'}
         style={StyleSheet.absoluteFill}
-      />
+      /> : null}
       <LinearGradient
         colors={gradientColors}
         locations={[0.25, 0.65, 1.0]}

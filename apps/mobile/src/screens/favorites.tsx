@@ -19,6 +19,7 @@ import { TrackListSkeleton } from '@/components/skeleton'
 import { SegmentedTabs, type SegmentedTabItem } from '@/components/segmented-tabs'
 import { TabPager } from '@/components/tab-pager'
 import { StackBackButton } from '@/components/stack-back-button'
+import { stackHeaderIconStyle } from '@/components/stack-header-icon-style'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { TrackRow } from '@/components/track-row'
 import { useToast } from '@/components/toast'
@@ -177,7 +178,8 @@ export function FavoritesScreen() {
             onPressAction={handleMenuAction}
           >
             <Pressable
-              style={({ pressed }) => [styles.navIconButton, pressed && styles.navIconButtonPressed]}
+              hitSlop={12}
+              style={({ pressed }) => stackHeaderIconStyle(pressed, colors.bgListItemHover)}
               accessible
               accessibilityRole="button"
               accessibilityLabel="收藏菜单"
@@ -438,16 +440,6 @@ const useStyles = createThemedStyles((colors) => ({
   buttonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }],
-  },
-  navIconButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-  },
-  navIconButtonPressed: {
-    backgroundColor: colors.bgListItemHover,
   },
   toolbarSlot: {
     alignSelf: 'stretch',

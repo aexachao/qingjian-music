@@ -4,6 +4,7 @@ import { CoverImage } from './cover-image'
 
 export interface CDSleeveCoverProps {
   coverId?: string | null
+  coverUrl?: string
   /** 整体宽度（默认 260，对应 375 画布下 260x240 基准） */
   width?: number
   /** 兼容尺寸属性，若传入则作为整体宽度 */
@@ -32,7 +33,7 @@ const BASE_COVER_WIDTH = 400
 const BASE_COVER_HEIGHT = 400
 const BASE_COVER_RADIUS = 8
 
-export function CDSleeveCover({ coverId, width, size, style, theme }: CDSleeveCoverProps) {
+export function CDSleeveCover({ coverId, coverUrl, width, size, style, theme }: CDSleeveCoverProps) {
   const { mode } = useAppTheme()
   const resolvedMode = theme ?? mode
   const sleeveImage = resolvedMode === 'light' ? VINYL_SLEEVE_LIGHT : VINYL_SLEEVE_DARK
@@ -63,6 +64,7 @@ export function CDSleeveCover({ coverId, width, size, style, theme }: CDSleeveCo
       >
         <CoverImage
           coverId={coverId ?? undefined}
+          resource={coverUrl ? { url: coverUrl, headers: {} } : undefined}
           size={coverWidth}
           borderRadius={coverRadius}
         />
@@ -94,4 +96,3 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 })
-

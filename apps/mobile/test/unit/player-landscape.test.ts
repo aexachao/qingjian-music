@@ -4,6 +4,8 @@ import { readSource } from '../support/source'
 describe('横屏播放器双联屏组件复用与架构规范', () => {
   const landscapeSource = readSource('components/player/player-landscape-view.tsx')
   const playerSource = readSource('app/player.tsx')
+  const rootLayoutSource = readSource('app/_layout.tsx')
+  const stackOptionsSource = readSource('lib/stack-options.ts')
   const deckSource = readSource('components/player/player-deck.tsx')
   const queueSource = readSource('components/player/player-queue.tsx')
 
@@ -60,10 +62,33 @@ describe('横屏播放器双联屏组件复用与架构规范', () => {
     expect(queueSource).toContain('showCurrentCard')
   })
 
+  it('播放器使用不透底全屏模态，保留播放器自己的下滑退出手势', () => {
+    expect(rootLayoutSource).toContain("presentation: 'fullScreenModal'")
+    expect(rootLayoutSource).not.toContain("presentation: 'transparentModal'")
+    expect(rootLayoutSource).toContain("getThemeColors('dark').bgPrimary")
+    expect(stackOptionsSource).toContain('gestureEnabled: true')
+    expect(playerSource).toContain('.onEnd((event) => {')
+    expect(playerSource).toContain('runOnJS(dismiss)()')
+  })
+
   it('player.tsx 解锁重力感应全向旋转并将模式与状态完全透传给横屏视图', () => {
     expect(playerSource).toContain('ScreenOrientation.unlockAsync()')
     expect(playerSource).toContain('ScreenOrientation.lockAsync')
+    expect(playerSource).not.toContain('addOrientationChangeListener')
     expect(playerSource).toContain('mode={mode}')
     expect(playerSource).toContain('onModeChange={setMode}')
+    expect(playerSource).toContain('autoHideHomeIndicator: true')
+    expect(playerSource).toContain('autoHideHomeIndicator: false')
+    expect(playerSource).toContain('useWindowDimensions()')
+    expect(playerSource).toContain('onLayout={onViewportLayout}')
+    expect(playerSource).toContain('event.nativeEvent.layout.width')
+    expect(playerSource).toContain('styles.root, { width, height }')
+    expect(playerSource).not.toContain('root: { flex: 1')
+    expect(playerSource).toContain('key="landscape-player-canvas"')
+    expect(playerSource).toContain('key="portrait-player-canvas"')
+    expect(playerSource).toContain('committedStageViewportKey.current !== stageViewportKey')
+    expect(playerSource).toContain('transition={coverTransition}')
+    expect(playerSource).toContain('setTransitioningCoverIdentity(shouldAnimate ? coverIdentity : \'\')')
+    expect(landscapeSource).toContain('viewport: { width: number; height: number; insets: EdgeInsets }')
   })
 })

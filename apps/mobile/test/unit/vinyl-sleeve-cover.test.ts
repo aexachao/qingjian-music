@@ -27,6 +27,6 @@ describe('黑胶唱片封套组件 (CDSleeveCover / VinylSleeveCover)', () => {
   })
 
   it('专辑详情页面引用 CDSleeveCover 作为头图', () => {
-    expect(hasCode('screens/album-detail.tsx', '<CDSleeveCover coverId={album.coverId} width={260} />')).toBe(true)
+    expect(hasCode('screens/album-detail.tsx', '<CDSleeveCover coverId={album.coverId} coverUrl={catalogCover} width={260} />')).toBe(true)
   })
 })

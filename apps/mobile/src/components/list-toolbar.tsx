@@ -41,6 +41,10 @@ interface ListToolbarProps {
   kind: ListKind
   /** 分页查询给的 total —— 不是已加载条数 */
   total: number
+  /** Optional context-specific count label; total still controls empty state. */
+  countLabel?: string
+  /** Hide sort/selection controls while preserving the summary row. */
+  showActions?: boolean
   selection: SortSelection | undefined
   onSelect: (selection: SortSelection) => void
   /** 传了它就多一颗「批量选择」入口（在排序图标左侧） */
@@ -59,7 +63,7 @@ interface ListToolbarProps {
  *
  * 间距由外面包一层控制（列表页固定条 / 详情页头部），这里只负责这一行。
  */
-export function ListToolbar({ kind, total, selection, onSelect, onStartSelection, totalDurationMs }: ListToolbarProps) {
+export function ListToolbar({ kind, total, countLabel, showActions = true, selection, onSelect, onStartSelection, totalDurationMs }: ListToolbarProps) {
   const colors = useThemeColors()
   const styles = useStyles()
   const buttonRef = useRef<View>(null)
@@ -69,7 +73,7 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
 
   if (total <= 0) return null
 
-  const baseCount = countText(kind, total)
+  const baseCount = countLabel ?? countText(kind, total)
   const playable = totalDurationMs ? formatPlayableDurationText(totalDurationMs) : ''
   const displayCount = playable ? `${baseCount} · ${playable}` : baseCount
 
@@ -85,7 +89,7 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
     <View style={styles.bar}>
       <Text style={styles.count}>{displayCount}</Text>
 
-      <View style={styles.actions}>
+      {showActions ? <View style={styles.actions}>
         {onStartSelection ? (
           <Pressable
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 6 }}
@@ -117,7 +121,7 @@ export function ListToolbar({ kind, total, selection, onSelect, onStartSelection
             />
           </Pressable>
         ) : null}
-      </View>
+      </View> : null}
 
       <ListSortMenu
         visible={menuOpen}
@@ -138,7 +142,7 @@ const useStyles = createThemedStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  count: { ...typography.caption, color: colors.textTertiary },
+  count: { ...typography.caption, color: colors.textTertiary, flex: 1, flexShrink: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   actionButton: {
     width: 32,

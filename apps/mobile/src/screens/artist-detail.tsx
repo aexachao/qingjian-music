@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Pressable,
   StyleSheet,
+  StatusBar,
   Text,
   useWindowDimensions,
   View,
@@ -10,21 +11,19 @@ import { BlurView } from 'expo-blur'
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, runOnJS } from 'react-native-reanimated'
 import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Link, Stack, useLocalSearchParams } from 'expo-router'
+import { Link, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type { Track } from '@qj/core-domain'
 import { CoverImage } from '@/components/cover-image'
 import { DetailPinnedToolbar } from '@/components/detail-pinned-toolbar'
-import { FormatBadge } from '@/components/format-badge'
-import { Icon, IconButton, iconSize } from '@/components/icon'
+import { DetailActionCapsules } from '@/components/detail-action-capsule'
+import { IconButton, iconSize } from '@/components/icon'
 import { ListToolbar, useListSort } from '@/components/list-toolbar'
 import { EmptyState, ErrorState, LoadingState, PaginationFooter } from '@/components/list-states'
-import { LivePlayingBars } from '@/components/playing-bars'
 import { SegmentedTabs } from '@/components/segmented-tabs'
 import { StackBackButton } from '@/components/stack-back-button'
 import { TabPager } from '@/components/tab-pager'
-import { TrackMoreButton } from '@/components/track-more-button'
 import { TrackRow } from '@/components/track-row'
 import { TrackSelectionModal } from '@/components/track-selection-modal'
 import { useToast } from '@/components/toast'
@@ -32,9 +31,8 @@ import { useBottomSpace } from '@/lib/bottom-space'
 import { useDetailHref } from '@/lib/detail-href'
 import { tap } from '@/lib/haptics'
 import { useLocalFavoritesStore } from '@/lib/local-favorites'
-import { pickFeaturedTracks } from '@/lib/track-select'
 import { computeArtistCompleteness } from '@qj/core-domain'
-import { fetchCanonicalArtistAlbums, hasMusicInfoSource } from '@/lib/external-music-info'
+import { fetchCanonicalArtistAlbumPage, getMusicInfoSourceRef, type CatalogAlbum } from '@/lib/external-music-info'
 import { usePagedQuery } from '@/lib/paged-query'
 import { useServerSession } from '@/lib/server-session'
 import { useExternalSourcesStore } from '@/lib/external-source'
@@ -44,22 +42,22 @@ import { selectCurrent, usePlayerStore } from '@/player/store'
 import { createThemedStyles, useAppTheme, useThemeColors } from '@/theme/theme-provider'
 import { fonts, radius, spacing, typography } from '@/theme/tokens'
 
-type ArtistTab = 'overview' | 'albums' | 'tracks'
+type ArtistTab = 'tracks' | 'albums'
+type AlbumFilter = 'all' | 'library'
 
 const DEFAULT_ARTIST_HERO = require('../../assets/images/default-artist-hero.jpg')
 
 const TABS: readonly { key: ArtistTab; label: string }[] = [
-  { key: 'overview', label: '精选' },
+  { key: 'tracks', label: '歌曲' },
   { key: 'albums', label: '专辑' },
-  { key: 'tracks', label: '全部歌曲' },
 ]
 
 /**
  * 2026 旗舰级音乐人主页：
  * - 全屏通顶背景与多段景深渐变过渡；
  * - 44pt 毛玻璃折叠吸顶导航栏（带艺人小标题与吸顶即时播放键）；
- * - 结合 Last.fm 全球音乐大数据的「热门歌曲 Top 5」与「相似音乐人」；
- * - 最新发行焦点卡片 + 140pt 唱片横滑架 + 完整曲库多选与排序。
+ * - 歌曲与专辑两个内容页签；
+ * - 完整曲库分页、多选与排序，并合并本地及目录专辑。
  */
 export function ArtistDetailScreen() {
   const { mode } = useAppTheme()
@@ -70,6 +68,7 @@ export function ArtistDetailScreen() {
   const sourceRevision = useExternalSourcesStore((state) => state.revision)
   const sourceServices = useExternalSourcesStore((state) => state.services)
   const sourceIdentity = externalSourceCacheIdentity(sourceServices)
+  const catalogSource = getMusicInfoSourceRef()
   const { width } = useWindowDimensions()
   const bottom = useBottomSpace()
   const href = useDetailHref()
@@ -86,21 +85,25 @@ export function ArtistDetailScreen() {
   const [tabsHeight, setTabsHeight] = useState(48)
   const pinAt = Math.max(0, tracksHeaderHeight - toolbarHeight - (topHeaderOffset + tabsHeight))
 
-  const [tab, setTab] = useState<ArtistTab>('overview')
+  const [tab, setTab] = useState<ArtistTab>('tracks')
+  const [albumFilter, setAlbumFilter] = useState<AlbumFilter>('all')
   const activeTabIndex = Math.max(0, TABS.findIndex((t) => t.key === tab))
-  const overviewListRef = useRef<Animated.FlatList>(null)
   const albumsListRef = useRef<Animated.FlatList>(null)
   const tracksListRef = useRef<Animated.FlatList>(null)
   const scrollYRef = useRef(0)
-  const [headerHeight, setHeaderHeight] = useState(420)
-  const [tabsY, setTabsY] = useState(380)
-    const scrollYAnim = useSharedValue(0)
+  const [headerHeight, setHeaderHeight] = useState(392)
+  const [tabsY, setTabsY] = useState(352)
+  const scrollYAnim = useSharedValue(0)
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform: [{ translateY: -Math.max(0, scrollYAnim.value) }]
     }
   })
   const [pinned, setPinned] = useState(false)
+  useFocusEffect(useCallback(() => {
+    const entry = StatusBar.pushStackEntry({ barStyle: !pinned || mode === 'dark' ? 'light-content' : 'dark-content' })
+    return () => StatusBar.popStackEntry(entry)
+  }, [pinned, mode]))
 
   // 1. 本地专辑分页查询
   const albums = usePagedQuery({
@@ -108,15 +111,17 @@ export function ArtistDetailScreen() {
     enabled: Boolean(provider && id),
     fetchPage: (page) => provider!.artistAlbums(id, { page, size: 40 }),
   })
+  const localAlbums = albums.items
+  const localAlbumQuery = albums.query
+  const {
+    hasNextPage: hasNextLocalAlbumPage,
+    isFetchingNextPage: isFetchingLocalAlbumPage,
+    isFetchNextPageError: isLocalAlbumPageError,
+    fetchNextPage: fetchNextLocalAlbumPage,
+  } = localAlbumQuery
 
-  // 2. 本地歌曲前 50 首（供热门对齐、首屏播放队列使用）
-  const topTracksQuery = useQuery({
-    queryKey: ['artist-top-tracks', connection?.id, id],
-    enabled: Boolean(provider && id),
-    queryFn: () => provider!.artistTracks(id, { page: 1, size: 50 }),
-  })
 
-  // 3. 全部歌曲分页排序查询（用于「全部歌曲」页签）
+  // 3. 歌曲分页排序查询
   const { selection, setSelection, sortKey, sort } = useListSort('artistTracks')
   const [selecting, setSelecting] = useState(false)
   const allTracks = usePagedQuery<Track>({
@@ -125,8 +130,7 @@ export function ArtistDetailScreen() {
     fetchPage: (page) => provider!.artistTracks(id, { page, size: 50, sort }),
   })
 
-  const localTracks = useMemo(() => topTracksQuery.data?.items ?? [], [topTracksQuery.data?.items])
-  const trackTotalRaw = topTracksQuery.data?.total ?? allTracks.total ?? 0
+  const trackTotalRaw = allTracks.total
 
   // 3.5 权威艺术家详情（名字 + 专辑数 / 曲目数）：
   // 旧做法从首首曲目/专辑里反推名字，“无曲目也无专辑”的艺术家就显不出名字。
@@ -139,52 +143,125 @@ export function ArtistDetailScreen() {
   })
   const artistName =
     detailQuery.data?.name ??
-    localTracks[0]?.artists.find((artist) => artist.id === id)?.name ??
+    allTracks.items[0]?.artists.find((artist) => artist.id === id)?.name ??
     albums.items[0]?.artists[0]?.name
-  const albumTotal = detailQuery.data?.albumCount ?? albums.total
   const trackTotal = detailQuery.data?.trackCount ?? trackTotalRaw
 
   // Last.fm / Deezer / 维基百科等外部源已按「默认只用飞牛、不接外部源」的决定移除。
   // 艺人写真改用飞牛自带的艺人封面（artist coverId）；简介/标签/听众数/相似艺人
   // 飞牛不提供，待“用户填写国内源”后再显示（现阶段隐藏）。
 
-  // 本地精选：收藏优先 + 原顺序补齐
-  const popularTracks = useMemo(() => {
-    return pickFeaturedTracks(localTracks, 5)
-  }, [localTracks])
-
-  // 完整度：配了音乐信息源就拉规范作品集，标出未入库专辑
-  const canonicalAlbumsQuery = useQuery({
-    queryKey: ['canonical-artist-albums', sourceRevision, sourceIdentity, artistName],
-    enabled: Boolean(hasMusicInfoSource() && artistName),
-    staleTime: 1000 * 60 * 60 * 24,
-    queryFn: () => fetchCanonicalArtistAlbums(artistName!),
+  // Configured music-info catalog. Pages stay keyed by both server and source instance.
+  const catalogAlbumsQuery = useInfiniteQuery({
+    queryKey: ['artist-catalog-albums', connection?.id, id, sourceRevision, sourceIdentity, catalogSource?.instanceId, artistName],
+    enabled: Boolean(catalogSource && artistName),
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const result = await fetchCanonicalArtistAlbumPage(artistName!, pageParam, catalogSource)
+      if (result.status === 'error' || result.status === 'source-changed') throw new Error(result.status)
+      return result
+    },
+    getNextPageParam: (lastPage) => lastPage.status === 'ok' ? lastPage.nextCursor : undefined,
+    staleTime: 1000 * 60 * 5,
+    retry: false,
   })
-  const missingAlbums = useMemo(() => {
-    const canonical = canonicalAlbumsQuery.data
-    if (!canonical || canonical.length === 0) return []
-    return computeArtistCompleteness(albums.items, canonical).entries.filter((e) => e.status === 'missing')
-  }, [canonicalAlbumsQuery.data, albums.items])
+  const {
+    hasNextPage: hasNextCatalogAlbumPage,
+    isFetchingNextPage: isFetchingCatalogAlbumPage,
+    isFetchNextPageError: isCatalogAlbumPageError,
+    fetchNextPage: fetchNextCatalogAlbumPage,
+  } = catalogAlbumsQuery
+  const catalogSourceInstanceId = catalogSource?.instanceId
+  const catalogAlbums = useMemo(
+    () => catalogAlbumsQuery.data?.pages.flatMap((page) => page.status === 'ok' ? page.items : []) ?? [],
+    [catalogAlbumsQuery.data],
+  )
+  // Use the domain matcher only against a complete local inventory, so partial pages cannot
+  // turn a not-yet-seen duplicate edition into a confident match or absence.
+  const localAlbumsComplete = localAlbumQuery.isSuccess && !localAlbumQuery.isPlaceholderData && !localAlbumQuery.hasNextPage && !localAlbumQuery.isError
+  const mergedAlbums = useMemo(() => {
+    const completeness = localAlbumsComplete ? computeArtistCompleteness(localAlbums, catalogAlbums) : undefined
+    const matchedCatalogIds = new Set<string>()
+    const matchForLocal = (localId: string) => completeness?.entries.find(
+      (entry) => entry.status === 'inLibrary' && entry.local?.id === localId,
+    )
+    const rows: {
+      key: string
+      name: string
+      year?: number
+      releaseDate?: string
+      coverId?: string
+      localId?: string
+      catalog?: CatalogAlbum
+      availability: 'inLibrary' | 'missing' | 'unknown'
+      sortTime?: number
+    }[] =
+      localAlbums.map((local) => {
+        const catalog = matchForLocal(local.id)?.canonical as CatalogAlbum | undefined
+        if (catalog) matchedCatalogIds.add(catalog.externalId)
+        const localYear = local.releaseDate ? Number(local.releaseDate.slice(0, 4)) : undefined
+        return {
+          key: `local-${local.id}`,
+          name: local.name,
+          ...(localYear && localYear > 1900 ? { year: localYear } : {}),
+          ...(local.releaseDate ? { releaseDate: local.releaseDate } : {}),
+          ...(local.coverId ? { coverId: local.coverId } : {}),
+          localId: local.id,
+          availability: 'inLibrary' as const,
+          ...(local.releaseDate ? { sortTime: Date.parse(local.releaseDate) } : local.addedAt ? { sortTime: local.addedAt * 1000 } : {}),
+          ...(catalog ? { catalog } : {}),
+        }
+      })
+    for (const entry of catalogAlbums) {
+      if (matchedCatalogIds.has(entry.externalId)) continue
+      const match = completeness?.entries.find((candidate) => candidate.canonical.externalId === entry.externalId)
+      rows.push({
+        key: `catalog-${entry.externalId}`,
+        name: entry.name,
+        ...(entry.year ? { year: entry.year } : {}),
+        ...(entry.releaseDate ? { releaseDate: entry.releaseDate } : {}),
+        availability: match?.status === 'missing' ? 'missing' : 'unknown',
+        ...(entry.releaseDate ? { sortTime: Date.parse(entry.releaseDate) } : {}),
+        catalog: entry,
+      })
+    }
+    return catalogSource?.type === 'netease'
+      ? rows.sort((a, b) => (b.sortTime ?? -Infinity) - (a.sortTime ?? -Infinity) || a.name.localeCompare(b.name))
+      : rows
+  }, [localAlbums, catalogAlbums, catalogSource?.type, localAlbumsComplete])
+  const visibleAlbums = useMemo(
+    () => albumFilter === 'library' ? mergedAlbums.filter((album) => album.localId) : mergedAlbums,
+    [albumFilter, mergedAlbums],
+  )
+  const lastCatalogPage = catalogAlbumsQuery.data?.pages.at(-1)
+  const catalogNotice = catalogAlbumsQuery.error
+    ? '外部专辑目录加载失败'
+    : lastCatalogPage?.status === 'empty'
+      ? '信息源没有找到这位艺术家的专辑'
+      : lastCatalogPage?.status === 'ambiguous'
+        ? '发现多个同名艺术家，专辑目录暂不可用'
+        : lastCatalogPage?.status === 'unsupported'
+          ? (lastCatalogPage.message ?? '当前音乐信息源暂不支持专辑目录')
+          : lastCatalogPage?.status === 'source-changed'
+            ? '音乐信息源已变更，请重试'
+            : undefined
+  const showCatalogFilter = catalogSource?.type === 'netease'
 
-  // 10. 最新发布唱片（若仅有 1 张专辑则不展示独立卡片，避免重复）
-  const latestAlbum = useMemo(() => {
-    if (albums.items.length <= 1) return null
-    const sorted = [...albums.items].sort((a, b) => {
-      const dateA = a.releaseDate || ''
-      const dateB = b.releaseDate || ''
-      if (dateA && dateB) return dateB.localeCompare(dateA)
-      return (b.addedAt ?? 0) - (a.addedAt ?? 0)
-    })
-    return sorted[0]
-  }, [albums.items])
+  useEffect(() => {
+    if (!catalogSourceInstanceId || !artistName || tab !== 'albums' || isCatalogAlbumPageError) return
+    if (hasNextCatalogAlbumPage && !isFetchingCatalogAlbumPage) void fetchNextCatalogAlbumPage()
+  }, [artistName, catalogSourceInstanceId, tab, hasNextCatalogAlbumPage, isFetchingCatalogAlbumPage, isCatalogAlbumPageError, fetchNextCatalogAlbumPage])
 
-  // 11. 命中本地曲库的相似艺人
-  // 相似艺人 / 听众数等靠外部源的数据已移除（默认只用飞牛）。
+  useEffect(() => {
+    if (tab !== 'albums' || isLocalAlbumPageError) return
+    if (hasNextLocalAlbumPage && !isFetchingLocalAlbumPage) void fetchNextLocalAlbumPage()
+  }, [tab, isLocalAlbumPageError, hasNextLocalAlbumPage, isFetchingLocalAlbumPage, fetchNextLocalAlbumPage])
+
 
   // 播放整套艺人队列
   const playArtistTracks = useCallback(
     async (startIndex = 0, shuffle = false) => {
-      const targetQueue = localTracks.length > 0 ? localTracks : allTracks.items
+      const targetQueue = allTracks.items
       if (!provider || !connection || targetQueue.length === 0) return
       await playTrackList({
         provider,
@@ -192,14 +269,15 @@ export function ArtistDetailScreen() {
         tracks: targetQueue,
         startIndex,
         source: { kind: 'artist', id, label: artistName ? `艺术家 · ${artistName}` : '艺术家' },
+        loadMorePage: async (page) => (await provider.artistTracks(id, { page, size: 50, sort })).items,
+        loadedPage: allTracks.query.data?.pages.length ?? 1,
       })
       if (shuffle) await toggleShuffle()
     },
-    [allTracks.items, artistName, connection, id, localTracks, provider],
+    [allTracks.items, allTracks.query.data?.pages.length, artistName, connection, id, provider, sort],
   )
 
-  // 封面与写真背景资源计算（优先全网高清写真大图，兜底用最新专辑的高清封面）
-  // 最新专辑：按发行/入库时间倒序取第一张（只有 1 张也用它）
+  // 封面回退顺序：艺术家封面、最新专辑封面、首首曲目封面。
   const latestAlbumCoverId = useMemo(() => {
     const list = albums.items
     if (list.length === 0) return undefined
@@ -211,7 +289,7 @@ export function ArtistDetailScreen() {
     })
     return sorted[0]?.coverId
   }, [albums.items])
-  const backdropCoverId = detailQuery.data?.coverId ?? latestAlbumCoverId ?? localTracks[0]?.coverId
+  const backdropCoverId = detailQuery.data?.coverId ?? latestAlbumCoverId ?? allTracks.items[0]?.coverId
   const backdropResource = backdropCoverId && provider ? provider.image(backdropCoverId, 800) : null
   const heroImageUri = backdropResource?.url
 
@@ -241,9 +319,7 @@ export function ArtistDetailScreen() {
     const maxScroll = Math.max(0, tabsY - (insets.top + 44))
     const targetY = Math.min(maxScroll, Math.max(0, currentY))
 
-    if (nextTab === 'overview') {
-      overviewListRef.current?.scrollToOffset({ offset: targetY, animated: false })
-    } else if (nextTab === 'albums') {
+    if (nextTab === 'albums') {
       albumsListRef.current?.scrollToOffset({ offset: targetY, animated: false })
     } else if (nextTab === 'tracks') {
       tracksListRef.current?.scrollToOffset({ offset: targetY, animated: false })
@@ -266,10 +342,7 @@ export function ArtistDetailScreen() {
   }
 
   // 播放总时长统计（毫秒）
-  const totalDurationMs = useMemo(
-    () => allTracks.items.reduce((acc, track) => acc + (track.durationMs || 0), 0),
-    [allTracks.items],
-  )
+  const totalDurationMs = useMemo(() => allTracks.query.hasNextPage ? undefined : allTracks.items.reduce((acc, track) => acc + (track.durationMs || 0), 0), [allTracks.items, allTracks.query.hasNextPage])
 
   const toolbar = (
     <ListToolbar
@@ -288,9 +361,11 @@ export function ArtistDetailScreen() {
       headerShown: true,
       headerTransparent: true,
       title: pinned ? (artistName ?? '艺术家') : '',
-      headerLeft: () => <StackBackButton />,
+      headerTintColor: pinned || mode === 'light' ? colors.textPrimary : colors.textOnAccent,
+      statusBarStyle: pinned ? (mode === 'dark' ? ('light' as const) : ('dark' as const)) : ('light' as const),
+      headerLeft: () => <StackBackButton color={pinned || mode === 'light' ? colors.textPrimary : colors.textOnAccent} />,
       headerRight: () =>
-        pinned ? (
+        pinned && allTracks.items.length > 0 ? (
           <IconButton
             name="play"
             size={iconSize.md}
@@ -308,12 +383,12 @@ export function ArtistDetailScreen() {
           />
         ) : null,
     }),
-    [pinned, artistName, colors.textPrimary, mode, playArtistTracks],
+    [pinned, artistName, allTracks.items.length, colors.textPrimary, colors.textOnAccent, mode, playArtistTracks],
   )
 
   const titleScreen = <Stack.Screen options={screenOptions} />
 
-  if (albums.query.isPending && topTracksQuery.isPending) {
+  if (albums.query.isPending && allTracks.query.isPending) {
     return (
       <>
         {titleScreen}
@@ -322,7 +397,7 @@ export function ArtistDetailScreen() {
     )
   }
 
-  if (albums.query.isLoadingError && topTracksQuery.isLoadingError) {
+  if (albums.query.isLoadingError && allTracks.query.isLoadingError) {
     return (
       <>
         {titleScreen}
@@ -338,7 +413,7 @@ export function ArtistDetailScreen() {
 
   // 元数据标签文本（只用飞牛自有的专辑/曲目计数）
   const metaParts = [
-    albumTotal ? `${albumTotal} 张专辑` : undefined,
+    albums.total ? `曲库 ${albums.total} 张专辑` : undefined,
     trackTotal ? `${trackTotal} 首歌曲` : undefined,
   ].filter(Boolean)
   const metaText = metaParts.join(' · ')
@@ -387,13 +462,6 @@ export function ArtistDetailScreen() {
 
         {/* 2. 下沉式巨幅文字与悬浮操作组 */}
         <View style={styles.heroInfoOverlay}>
-          {/* 流派 / 身份微标 */}
-          <View style={styles.kickerBadge}>
-            <Text style={styles.kickerText}>
-              {'ARTIST · 艺术家'.toUpperCase()}
-            </Text>
-          </View>
-
           {/* 巨幅艺人标题 */}
           <Text numberOfLines={1} style={styles.heroArtistName}>
             {artistName ?? '艺术家'}
@@ -406,48 +474,18 @@ export function ArtistDetailScreen() {
             </Text>
           ) : null}
 
-          {/* 悬浮微拟物操作胶囊群 */}
-          <View style={styles.heroActionsRow}>
-            {/* 核心播放胶囊 */}
-            <Pressable
-              hitSlop={8}
-              style={({ pressed }) => [styles.actionButton, styles.buttonSecondary, pressed && styles.buttonPressed]}
-              onPress={() => void playArtistTracks(0)}
-              accessibilityRole="button"
-              accessibilityLabel="播放全部"
-            >
-              <Icon name="play" size={16} color={colors.textPrimary} filled />
-              <Text style={styles.actionButtonLabel}>播放全部</Text>
-            </Pressable>
-
-            {/* 喜欢 / 取消喜欢胶囊 */}
-            <Pressable
-              hitSlop={8}
-              style={({ pressed }) => [
-                styles.actionButton,
-                styles.buttonSecondary,
-                isFavorited && styles.buttonFavoriteActive,
-                pressed && styles.buttonPressed,
-              ]}
-              onPress={handleToggleFavorite}
-              accessibilityRole="button"
-              accessibilityLabel={isFavorited ? '取消喜欢' : '喜欢'}
-            >
-              <Icon
-                name="heart"
-                size={16}
-                color={isFavorited ? colors.like : colors.textPrimary}
-                filled={isFavorited}
-              />
-              <Text style={[styles.actionButtonLabel, isFavorited && { color: colors.like }]}>
-                {isFavorited ? '取消喜欢' : '喜欢'}
-              </Text>
-            </Pressable>
-          </View>
+              {/* 播放与喜欢操作胶囊 */}
+          <DetailActionCapsules
+            onPlay={() => void playArtistTracks(0)}
+            onToggleFavorite={handleToggleFavorite}
+            favorite={isFavorited}
+            canPlay={allTracks.items.length > 0}
+            playDisabledLabel={allTracks.query.isPending ? '正在加载' : '暂无歌曲'}
+          />
         </View>
       </View>
 
-      {/* 3. 随页面自然滚动的分类页签（精选 | 专辑 | 全部歌曲） */}
+      {/* 3. 随页面自然滚动的分类页签（歌曲 | 专辑） */}
       <View style={styles.tabsWrapper} onLayout={(e) => { setTabsY(e.nativeEvent.layout.y); setTabsHeight(e.nativeEvent.layout.height); }}>
         <SegmentedTabs items={TABS} value={tab} onChange={handleTabChange} accessibilityLabel="音乐人内容分类" />
       </View>
@@ -463,221 +501,7 @@ export function ArtistDetailScreen() {
       </Animated.View>
 
       <TabPager activeIndex={activeTabIndex} lazy={false} style={styles.flex}>
-        {/* ========== TAB 1: 精选 (Overview) ========== */}
-        <View style={styles.flex}>
-          <Animated.FlatList
-            ref={overviewListRef}
-            data={popularTracks}
-            keyExtractor={(item) => `pop-${item.id}`}
-            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
-            scrollEventThrottle={16}
-            onScroll={scrollHandler}
-            ListHeaderComponent={
-              <View>
-                <View style={{ height: headerHeight }} />
-
-                {/* 分区 1：热门歌曲 Top 5 */}
-                <View style={styles.sectionHeaderWrap}>
-                  <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>热门歌曲</Text>
-                    <Pressable
-                      onPress={() => handleTabChange('tracks')}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.seeAllBtn, pressed && styles.seeAllPressed]}
-                      accessibilityRole="button"
-                      accessibilityLabel="查看全部歌曲"
-                    >
-                      <Text style={styles.seeAllText}>全部歌曲</Text>
-                      <Icon name="chevronRight" size={13} color={colors.textTertiary} />
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            }
-            renderItem={({ item, index }) => {
-              const isPlaying = current?.serverId === connection?.id && current?.trackId === item.id
-              const albumName = item.album?.name || '单曲'
-
-              return (
-                <Pressable
-                  style={({ pressed }) => [styles.popularRow, pressed && styles.rowPressed]}
-                  onPress={() => {
-                    void playTrackList({
-                      provider: provider!,
-                      serverId: connection!.id,
-                      tracks: popularTracks,
-                      startIndex: index,
-                      source: { kind: 'artist', id, label: `热门 · ${artistName}` },
-                    })
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${index + 1} ${item.title}`}
-                >
-                  {/* 排行名次 */}
-                  <View style={styles.rankCol}>
-                    <Text style={[styles.rankNumber, index === 0 && styles.rankFirst]}>
-                      {index + 1}
-                    </Text>
-                  </View>
-
-                  {/* 封面 */}
-                  <CoverImage coverId={item.coverId ?? item.album?.coverId} size={42} borderRadius={radius.sm} />
-
-                  {/* 歌名与元数据 */}
-                  <View style={styles.trackInfoCol}>
-                    <View style={styles.trackTitleRow}>
-                      {isPlaying ? (
-                        <View style={styles.liveBarsSlot}>
-                          <LivePlayingBars size={11} />
-                        </View>
-                      ) : null}
-                      <Text numberOfLines={1} style={[styles.trackTitle, isPlaying && styles.trackTitlePlaying]}>
-                        {item.title}
-                      </Text>
-                    </View>
-
-                    <View style={styles.trackSubRow}>
-                      <FormatBadge track={item} />
-                      <Text numberOfLines={1} style={styles.trackAlbum}>
-                        {albumName}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* 独立操作 */}
-                  <TrackMoreButton track={item} />
-                </Pressable>
-              )
-            }}
-            ListFooterComponent={
-              <View style={styles.overviewFooter}>
-                {/* 分区 2：最新发布（若存在且专辑数 > 1） */}
-                {latestAlbum ? (
-                  <View style={styles.shelfSection}>
-                    <View style={styles.sectionHeaderRow}>
-                      <Text style={styles.sectionTitle}>最新发布</Text>
-                    </View>
-                    <Link href={href.album(latestAlbum.id)} asChild>
-                      <Pressable style={({ pressed }) => [styles.latestCard, pressed && styles.cardPressed]}>
-                        <CoverImage coverId={latestAlbum.coverId} size={72} borderRadius={radius.md} />
-                        <View style={styles.latestCardInfo}>
-                          <Text style={styles.latestBadge}>
-                            {latestAlbum.releaseDate ? `本地最新 · ${latestAlbum.releaseDate.slice(0, 4)} 年` : '本地最新专辑'}
-                          </Text>
-                          <Text numberOfLines={1} style={styles.latestTitle}>
-                            {latestAlbum.name}
-                          </Text>
-                          <Text style={styles.latestMeta}>
-                            {latestAlbum.trackCount ? `${latestAlbum.trackCount} 首歌曲` : '完整专辑'}
-                          </Text>
-                        </View>
-                        <Icon name="chevronRight" size={16} color={colors.textTertiary} />
-                      </Pressable>
-                    </Link>
-                  </View>
-                ) : null}
-
-                {/* 分区 3：专辑横滑架 */}
-                {albums.items.length > 0 ? (
-                  <View style={styles.shelfSection}>
-                    <View style={styles.sectionHeaderRow}>
-                      <Text style={styles.sectionTitle}>专辑</Text>
-                      <Pressable
-                        onPress={() => handleTabChange('albums')}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.seeAllBtn, pressed && styles.seeAllPressed]}
-                        accessibilityRole="button"
-                        accessibilityLabel="查看全部专辑"
-                      >
-                        <Text style={styles.seeAllText}>全部专辑</Text>
-                        <Icon name="chevronRight" size={13} color={colors.textTertiary} />
-                      </Pressable>
-                    </View>
-                    <Animated.FlatList
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      data={albums.items}
-                      keyExtractor={(item) => `shelf-${item.id}`}
-                      contentContainerStyle={styles.shelfScrollContent}
-                      renderItem={({ item }) => (
-                        <Link href={href.album(item.id)} asChild>
-                          <Pressable style={styles.shelfTile}>
-                            <CoverImage coverId={item.coverId} size={132} borderRadius={radius.album} />
-                            <Text numberOfLines={1} style={styles.shelfAlbumTitle}>
-                              {item.name}
-                            </Text>
-                            {item.releaseDate ? (
-                              <Text style={styles.shelfAlbumYear}>{item.releaseDate.slice(0, 4)}</Text>
-                            ) : null}
-                          </Pressable>
-                        </Link>
-                      )}
-                    />
-                  </View>
-                ) : null}
-
-                {/* 相似音乐人、关于音乐人（简介/标签）靠外部源，已按「默认只用飞牛」移除；
-                    待“用户填写国内源”后再回来。 */}
-              </View>
-            }
-          />
-        </View>
-
-        {/* ========== TAB 2: 专辑网格 (Albums Wall) ========== */}
-        <View style={styles.flex}>
-          <Animated.FlatList
-            ref={albumsListRef}
-            data={albums.items}
-            key={columns}
-            numColumns={columns}
-            keyExtractor={(item) => `alb-${item.id}`}
-            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
-            columnWrapperStyle={{ gap, paddingHorizontal: spacing.lg }}
-            scrollEventThrottle={16}
-            onScroll={scrollHandler}
-            ListHeaderComponent={<View style={{ height: headerHeight }} />}
-            ListEmptyComponent={<EmptyState text="这位艺术家还没有专辑" />}
-            renderItem={({ item }) => (
-              <Link href={href.album(item.id)} asChild>
-                <Pressable style={{ width: albumItemWidth }} accessibilityRole="button" accessibilityLabel={`专辑 ${item.name}`}>
-                  <CoverImage coverId={item.coverId} size={albumItemWidth} borderRadius={radius.md} />
-                  <Text numberOfLines={1} style={styles.gridAlbumName}>
-                    {item.name}
-                  </Text>
-                  {item.releaseDate ? (
-                    <Text numberOfLines={1} style={styles.gridAlbumYear}>
-                      {item.releaseDate.slice(0, 4)}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              </Link>
-            )}
-            ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
-            onEndReached={albums.loadMore}
-            ListFooterComponent={
-              <>
-                {missingAlbums.length > 0 ? (
-                  <View style={styles.missingAlbumsBlock}>
-                    <Text style={styles.missingAlbumsTitle}>未入库作品 {missingAlbums.length}</Text>
-                    {missingAlbums.map((e, i) => (
-                      <View key={`ma-${i}-${e.canonical.name}`} style={styles.missingAlbumRow}>
-                        <Text style={styles.missingAlbumName} numberOfLines={1}>{e.canonical.name}</Text>
-                        {e.canonical.year ? <Text style={styles.missingAlbumYear}>{e.canonical.year}</Text> : null}
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-                <PaginationFooter
-                  loading={albums.query.isFetchingNextPage}
-                  error={albums.query.isFetchNextPageError ? albums.query.error : undefined}
-                  onRetry={() => void albums.query.fetchNextPage()}
-                />
-              </>
-            }
-          />
-        </View>
-
-        {/* ========== TAB 3: 全部歌曲 (All Tracks) ========== */}
+        {/* ========== TAB 1: 歌曲 (Tracks) ========== */}
         <View style={styles.flex}>
           <Animated.FlatList
             ref={tracksListRef}
@@ -713,6 +537,8 @@ export function ArtistDetailScreen() {
                       tracks: allTracks.items,
                       startIndex: index,
                       source: { kind: 'artist', id, label: `艺术家 · ${artistName}` },
+                      loadMorePage: async (page) => (await provider.artistTracks(id, { page, size: 50, sort })).items,
+                      loadedPage: allTracks.query.data?.pages.length ?? 1,
                     })
                   }}
                 />
@@ -726,6 +552,71 @@ export function ArtistDetailScreen() {
                 error={allTracks.query.isFetchNextPageError ? allTracks.query.error : undefined}
                 onRetry={() => void allTracks.query.fetchNextPage()}
               />
+            }
+          />
+        </View>
+
+        {/* ========== TAB 2: 专辑网格 (Albums) ========== */}
+        <View style={styles.flex}>
+          <Animated.FlatList
+            ref={albumsListRef}
+            data={visibleAlbums}
+            key={columns}
+            numColumns={columns}
+            keyExtractor={(item) => `alb-${item.key}`}
+            contentContainerStyle={[styles.contentGrow, { paddingBottom: bottom + 24 }]}
+            columnWrapperStyle={{ gap, paddingHorizontal: spacing.lg }}
+            scrollEventThrottle={16}
+            onScroll={scrollHandler}
+            ListHeaderComponent={
+              <View>
+                <View style={{ height: headerHeight }} />
+                {showCatalogFilter ? <View style={styles.albumFilterRow}>
+                  {([{ key: 'all', label: '全部' }, { key: 'library', label: '已入库' }] as const).map((filter) => (
+                    <Pressable key={filter.key} onPress={() => setAlbumFilter(filter.key)} accessibilityRole="button" accessibilityState={{ selected: albumFilter === filter.key }} style={[styles.albumFilter, albumFilter === filter.key && styles.albumFilterSelected]}>
+                      <Text style={[styles.albumFilterText, albumFilter === filter.key && styles.albumFilterTextSelected]}>{filter.label}</Text>
+                    </Pressable>
+                  ))}
+                </View> : null}
+                {catalogNotice ? (
+                  <View style={styles.catalogNotice}>
+                    <Text style={styles.catalogNoticeText}>{catalogNotice}</Text>
+                    {catalogAlbumsQuery.error || lastCatalogPage?.status === 'ambiguous' || lastCatalogPage?.status === 'unsupported' ? (
+                      <Pressable onPress={() => void catalogAlbumsQuery.refetch()} accessibilityRole="button"><Text style={styles.catalogRetry}>重试</Text></Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            }
+            ListEmptyComponent={<EmptyState text={catalogSource && catalogAlbumsQuery.isPending ? '正在读取专辑目录' : '这位艺术家还没有专辑'} />}
+            renderItem={({ item }) => {
+              const itemHref = item.catalog ? href.catalogAlbum(item.catalog.source, item.catalog.externalId, item.catalog.artistName, item.catalog.name, item.localId, item.catalog.coverUrl, id, item.catalog.year, item.catalog.edition) : href.album(item.localId!)
+              return (
+                <Link href={itemHref} asChild>
+                  <Pressable style={{ width: albumItemWidth }} accessibilityRole="button" accessibilityLabel={`专辑 ${item.name}`}>
+                    {item.localId ? <CoverImage coverId={item.coverId} size={albumItemWidth} borderRadius={radius.md} /> : item.catalog?.coverUrl ? <Image source={{ uri: item.catalog.coverUrl }} style={{ width: albumItemWidth, height: albumItemWidth, borderRadius: radius.md, backgroundColor: colors.skeleton2 }} contentFit="cover" /> : <CoverImage size={albumItemWidth} borderRadius={radius.md} />}
+                    <Text numberOfLines={1} style={styles.gridAlbumName}>{item.name}</Text>
+                    <Text numberOfLines={1} style={styles.gridAlbumYear}>{item.year ? `${item.year}年 · ${item.localId ? '已入库' : item.availability === 'missing' ? '未入库' : '待核对'}` : item.localId ? '已入库' : item.availability === 'missing' ? '未入库' : '待核对'}</Text>
+                  </Pressable>
+                </Link>
+              )
+            }}
+            ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+            onEndReached={() => {
+              albums.loadMore()
+              if (catalogAlbumsQuery.hasNextPage && !catalogAlbumsQuery.isFetchingNextPage) void catalogAlbumsQuery.fetchNextPage()
+            }}
+            ListFooterComponent={
+              <>
+                <PaginationFooter
+                  loading={albums.query.isFetchingNextPage || catalogAlbumsQuery.isFetchingNextPage}
+                  error={albums.query.isFetchNextPageError ? albums.query.error : catalogAlbumsQuery.isFetchNextPageError ? catalogAlbumsQuery.error : undefined}
+                  onRetry={() => {
+                    if (catalogAlbumsQuery.isFetchNextPageError) void catalogAlbumsQuery.fetchNextPage()
+                    else if (albums.query.isFetchNextPageError) void albums.query.fetchNextPage()
+                  }}
+                />
+              </>
             }
           />
         </View>
@@ -777,7 +668,7 @@ const useStyles = createThemedStyles((colors) => ({
   },
   billboardContainer: {
     width: '100%',
-    height: 380,
+    height: 352,
     position: 'relative',
     overflow: 'hidden',
     justifyContent: 'flex-end',
@@ -808,21 +699,6 @@ const useStyles = createThemedStyles((colors) => ({
     gap: 6,
     zIndex: 2,
   },
-  kickerBadge: {
-    alignSelf: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
-    marginBottom: 2,
-  },
-  kickerText: {
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-    fontSize: 11,
-    letterSpacing: 1.2,
-    color: colors.textPrimary,
-  },
   heroArtistName: {
     fontSize: 34,
     fontFamily: fonts.bold,
@@ -831,9 +707,6 @@ const useStyles = createThemedStyles((colors) => ({
     textAlign: 'center',
     paddingHorizontal: spacing.md,
     color: colors.textPrimary,
-    textShadowColor: 'rgba(0, 0, 0, 0.65)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
   },
   heroMetaText: {
     ...typography.subhead,
@@ -841,231 +714,8 @@ const useStyles = createThemedStyles((colors) => ({
     color: colors.textSecondary,
     marginBottom: 6,
   },
-  heroActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-    marginTop: 4,
-    paddingHorizontal: 16,
-    width: '100%',
-  },
-  actionButton: {
-    flex: 1,
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs + 2,
-    borderRadius: radius.pill,
-  },
-  buttonSecondary: {
-    backgroundColor: colors.bgButtonSecondary,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.borderDefault,
-  },
-  buttonFavoriteActive: {
-    borderColor: colors.borderEmphasis,
-  },
-  actionButtonLabel: {
-    ...typography.subhead,
-    fontSize: 15,
-    lineHeight: 20,
-    fontFamily: fonts.medium,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  buttonPressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.96 }],
-  },
   tabsWrapper: {
     marginTop: spacing.md,
-  },
-  sectionHeaderWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 32,
-    marginBottom: spacing.xs,
-  },
-  sectionTitle: {
-    ...typography.title,
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  seeAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 2,
-  },
-  seeAllPressed: {
-    opacity: 0.6,
-  },
-  seeAllText: {
-    ...typography.subhead,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  // 热门歌曲行
-  popularRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 8,
-    gap: spacing.md,
-  },
-  rowPressed: {
-    backgroundColor: colors.bgListItemHover,
-  },
-  rankCol: {
-    width: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rankNumber: {
-    ...typography.callout,
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-    color: colors.textTertiary,
-  },
-  rankFirst: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-  },
-  trackInfoCol: {
-    flex: 1,
-    gap: 3,
-  },
-  trackTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  liveBarsSlot: {
-    width: 14,
-    height: 11,
-    justifyContent: 'center',
-  },
-  trackTitle: {
-    ...typography.callout,
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  trackTitlePlaying: {
-    color: colors.playing,
-  },
-  trackSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  trackAlbum: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    flex: 1,
-  },
-  overviewFooter: {
-    paddingTop: spacing.md,
-    gap: spacing.sectionGap,
-  },
-  shelfSection: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.titleGap,
-  },
-  shelfScrollContent: {
-    gap: spacing.shelfGap,
-    paddingRight: spacing.lg,
-  },
-  shelfTile: {
-    width: 132,
-    gap: 4,
-  },
-  shelfAlbumTitle: {
-    ...typography.callout,
-    color: colors.textPrimary,
-    marginTop: 2,
-  },
-  shelfAlbumYear: {
-    ...typography.caption,
-    color: colors.textTertiary,
-  },
-  similarTile: {
-    width: 80,
-    alignItems: 'center',
-    gap: 6,
-  },
-  similarName: {
-    ...typography.caption,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  latestCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.bgCard,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    gap: spacing.md,
-  },
-  cardPressed: {
-    opacity: 0.85,
-  },
-  latestCardInfo: {
-    flex: 1,
-    gap: 3,
-  },
-  latestBadge: {
-    ...typography.badge,
-    color: colors.badgeText,
-  },
-  latestTitle: {
-    ...typography.headline,
-    color: colors.textPrimary,
-  },
-  latestMeta: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  bioCard: {
-    backgroundColor: colors.bgCard,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    gap: spacing.sm,
-  },
-  bioText: {
-    ...typography.subhead,
-    color: colors.textSecondary,
-    lineHeight: 20,
-  },
-  bioExpandHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  tagPill: {
-    backgroundColor: colors.badgeBg,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.xs,
-  },
-  tagText: {
-    ...typography.badge,
-    color: colors.textSecondary,
   },
   // 专辑网格样式
   gridAlbumName: {
@@ -1077,33 +727,32 @@ const useStyles = createThemedStyles((colors) => ({
     ...typography.caption,
     color: colors.textTertiary,
   },
-  missingAlbumsBlock: {
+  albumFilterRow: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
   },
-  missingAlbumsTitle: {
-    ...typography.footnote,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
+  albumFilter: {
+    minHeight: 30,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
   },
-  missingAlbumRow: {
+  albumFilterSelected: { backgroundColor: colors.bgButtonSecondary },
+  albumFilterText: { ...typography.caption, color: colors.textSecondary },
+  albumFilterTextSelected: { color: colors.textPrimary, fontFamily: fonts.semibold, fontWeight: '600' },
+  catalogNotice: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
-    opacity: 0.55,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
-  missingAlbumName: {
-    ...typography.body,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  missingAlbumYear: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    marginLeft: spacing.sm,
-  },
+  catalogNoticeText: { ...typography.caption, color: colors.textSecondary },
+  catalogRetry: { ...typography.caption, color: colors.actionText, fontFamily: fonts.semibold, fontWeight: '600' },
   // 全部歌曲样式
   toolbarSlot: {
     paddingHorizontal: spacing.lg,

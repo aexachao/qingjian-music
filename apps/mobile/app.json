@@ -10,7 +10,7 @@
     "backgroundColor": "#0f0f0f",
     "ios": {
       "bundleIdentifier": "com.chrisli.music",
-      "buildNumber": "64",
+      "buildNumber": "65",
       "entitlements": {
         "keychain-access-groups": [
           "$(AppIdentifierPrefix)com.chrisli.music"

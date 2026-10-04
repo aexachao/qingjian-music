@@ -19,8 +19,8 @@ import { queryClient } from '@/lib/query-client'
 import { ServerSessionProvider } from '@/lib/server-session'
 import { getNavigationTheme, useStackScreenOptions } from '@/lib/stack-options'
 import { PlayerBridge } from '@/player/bridge'
-import * as ScreenOrientation from 'expo-screen-orientation'
 import { AppThemeProvider, useThemeColors } from '@/theme/theme-provider'
+import { getThemeColors } from '@/theme/tokens'
 
 /**
  * 渲染期异常（Error Boundary）也汇入同一个错误屏 —— 未捕获异常走入口装的全局处理器，
@@ -90,9 +90,9 @@ function ThemedRoot({ effectiveTheme }: { effectiveTheme: 'dark' | 'light' }) {
                       name="player"
                       options={{
                         headerShown: false,
-                        presentation: 'transparentModal',
+                        presentation: 'fullScreenModal',
                         animation: 'none',
-                        contentStyle: { backgroundColor: 'transparent' },
+                        contentStyle: { backgroundColor: getThemeColors('dark').bgPrimary },
                       }}
                     />
                     <Stack.Screen name="track-info" options={{ title: '歌曲信息', presentation: 'modal' }} />

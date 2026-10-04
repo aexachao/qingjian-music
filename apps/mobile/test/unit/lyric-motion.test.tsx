@@ -30,6 +30,7 @@ vi.mock('react-native-track-player', () => ({ useIsPlaying: () => ({ playing: tr
 vi.mock('expo-clipboard', () => ({ setStringAsync: scenario.copy }))
 vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(), impactAsync: vi.fn(), ImpactFeedbackStyle: {} }))
 vi.mock('../../src/components/list-states', () => ({ ErrorState: 'ErrorState' }))
+vi.mock('../../src/components/player/lyric-stage-mask', () => ({ LyricStageMask: 'LyricStageMask' }))
 vi.mock('../../src/components/icon', () => ({ Icon: 'Icon', IconButton: 'IconButton', iconSize: {} }))
 vi.mock('../../src/lib/lyric-offset', () => ({ useLyricSheet: () => ({ data: scenario.sheet, refetch: scenario.refetch, ...scenario.queryOverride }) }))
 vi.mock('../../src/player/store', () => ({ usePlayerStore: () => scenario.offsetMs }))
@@ -195,7 +196,7 @@ describe('lyric follow interaction', () => {
     await update({ positionMs: 8000 })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 618, animated: true })
   })
 
   it('holds reading position under a blank-area touch and restarts the full window when cancelled', async () => {
@@ -210,7 +211,7 @@ describe('lyric follow interaction', () => {
     await act(async () => { vi.advanceTimersByTime(5999) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 618, animated: true })
   })
 
   it.each([{ followLocked: true }, { foreground: false }])('protects manual reading while locked: %j', async (lock) => {
@@ -223,7 +224,7 @@ describe('lyric follow interaction', () => {
     await act(async () => { vi.advanceTimersByTime(5999) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 618, animated: true })
   })
 
   it('removes the return chip when timed following resumes', async () => {
@@ -242,7 +243,7 @@ describe('lyric follow interaction', () => {
     await act(async () => scroll().props.onScrollEndDrag({ nativeEvent: { contentOffset: { y: 0 }, velocity: { y: 2 } } }))
     await update({ positionMs: 8000 })
     await act(async () => { vi.advanceTimersByTime(6000) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 610, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 618, animated: true })
   })
 
   it('protects manual reading even when the current line moves outside the viewport', async () => {
@@ -252,7 +253,7 @@ describe('lyric follow interaction', () => {
     await act(async () => { vi.advanceTimersByTime(5999) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 710, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 718, animated: true })
     expect(renderer.root.findAllByProps({ accessibilityLabel: '回到当前句' })).toHaveLength(0)
   })
   it('does not scroll under a held lyric or while the full lyric sheet is open', async () => {
@@ -268,7 +269,7 @@ describe('lyric follow interaction', () => {
     await update({ positionMs: 9000 })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(6000) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 710, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 718, animated: true })
   })
   it('keeps a lyric row tap from toggling portrait controls and cancels a tap that began during inertia', async () => {
     const blankTap = vi.fn()
@@ -423,9 +424,9 @@ describe('lyric follow interaction', () => {
     const initial = scroll().props.contentOffset
     await update({ positionMs: 4000 })
     expect(scroll().props.contentOffset).toBe(initial)
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 210, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 218, animated: true })
     await update({ positionMs: 2000 })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 10, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 18, animated: true })
   })
   it('only renders the parent on an ordinary tick, and the old/new row on a line transition', async () => {
     await mount()
@@ -449,7 +450,7 @@ describe('lyric follow interaction', () => {
     await update({ positionMs: 3000 })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(6000) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 110, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 118, animated: true })
   })
   it('stays at the manual position while paused and gives a full reading interval on resume', async () => {
     await mount()
@@ -461,7 +462,7 @@ describe('lyric follow interaction', () => {
     await act(async () => { vi.advanceTimersByTime(5999) })
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(1) })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 210, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 218, animated: true })
   })
   it('does not let the idle timer move a hidden page', async () => {
     await mount()
@@ -476,7 +477,7 @@ describe('lyric follow interaction', () => {
     expect(scenario.scrollTo).not.toHaveBeenCalled()
     await update({ active: true })
     expect(rows()[4]?.props.accessibilityLabel).toContain('正在播放')
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 210, animated: false })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 218, animated: false })
   })
   it('pre-mounts the first timed line and retains both outgoing/incoming character trees', async () => {
     scenario.sheet.lines.forEach((line) => { line.atMs += 1000 })
@@ -503,7 +504,7 @@ describe('lyric follow interaction', () => {
     await update({ trackId: `${firstTrack}-new`, positionMs: 0 })
     expect(scroll().props.contentOffset.y).toBe(0)
     await update({ trackId: firstTrack, positionMs: 4000 })
-    expect(scroll().props.contentOffset.y).toBe(210)
+    expect(scroll().props.contentOffset.y).toBe(218)
   })
   it('subtracts the lyric offset when seeking and clamps negative times', async () => {
     scenario.offsetMs = 500
@@ -516,14 +517,32 @@ describe('lyric follow interaction', () => {
   it('updates the follow position when bottom toolbar spacing changes', async () => {
     await mount()
     await update({ positionMs: 4000, bottomSpace: 100 })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 248, animated: true })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 256, animated: true })
+  })
+  it('keeps end padding fixed while the stage controls mask fades', async () => {
+    const opacity = { value: 1, get: vi.fn(() => 1), set: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), modify: vi.fn() }
+    props = {
+      ...props,
+      immersive: true,
+      bottomSpace: 100,
+      stageMask: { opacity, topInset: 50, bottomInset: 100, topFloor: 50, bottomFloor: 34 },
+    }
+    await mount()
+    const initialStyle = scroll().props.contentContainerStyle as { paddingBottom?: number }[]
+    const initialPadding = initialStyle[1]?.paddingBottom
+
+    opacity.value = 0
+    await update({ controlsVisible: false })
+
+    const hiddenStyle = scroll().props.contentContainerStyle as { paddingBottom?: number }[]
+    expect(hiddenStyle[1]?.paddingBottom).toBe(initialPadding)
   })
   it('respects Reduce Motion for automatic following', async () => {
     scenario.reduceMotion = true
     await mount()
     await update({ positionMs: 3000 })
     await update({ positionMs: 4000 })
-    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 210, animated: false })
+    expect(scenario.scrollTo).toHaveBeenLastCalledWith({ y: 218, animated: false })
   })
   it('bounds animated characters to neighboring lines even with a long word-timed lyric', async () => {
     scenario.sheet.lines = Array.from({ length: 300 }, (_, i) => ({

@@ -1,4 +1,5 @@
 import { useSegments } from 'expo-router'
+import type { MusicInfoSourceRef } from '@/lib/external-music-info'
 
 let lastKnownTab: 'home' | 'search' | 'library' = 'home'
 
@@ -36,6 +37,25 @@ export function useDetailHref() {
       if (inSearch) return { pathname: '/search/album/[id]', params: { id } } as const
       if (inHome) return { pathname: '/home/album/[id]', params: { id } } as const
       return { pathname: '/library/album/[id]', params: { id } } as const
+    },
+    catalogAlbum: (source: MusicInfoSourceRef, externalId: string, artistName: string, albumName: string, localId?: string, coverUrl?: string, localArtistId?: string, year?: number, edition?: string) => {
+      const params = {
+        id: localId ?? 'catalog',
+        catalogSource: source.type,
+        catalogService: source.serviceId,
+        catalogInstance: source.instanceId,
+        catalogId: externalId,
+        catalogArtist: artistName,
+        catalogAlbum: albumName,
+        ...(coverUrl ? { catalogCover: coverUrl } : {}),
+        ...(localArtistId ? { catalogLocalArtist: localArtistId } : {}),
+        ...(year ? { catalogYear: String(year) } : {}),
+        ...(edition ? { catalogEdition: edition } : {}),
+        ...(localId ? { localId } : {}),
+      }
+      if (inSearch) return { pathname: '/search/album/[id]', params } as const
+      if (inHome) return { pathname: '/home/album/[id]', params } as const
+      return { pathname: '/library/album/[id]', params } as const
     },
     artist: (id: string) => {
       if (inSearch) return { pathname: '/search/artist/[id]', params: { id } } as const
