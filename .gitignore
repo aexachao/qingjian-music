@@ -56,3 +56,23 @@ docs/执行计划-*.md
 # 内部合规 / 逆向笔记（不公开，避免合规暴露）
 docs/内部-*.md
 docs/合规与风险-*.md
+
+# ---- 2026-10 补充：迁移 NAS 时的体积与隐私审计 ----
+
+# App Store 验证截图与归档：体积巨大（本次实测 5.8 GB），不进版本库
+.asc/
+*.xcarchive
+
+# 本机生成的代码分析索引
+graphify-out/
+**/graphify-out/
+.codegraph/
+
+# 本机 agent 运行时 / 第三方嵌套仓库（asc-skills 是外部 clone，避免变成坏 gitlink）
+.blitz/
+.claude/asc-skills/
+.claude/settings.local.json
+
+# 含本机绝对路径的 MCP / agent 配置
+opencode.json
+.mcp.json

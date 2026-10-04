@@ -201,6 +201,42 @@ EXPO_PUBLIC_EDITION=store npx expo prebuild --platform ios
   生成后走 Secrets 注入，并**通过 config plugin** 写进 `android/app/build.gradle`
   （`expo prebuild` 会重写 `android/`，直接改文件会在下次 prebuild 丢失）。
 
+### 官方崩溃收集：Xcode Organizer
+
+商店版先使用 Apple 官方的崩溃报告，不需要添加 SDK 或在 App 中初始化服务。
+TestFlight 用户会自动分享崩溃报告；App Store 用户需要开启诊断信息分享。
+自签安装和本地开发包不通过这条渠道自动汇总。
+
+**查看报告：**
+
+1. 在 Xcode → Settings → Apple Accounts 登录有该应用访问权限的开发者账号。
+   命令行能签名或通过 API 上传，不代表 Xcode 的 Apple Accounts 已登录。
+2. 打开 Window → Organizer → Crashes，选择轻简音乐（`com.chrisli.music`）。
+   若显示工程名 `app`，按 Bundle ID 确认应用。
+3. 按版本、分发渠道和时间筛选，查看崩溃堆栈及影响范围。
+   若提示需要开发者账号，先完成登录；若列表为空，检查筛选和账号权限，
+   不能仅凭空列表认定没有崩溃。
+
+**每次发布保留符号：**
+
+- Archive 使用 Release，确认有效构建设置 `DEBUG_INFORMATION_FORMAT=dwarf-with-dsym`。
+  当前工程已满足；`ios/` 是生成目录，无需手改工程文件。
+- 在 Distribute App 时保持上传调试符号选项开启；用 `xcodebuild -exportArchive`
+  时，在 ExportOptions.plist 中显式设置 `uploadSymbols=true`。
+- 保存每个已分发构建的完整 `.xcarchive`（包括 dSYMs）和对应源码提交。
+  构建时指定自定义 `-archivePath` 的归档也要保留；需要时在 Xcode 中打开归档。
+- 出现无法符号化的报告时，用 `xcrun dwarfdump --uuid` 分别检查归档内的 App
+  可执行文件和对应 dSYM，确认 UUID 与报告中的 Binary Images 一致。
+  重新构建的同版本包不能替代原始归档。
+
+Organizer 收集导致进程退出的崩溃，不会自动汇总被捕获的 JS 异常、播放失败或网络错误，
+也不会把 App 内现有的本地错误日志自动上传。React Native 的原生崩溃可用 dSYM 符号化；
+定位 JS 源码还需要该构建对应的 source map，dSYM 不提供 JS 行号。
+
+参考：[Apple 崩溃报告收集说明](https://developer.apple.com/documentation/xcode/acquiring-crash-reports-and-diagnostic-logs)、
+[调试符号构建说明](https://developer.apple.com/documentation/xcode/building-your-app-to-include-debugging-information)、
+[崩溃报告符号化说明](https://developer.apple.com/documentation/xcode/adding-identifiable-symbol-names-to-a-crash-report)。
+
 > **许可提醒**：社区版是 **GPL-3.0-only**，商店版走**单独的商业许可**（这就是「双许可」）。
 > 商店版能不受 GPL 约束的唯一依据是**版权集中在项目所有者手里** ——
 > 所以合并外部 PR 前必须先让对方同意 CLA，否则双轨许可从第一个 PR 起就失效了。
