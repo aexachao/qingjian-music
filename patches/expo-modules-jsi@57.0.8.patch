@@ -1,0 +1,140 @@
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index 00f7329166629c82bbce1344b93e05406a8517a6..f7cf6c3d7bc631c940c5ffb67dc82981dc83bfb2 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -4,6 +4,14 @@ internal import ExpoModulesJSI_Cxx
+ import Foundation
+ internal import jsi
+ 
++/// Carries a non-`Sendable` value across an isolation boundary where the transfer is known
++/// to be sound. Used for the call-scoped raw pointers captured by the host-function closures
++/// below: they never outlive the synchronous host call, and the `@JavaScriptActor` closure
++/// they are sent into runs synchronously on the calling thread.
++private struct UnsafeSendableBox<T>: @unchecked Sendable {
++  let value: T
++}
++
+ /// A Swift wrapper around a JavaScript runtime. Provides access to a JavaScript execution environment, allowing you to evaluate
+ /// JavaScript code, create and manipulate JavaScript objects, functions, and values, and bridge between Swift and JavaScript.
+ ///
+@@ -310,7 +318,7 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+     let nativeConstructorKey = "__native_constructor__"
+ 
+     // Validate that the name is a valid JS identifier to prevent code injection via eval.
+-    if name.wholeMatch(of: /^[a-zA-Z_$][a-zA-Z0-9_$]*$/) == nil {
++    if name.wholeMatch(of: #/^[a-zA-Z_$][a-zA-Z0-9_$]*$/#) == nil {
+       throw InvalidIdentifierError(identifier: name)
+     }
+ 
+@@ -760,8 +768,8 @@ private func createFunctionClosure(
+     // synchronous call, so the `nonisolated(unsafe)` capture is sound. This removes a per-call class
+     // allocation + retain/release + dealloc that profiling showed dominating the no-op `@JS` host-call
+     // floor.
+-    nonisolated(unsafe) let thisPtr = thisPtr
+-    nonisolated(unsafe) let argumentsPtr = argumentsPtr
++    let thisPtr = UnsafeSendableBox(value: thisPtr)
++    let argumentsPtr = UnsafeSendableBox(value: argumentsPtr)
+     nonisolated(unsafe) let resultPtr = resultPtr
+ 
+     // See `withGuaranteedContext` for why neither the context nor the runtime is retained here, and
+@@ -769,8 +777,8 @@ private func createFunctionClosure(
+     withGuaranteedContext(context) { (context: HostFunctionContext, runtime) in
+       resultPtr.pointee = JavaScriptActor.assumeIsolated {
+         return forwardingSwiftErrorsToJS(runtime: runtime) {
+-          let this = UnsafeMutablePointer(mutating: thisPtr).move()
+-          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
++          let this = UnsafeMutablePointer(mutating: thisPtr.value).move()
++          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr.value, count: argumentsCount)
+           let thisValue = JavaScriptValue(runtime, this)
+           return try context.call(thisValue, consume arguments).asJSIValue()
+         }
+@@ -803,8 +811,8 @@ private func createFunctionClosure(
+     // handed in as a borrowed `JavaScriptUnownedValue` pointing straight at the C++-owned `this` slot:
+     // it is not moved out and no owning `JavaScriptValue` is allocated, so the closure avoids the
+     // per-call `weak`-runtime form/destroy and heap object that the owning `this` pays.
+-    nonisolated(unsafe) let thisPtr = thisPtr
+-    nonisolated(unsafe) let argumentsPtr = argumentsPtr
++    let thisPtr = UnsafeSendableBox(value: thisPtr)
++    let argumentsPtr = UnsafeSendableBox(value: argumentsPtr)
+     nonisolated(unsafe) let resultPtr = resultPtr
+ 
+     // See `withGuaranteedContext` for why neither the context nor the runtime is retained here, and
+@@ -812,8 +820,8 @@ private func createFunctionClosure(
+     withGuaranteedContext(context) { (context: UnownedThisHostFunctionContext, runtime) in
+       resultPtr.pointee = JavaScriptActor.assumeIsolated {
+         return forwardingSwiftErrorsToJS(runtime: runtime) {
+-          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
+-          let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtr)
++          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr.value, count: argumentsCount)
++          let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtr.value)
+           return try context.call(thisValue, consume arguments).asJSIValue()
+         }
+       }
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptValuesBuffer.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptValuesBuffer.swift
+index 0ac856eecaae2f44443bf827b22792b0b4dacd44..644b6fbc61d62dc65e922b4823e9899b7da93814 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptValuesBuffer.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptValuesBuffer.swift
+@@ -41,7 +41,7 @@ public struct JavaScriptValuesBuffer: JavaScriptType, ~Copyable {
+   }
+ 
+   internal init(
+-    _ runtime: JavaScriptRuntime, buffer: consuming UnsafeMutableBufferPointer<facebook.jsi.Value>,
++    _ runtime: JavaScriptRuntime, buffer: UnsafeMutableBufferPointer<facebook.jsi.Value>,
+     ownsMemory: Bool = false
+   ) {
+     self.runtime = runtime
+@@ -50,13 +50,13 @@ public struct JavaScriptValuesBuffer: JavaScriptType, ~Copyable {
+     self.ownsMemory = ownsMemory
+   }
+ 
+-  internal init(_ runtime: JavaScriptRuntime, start: consuming UnsafePointer<facebook.jsi.Value>?, count: Int) {
++  internal init(_ runtime: JavaScriptRuntime, start: UnsafePointer<facebook.jsi.Value>?, count: Int) {
+     self.init(
+       runtime, buffer: UnsafeMutableBufferPointer(start: UnsafeMutablePointer(mutating: start), count: count),
+       ownsMemory: false)
+   }
+ 
+-  internal init(_ runtime: JavaScriptRuntime, buffer: consuming UnsafeBufferPointer<facebook.jsi.Value>) {
++  internal init(_ runtime: JavaScriptRuntime, buffer: UnsafeBufferPointer<facebook.jsi.Value>) {
+     self.init(runtime, buffer: UnsafeMutableBufferPointer(mutating: buffer), ownsMemory: false)
+   }
+ 
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
+index c2152bc2efc0b4c84c9c8f26a50166929eb7ba78..886361cba4e169891159417ec35137bccec752db 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
+@@ -36,6 +36,12 @@ public struct JavaScriptPromise: JavaScriptType, ~Copyable {
+     let resolveFunction = JavaScriptValue.Ref()
+     let rejectFunction = JavaScriptValue.Ref()
+ 
++    // Construction touches no actor-isolated state (every stored property
++    // is its own independent default value) — only later use needs
++    // JavaScriptActor, so make init nonisolated to allow constructing this
++    // from JavaScriptPromise's own synchronous initializer.
++    nonisolated init() {}
++
+     func allowRelease() {
+       object.release()
+       resolveFunction.release()
+diff --git a/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h b/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
+index 6115e87a6e430f55570fbf759283dca0cca1ee80..957527c85379285d9ee5fc7974ad01e94ee12bc5 100644
+--- a/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
++++ b/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
+@@ -50,7 +50,7 @@ public:
+    `scheduleTask` dispatches through `fn`, which the host implements against
+    the real react::RuntimeScheduler.
+    */
+-  SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
++  RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
+       : nativeScheduler(scheduler), scheduleFn(fn) {}
+ 
+   /**
+@@ -58,7 +58,7 @@ public:
+    caller's thread — intended for standalone runtimes (e.g. tests) that have
+    no React scheduler.
+    */
+-  SWIFT_RETURNS_RETAINED RuntimeScheduler() {}
++  RuntimeScheduler() {}
+ 
+   RuntimeScheduler(const RuntimeScheduler &) = delete;
+ 
