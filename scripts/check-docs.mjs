@@ -392,7 +392,7 @@ function checkPartition() {
 
 function checkSnapshotBanners() {
   if (snapshotDocs.length === 0) {
-    return { skipped: `没有受版本管理的日期快照文档（本地另有 12 篇带日期的内部文档，按 .gitignore 有意不发布）` }
+    return { skipped: '没有受版本管理的日期快照文档（`.gitignore` 的「内部工程文档」一节会挡掉不发布的过程文档，它们本来也不在跟踪集里）' }
   }
   const problems = []
   for (const f of snapshotDocs) {

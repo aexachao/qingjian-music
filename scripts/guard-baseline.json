@@ -8,11 +8,9 @@
       "apps/mobile/src/components/progress-bar.tsx": 1,
       "apps/mobile/src/components/prompt-modal.tsx": 4,
       "apps/mobile/src/screens/appearance-settings.tsx": 2,
-      "apps/mobile/src/screens/cache-settings.tsx": 2,
-      "apps/mobile/src/screens/home/HeroStationCard.tsx": 1
+      "apps/mobile/src/screens/cache-settings.tsx": 2
     },
     "type-escape-hatches": {
-      "apps/mobile/src/components/lyric-view.tsx": 1,
       "apps/mobile/src/components/player/player-queue.tsx": 2,
       "apps/mobile/src/components/stack-back-button.tsx": 1,
       "apps/mobile/src/lib/use-track-menu.ts": 1,

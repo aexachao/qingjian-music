@@ -147,7 +147,12 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
    保持 JS API 不变，只把 `randomUUID` 改走普通 Expo Modules closure 路径。升级 Expo / Xcode 时
    应先撤掉补丁验证官方是否已修；补丁哈希必须与 `pnpm-lock.yaml` 一致。
 
-8. **Android 构建会被 `react-native-track-player@4.1.2` 卡住 —— `patches/` 里的补丁不能删。**
+8. **`react-native-track-player@4.1.2` 的补丁不能删 —— 安卓靠它编过并起播，iOS 靠它提供在用的能力。**
+   上游（doublesymmetry/react-native-track-player）**没有在 v4 修**，而是关掉 v4、
+   转向重写的 v5（`@rntp/player`），所以这些只能我们自己打。安卓侧三处互相独立的坏，
+   按发现顺序：
+
+   **① 编译期：可空 `Bundle` 传给非空形参。**
    4.1.2 把可空的 `Track.originalItem: Bundle?` 直接传给 `Arguments.fromBundle(Bundle)`，
    RN 0.81+ 的 Kotlin 2.x 把这条提升成**编译错误**，`:react-native-track-player:compileReleaseKotlin`
    直接失败（第一次真正跑 Android 构建时才暴露，之前从没构建过）：
@@ -157,11 +162,46 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
    e: MusicModule.kt:588:17 Argument type mismatch: actual type is 'Bundle?', but 'Bundle' was expected.
    ```
 
-   上游（doublesymmetry/react-native-track-player）**没有在 v4 修**，而是关掉 v4、
-   转向重写的 v5（`@rntp/player`）。所以这里用 pnpm patch 打了两个 hunk，把
-   `Arguments.fromBundle(x)` 改成 `x?.let { Arguments.fromBundle(it) }`。
-   用 `?.let` 而不是 `?: Bundle()`：后者会把 `null` 变成**空 map** 发给 JS，
-   破坏 `getTrack` / `getActiveTrack`「越界或空队列时返回 null」的既有契约。
+   补丁改成 `x?.let { Arguments.fromBundle(it) }`。**用 `?.let` 而不是 `?: Bundle()`**：
+   后者会把 `null` 变成**空 map** 发给 JS，破坏 `getTrack` / `getActiveTrack`
+   「越界或空队列时返回 null」的既有契约。
+
+   **② 加载期：表达式函数体让 `@ReactMethod` 返回 `Job`。**
+   `fun f(...) = scope.launch { ... }` 的返回类型是 `Job` 而不是 `Unit`，而 RN 0.86 的
+   `TurboModuleInteropUtils` 有一条规则「`returnType == void` ⟺ 是同步方法」，
+   非 void 又没标同步 → 抛 `ParsingException`，JNI 层未捕获 → **SIGABRT**。
+   它发生在**解析原生模块描述符**阶段，也就是 React 挂载之前，现象是
+   「点开就闪退、屏幕上什么都不显示」，连错误屏都来不及渲染。
+   补丁把 `MusicModule` 里所有 `@ReactMethod` 一律改成**块体**（返回 `Unit`），
+   文件头写明不许改回去 —— 改回去编译正常、单测全绿，只有真机才会闪退。
+   > 这一条曾经只写在文档里当作「尚未验证的风险 + 退路」，2026-09-14 真机上果然崩了，
+   > 于是按退路打了补丁，本段据此改写。**「编译能过」不等于「风险未兑现」。**
+
+   **③ 运行期：`MusicService` 用了新架构禁用的 `reactNativeHost`。**
+   `ReactApplication.reactNativeHost` 的 getter 在新架构下直接抛异常，而
+   `emit` / `emitList` 正走 `HeadlessJsTaskService.getReactNativeHost()`。
+   补丁改成双架构兼容：优先 `reactHost.currentReactContext`，回退 `reactNativeHost`。
+   **只写前者会在旧架构下拿到 null，事件静默发不出去** —— 又一个「不报错、只是不对」。
+
+   **iOS 侧补丁是功能依赖，不是兼容性装饰**，删掉会静默降级：
+   - `allowsCellularAccess` —— `apps/mobile/src/player/setup.ts` 靠它把「蜂窝是否允许远端播放」
+     传给 iOS；没有这个选项，用户关掉了蜂窝播放却还是会在蜂窝下拉流。
+   - `promoteUpcomingTrackSource` —— 把队列里**未激活**的曲目原地升级成本地 `file://`，
+     避免 remove/reinsert 与原生自动下一首竞速。见
+     `apps/mobile/src/player/native-queue-source.ts`，它对方法缺失直接返回 `false`，
+     所以**删补丁不会报错**：已缓存的下一首仍按远端地址加载，等轮到自己才换成本地文件。
+   - WebP 封面解码（`SDWebImageWebPCoder`）—— 锁屏封面拿不到图时同样是静默失败。
+   - `methodQueue` 收拢到主队列，让 JS 的队列变更与原生的自动下一首 / 远程控制串行。
+
+   应用自身还有一条与之相关的坑：`Capability.Like` **只下发给 iOS** —— RNTP 安卓的
+   `getConstants()` 里没有 `CAPABILITY_LIKE`（Like/Dislike/Bookmark 是 iOS 的
+   `MPFeedbackCommand`），安卓传过去会解析成 undefined、序列化成 null，原生侧
+   `Capability.values()[null]` 解包时抛**无 message 的 NPE**。
+
+   > **曾经试过「给 Android 关掉新架构」，已撤回。** `@react-native-menu/menu` 的 CMake
+   > 依赖只有启用新架构才会生成的 codegen 产物目录，关掉后 CI 直接失败。
+   > 上面三处加上 `Capability.Like` 都修完之后，新架构本来就不需要任何开关 ——
+   > 此前每次只修了两处，所以从没验证过这个组合。见 `15fe157`。
 
    ⚠️ **改 `patches/*.patch` 之后必须同步更新 `pnpm-lock.yaml` 里的哈希。**
    那是 patch 文件**字节**的 sha256，对不上 `pnpm install --frozen-lockfile` 会直接失败：
@@ -171,15 +211,12 @@ Android 与 iOS 两个 job 都自动继承，不可能只漏一个平台。每�
    # 把结果写回 pnpm-lock.yaml 的 patchedDependencies
    ```
 
-   ⚠️ **另一个尚未在真机验证的风险（重要）**：RNTP 4.1.2 的 `MusicModule` 是旧式模块
-   （`ReactContextBaseJavaModule`，没有 TurboModule 声明），而它的 39 个 `@ReactMethod`
-   里有 36 个写成 `fun x(...) = scope.launch { }` —— **返回 `Job` 而不是 `void`**。
-   RN 0.86 的 interop 层
-   （`ReactAndroid/.../TurboModuleInteropUtils.kt` 的 `getMethodDescriptorsFromModule`）
-   对「非同步方法 + 返回类型不是 `Void.TYPE`」的组合会**直接抛 `ParsingException`**。
-   这是**运行时**错误（编译能过），表现为模块一被 JS 访问就崩。
-   本机没有 Android 设备，**必须在真机上验一次**。若真的崩，退路是给 RNTP 再打一个补丁，
-   把那 36 个方法改成返回 `Unit`（上游 issue #2530 里有讨论与写法）。
+9. **「本地绿」不等于「CI 绿」：验证配置改动必须用干净环境。**
+   上面那次撤回的直接起因：本地用 `newArchEnabled=false` 构建成功、模拟器也跑通，
+   据此得出「旧架构可行」——**结论是错的**。本地 `android/app/build/` 里留着更早几次
+   **新架构**构建的 codegen 产物，那个目录「恰好」还在，于是编过了；CI 是全新环境，
+   目录不存在，立刻暴露。所以验「某个配置能不能行」时要 `rm -rf android .expo`
+   重新 prebuild（iOS 侧同理，必要时 `--clean`），不要复用被污染的工作区。
 
 ---
 
@@ -264,12 +301,12 @@ npx eas-cli build --platform all --profile preview
 
 ## 七、开发校验
 
-快速校验仍可用一条命令跑完守卫 + ESLint + 类型检查 + 单测：
+快速校验仍可用一条命令跑完两个守卫 + ESLint + 类型检查 + 单测：
 
 ```bash
 node scripts/verify.mjs
-node scripts/verify.mjs --only lint        # 只跑某一类
-node scripts/verify.mjs --skip-guard       # 跳过架构守卫
+node scripts/verify.mjs --only lint        # 只跑某一类：guard | docs | lint | typecheck | test
+node scripts/verify.mjs --skip-guard       # 跳过两个守卫（架构守卫 + 文档事实守卫）
 ```
 
 但每次修改完成后的验收入口是：
@@ -286,8 +323,9 @@ Xcode 与 CocoaPods。push / PR 的 macOS CI 使用同一个 `verify:ios` 入口
 ### 架构守卫
 
 `node scripts/guard-architecture.mjs`，项目特有的约束（触感收口、`*-policy.ts`
-依赖纯净、禁 `console.log`、禁 `@ts-ignore`、类型逃生舱棘轮、路由类型完整）。
-存量债务记在 `scripts/guard-baseline.json`，**只减不增**。
+依赖纯净、禁 `console.log`、色值只能写在 `apps/mobile/src/theme/`、品牌色必须走语义角色、
+禁 `@ts-ignore`、类型逃生舱棘轮、路由类型完整）。
+存量债务记在 `scripts/guard-baseline.json`，**只减不增**；零容忍的规则不进基线。
 
 > **加新规则时必须先造一个违规样本验证它会失败** —— 守卫自己踩过
 > 「规则永远为真」的坑：一条永远通过的规则比没有规则更糟，因为它给人一种被保护了的错觉。
@@ -304,13 +342,15 @@ node scripts/check-docs.mjs --self-test      # 自检：注入假值确认每条
 「378 测试」和「459 测试」、「9 项校验」和「10 项校验」，而 README 让人去跑的
 `verify-full.mjs` 当时**根本没提交** —— 本地存在，别人 clone 下来没有。
 
-它检查四类事实：
+它跑的检查（项数以 `scripts/check-docs.mjs` 为准，本文档不复述）：
 
 | 检查 | 抓什么 |
 | --- | --- |
 | 文档引用可解析且已纳入版本库 | 相对链接/图片指向的文件存在**且已被 git 跟踪**。错误文案区分「不存在」与「存在但未提交」—— 后者是这台机器上最容易骗过 `existsSync` 的形态 |
 | 反引号里的仓库路径 | 文档里以反引号写出的仓库路径是否真的存在。曾出现过把 `apps/mobile/scripts/device-build.sh` 当成仓库根目录下的文件来写的情况 —— 只要那个错路径以反引号形式出现就会被抓 |
-| 文档索引 / 文档地图 | `docs/README.md` 索引是否覆盖全部受管理的文档；`docs/现状基线.md` 的文档地图是否恰好划分它们（新文档不归类就失败，防止范围悄悄缩小） |
+| 文档索引完整 | `docs/README.md` 是否覆盖了全部受管理的 `docs/*.md` |
+| 文档地图恰好划分 | `docs/现状基线.md` 的文档地图是否把每篇受管理的 Markdown 归类**且只归一次**（新文档不归类就失败，防止范围悄悄缩小） |
+| 时点快照标注 | 文件名带日期的文档必须写明自己是「时点快照」—— 它们描述过去，不是现状，不该被当成事实源 |
 | 现状基线生成块 | `docs/现状基线.md` 里那张事实表是否与实际一致（跑 `--update` 重写） |
 
 **核心纪律：事实只从 `git ls-files` / 文件系统 / 代码常量推导，永不读 `.md`。**
@@ -342,7 +382,7 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 2. **必须显式覆盖 `import/resolver`。**
    `eslint-config-expo` 的 `import/typescript` 块没有 `files` 作用域，
    会把整个 `import/resolver` 重写成只有 node 解析器，冲掉 `typescript: true` →
-   `@/*` 别名全部解析失败，表现为 **114 个文件里 420 条假的 `import/no-unresolved`**。
+   `@/*` 别名全部解析失败，当时表现为 **114 个文件里 420 条假的 `import/no-unresolved`**。
    所以 `eslint.config.mjs` 里的 `qingjian/resolver` 块必须在 `...expoFlat` **之后**。
 
    > **假报错比不报更糟**：第一次跑就刷 420 条假错误，团队会直接不再相信这个工具。
@@ -351,9 +391,11 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 3. **`eslint-import-resolver-typescript` 必须是直接依赖。**
    解析器是在**运行目录**下 `require` 的，pnpm 的 isolated 链接不会提升它。
 
-`react-hooks/refs` 等 4 条规则被降级为 warning（共 94 条已知欠债）：
-它们检查渲染期读写 ref 这类并发渲染隐患，判断本身是对的，但改起来要动交互时序，
-**必须真机验证**。先降级保证 CI 可用，**这 94 条是已知欠债，不是「没问题」**。
+`react-hooks/refs` 等 4 条规则被降级为 warning，它们的存量都算在警告预算里
+（数字见 `scripts/verify.mjs` 的 `LINT_WARNING_BUDGET` 与 [`现状基线.md`](现状基线.md)）：
+这类规则检查渲染期读写 ref 这种并发渲染隐患，判断本身是对的，但改起来要动交互时序，
+**必须真机验证**。先降级保证 CI 可用，**存量欠债不是「没问题」**，
+每修掉一批就要把预算一并改小。
 
 ### 干净检出为什么跑不了类型检查（生成文件陷阱）
 
@@ -387,12 +429,12 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 `apps/mobile/vitest.config.mts` 必须存在 —— 它只做一件事：把 tsconfig 的 `paths`
 镜像给 vitest。
 
-`src/` 下 **114 / 160** 个文件用 `@/` 别名，而 **vitest 默认不读 tsconfig 的 paths**。
+`src/` 下**绝大多数**文件用 `@/` 别名，而 **vitest 默认不读 tsconfig 的 paths**。
 缺这份配置时 `import ... from '@/lib/xxx'` 直接报 `Cannot find package '@'`。
 
 这个坑的隐蔽之处在于：**它不会让任何测试失败**。它只是让那些模块「import 不进来」→
 于是永远没有行为测试 → 而且没人会注意到缺了什么。
-`src/player/controller.ts`（957 行，播放核心）就是这么一直零行为测试的 ——
+播放核心 `apps/mobile/src/player/controller.ts` 就是这么长期零行为测试的 ——
 **不是没人写，是写不了。**
 
 ### 给播放器模块写行为测试的套路
@@ -423,8 +465,10 @@ node node_modules/eslint/bin/eslint.js <文件>   # 只看某个文件（不带�
 
 ### 仍未覆盖的
 
-`controller.ts` 的 35 个导出里，行为测试覆盖了 16 个。
-`bridge.tsx`（305 行，RNTP 事件 → store 的桥）目前仍只有源码断言，零行为测试 ——
+`controller.ts` 的导出只有一部分有行为测试 —— 剩下的多是接线与查询型函数，
+按「静默出错」风险大小逐个补，不要为了凑覆盖率写空断言。
+
+`bridge.tsx`（RNTP 事件 → store 的桥）目前仍只有源码断言，零行为测试 ——
 它的决策逻辑已抽到 `playback-error-policy.ts`（有测试），剩下的多是接线。
 
 ---

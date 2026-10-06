@@ -48,8 +48,11 @@ node scripts/verify-full.mjs
 
 - 新增路由后 `.expo/types/router.d.ts` 不会自动更新，索引 `useSegments()` 一律用 `.at(i)`；
 - 纯逻辑必须放 `*-policy.ts`（不能 import RN / expo），否则架构守卫会拦；
-- 新增守卫规则时必须同时更新 `scripts/guard-baseline.json` 基线；
-- 存量债务是**棘轮**：基线只减不增，新增违规会让 CI 失败。
+- 新增守卫规则分两种：`ratchet: true` 的规则要把存量债务写进 `scripts/guard-baseline.json`；
+  零容忍规则**不要**登记进基线 —— 登记等于给它开后门，规则从此永远为真；
+- 无论哪种，都要先造一个违规样本确认**它会失败**（和第四节对测试的要求是同一个道理）；
+- 存量债务是**棘轮**：基线只减不增，新增违规会让 CI 失败。ESLint 警告预算同理，
+  修掉一批就把数字一并改小。
 
 ## 四、修 bug 的 PR 请附一条会失败的测试
 

@@ -3,6 +3,8 @@
 Base: {origin}/music/api/v1 ; envelope {code,msg,data}, code 0 = ok
 errors: 99999 INVALID TOKEN(401) / 100001 unknown error(payload shape) / 100002 invalid arguments / 100003 forbidden, admin only / 100005 resource not found
 server: serverVersion 1.0.0（2026-09-17 实测已升到 **1.0.1**）, mediasrvVersion 0.8.41
+     本行是**该行写下时的实测点**，不是当前版本；2026-09-27 的复采见
+     [智能推荐与AI-路线图](./智能推荐与AI-路线图.md) 1.2 节（fnOS 1.0.10 / mediasrv 0.8.42）。
 
 ## auth
 POST /user/password-login {username, password: sha256hex(plain), deviceId} -> {userToken, user{guid,name,role,...}}
