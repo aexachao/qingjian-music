@@ -11,7 +11,8 @@ describe('登录页布局与 FN ID 交互规范', () => {
     expect(loginSource).toContain('assets/images/icon.png')
     expect(loginSource).not.toContain('连接你的飞牛音乐服务器')
     expect(loginSource).toContain('useThemeColors')
-    expect(loginSource).toContain('radius.lg')
+    // 样式已拆到 screens/login.styles.ts
+    expect(readSource('screens/login.styles.ts')).toContain('radius.lg')
   })
 
   it('支持记住密码并在历史选择或冷启动时安全恢复密码', () => {
