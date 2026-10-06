@@ -37,7 +37,8 @@ describe('空状态在视窗里居中', () => {
   it('所有会渲染 ListEmptyComponent 的列表都让内容区撑满（flexGrow: 1）', () => {
     for (const path of [
       'screens/track-list-screen.tsx',
-      'screens/album-detail.tsx',
+      // album-detail 的样式已拆到 album-detail.styles.ts
+      'screens/album-detail.styles.ts',
       'screens/albums.tsx',
       'screens/artists.tsx',
       'screens/genres.tsx',
