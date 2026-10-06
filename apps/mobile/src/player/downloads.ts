@@ -7,12 +7,22 @@ import {
   downloadFileName,
   downloadKey,
   downloadTranscodeFileName,
-  type DownloadState,
 } from '@/lib/download-policy'
 import { parseHlsPlaylist } from './hls-playlist'
 import { validatePlaylistAgainstSource, validateTranscodeProduct } from './audio-cache-policy'
 import { countBoxes } from './mp4-boxes'
-import { fetchBoundedBytes, fetchBoundedText } from '@/lib/bounded-fetch'
+import { fetchTranscodeBytes, fetchTranscodeText } from './download-transcode-fetch'
+import type {
+  DownloadAttempt,
+  DownloadEntry,
+  DownloadIndex,
+  DownloadJobState,
+  DownloadJournalRecord,
+  Listener,
+} from './download-types'
+
+// 下载相关的类型集中在 download-types.ts，这里转出给管理页等外部消费者（import 路径不变）。
+export type { DownloadEntry, DownloadJobState } from './download-types'
 /**
  * 原生模块**动态**载入。
  *
@@ -59,79 +69,9 @@ function nativeModule(): Promise<AudioDownloaderModule | null> {
  */
 
 const DOWNLOAD_DIR = 'downloads'
-const MAX_DOWNLOAD_SEGMENT_BYTES = 16 * 1024 * 1024
-const MAX_PLAYLIST_BYTES = 2 * 1024 * 1024
 const MAX_ACTIVE_DOWNLOADS = 2
 /** 播放缓存的目录名（`player/audio-cache.ts`）。这里复制一份只为了断言两者不同 —— 见下方。 */
 const CACHE_DIR = 'audio'
-
-export interface DownloadEntry {
-  /** `serverId:trackId` */
-  key: string
-  serverId: string
-  trackId: string
-  title: string
-  artistText: string
-  coverId?: string
-  fileName: string
-  bytes: number
-  downloadedAt: number
-  /** 下载时的格式（播放时决定 contentType） */
-  format?: string
-  /**
-   * 转码产物的播放 content-type。
-   *
-   * 转码曲目下载下来的是 fMP4（后缀 mp4），但 `format` 仍记原始格式（如 `dsf`）——
-   * 那样 `contentTypeFor(format)` 会返回 undefined，RNTP 会拒播。所以转码产物
-   * 显式记 `audio/mp4`，播放时优先用它（见 controller 的 `downloadedContentType`）。
-   */
-  contentType?: string
-  /**
-   * 完整领域曲目。
-   *
-   * 管理页要能**离线播放**，而 `playTrackList` 的入参是 `Track[]` —— 只存标题/艺术家
-   * 就播不了（与队列页历史行同一个问题，那里也是靠 `QueueItem.track` 解决的）。
-   */
-  track?: Track
-}
-
-/** 正在下载的作业（仅内存；App 重启后由 native 的 pendingJobs + 磁盘对账恢复） */
-export interface DownloadJobState {
-  key: string
-  state: DownloadState
-  completed: number
-  total: number
-  error?: string
-}
-
-interface DownloadIndex {
-  version: 1
-  entries: Record<string, DownloadEntry>
-}
-
-interface DownloadJournalRecord {
-  version: 1
-  key: string
-  attemptId: string
-  state: 'pending' | 'completed'
-  entry: DownloadEntry
-}
-
-interface DownloadAttempt {
-  key: string
-  id: string
-  controller: AbortController
-  promise: Promise<void>
-  cancelled: boolean
-  nativeStarted: boolean
-  nativeStartPending: boolean
-  active: boolean
-  finished: boolean
-  resolve: () => void
-  reject: (error: unknown) => void
-}
-
-type Listener = () => void
 
 let index: DownloadIndex | null = null
 const jobs = new Map<string, DownloadJobState>()
@@ -828,71 +768,6 @@ async function downloadTranscodeTrack(options: {
     attempt.controller.signal.removeEventListener('abort', abortHeartbeat)
     closeSession()
   }
-}
-
-/** 取转码播放列表文本（自带超时，不依赖 AbortSignal.timeout） */
-async function fetchTranscodeText(
-  url: string,
-  headers: Record<string, string>,
-  signal: AbortSignal,
-): Promise<string> {
-  try {
-    return await fetchBoundedText(url, { headers, signal, timeoutMs: 15_000, maxBytes: MAX_PLAYLIST_BYTES })
-  } catch (error) {
-    if (error instanceof Error && 'status' in error && typeof error.status === 'number') {
-      throw new Error(`播放列表 HTTP ${error.status}`)
-    }
-    throw error
-  }
-}
-
-/**
- * 取一个分片的字节。
- * **404 要重试**：转码任务刚建时分片可能还没生成（越重的源越容易踩到）。
- * **410 不重试**：任务已被回收（心跳断太久），继续重试没有意义。
- */
-async function fetchTranscodeBytes(
-  url: string,
-  headers: Record<string, string>,
-  label: string,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  const attempts = 6
-  let lastStatus = 0
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await fetchBoundedBytes(url, {
-        headers,
-        signal,
-        timeoutMs: 15_000,
-        maxBytes: MAX_DOWNLOAD_SEGMENT_BYTES,
-      })
-    } catch (error) {
-      const status = error instanceof Error && 'status' in error && typeof error.status === 'number'
-        ? error.status
-        : undefined
-      if (status === undefined) throw error
-      lastStatus = status
-      if (status !== 404) break
-      if (attempt < attempts) await delay(1000 * attempt, signal)
-    }
-  }
-  throw new Error(`${label} HTTP ${lastStatus}`)
-}
-
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('下载已取消'))
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      reject(signal?.reason ?? new Error('下载已取消'))
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 /** 删除单条下载（连带删文件；删不掉也把登记项清掉，避免显示假状态） */
