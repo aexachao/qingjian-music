@@ -43,7 +43,8 @@ describe('空状态在视窗里居中', () => {
       'screens/artists.tsx',
       'screens/genres.tsx',
       'screens/playlists.tsx',
-      'screens/artist-detail.tsx',
+      // artist-detail 的样式已拆到 artist-detail.styles.ts
+      'screens/artist-detail.styles.ts',
       'screens/search-result-list.tsx',
       'screens/search-query.tsx',
     ]) {
