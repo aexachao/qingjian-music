@@ -99,7 +99,8 @@ describe('下载接线（源码断言，防止被顺手改断）', () => {
 
   it('播放解析**先查下载**：下过的歌不再走网络', async () => {
     const { readSource } = await import('../support/source')
-    const controller = readSource('player/controller.ts')
+    // 本地播放解析（下载优先于缓存）已拆分到 track-mapping.ts
+    const controller = readSource('player/track-mapping.ts')
     const downloadCheck = controller.indexOf('downloadedUri(item.serverId, item.trackId)')
     const cacheCheck = controller.indexOf('cachedAudioUri(toCacheTarget(item))')
     expect(downloadCheck).toBeGreaterThanOrEqual(0)
@@ -145,7 +146,8 @@ describe('下载接线（源码断言，防止被顺手改断）', () => {
 
   it('转码产物播放用登记的 contentType（fMP4 不能按原格式查）', async () => {
     const { readSource } = await import('../support/source')
-    const controller = readSource('player/controller.ts')
+    // 本地播放解析已拆分到 track-mapping.ts
+    const controller = readSource('player/track-mapping.ts')
     // 下载优先分支里，转码产物的 contentType 优先于按 format 兜底
     expect(controller).toContain('downloadedContentType(item.serverId, item.trackId) ?? contentTypeFor(item.format)')
   })
