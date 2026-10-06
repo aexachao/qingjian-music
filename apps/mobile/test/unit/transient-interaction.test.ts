@@ -42,7 +42,8 @@ describe('临时交互层手势优先级', () => {
     expect(menu).toContain('前往专辑')
     expect(menu).toContain('查看艺术家')
 
-    const deck = source('components/player/player-deck.tsx')
+    // DeckMoreButton 已拆到 deck-more-button.tsx
+    const deck = source('components/player/deck-more-button.tsx')
     expect(deck).toContain('onNavigate={onDismissWithAction}')
 
     const hook = source('lib/use-track-menu.ts')

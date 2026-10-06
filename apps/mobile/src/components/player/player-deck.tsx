@@ -1,33 +1,32 @@
 import { usePlaybackIntent } from '@/player/playback-intent'
-import { useCallback, useEffect, useMemo } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { useCallback, useMemo } from 'react'
+import { View } from 'react-native'
 import { useIsPlaying, useProgress } from 'react-native-track-player'
 import type { QueueItem } from '@qj/core-domain'
-import { Icon, IconButton, iconSize } from '@/components/icon'
+import { IconButton, iconSize } from '@/components/icon'
 import { MarqueeText } from '@/components/marquee-text'
 import { ProgressBar } from '@/components/progress-bar'
-import { TrackMenuButton } from '@/components/track-menu-button'
-import { SystemVolumeSlider, addVolumeListener, getSystemVolume, setSystemVolume } from '../../../modules/system-volume'
-import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   Extrapolation,
   interpolate,
-  runOnJS,
   useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
 import { useToast } from '@/components/toast'
 import { formatAudioSourceInfo } from '@/lib/audio-info'
 import { useToggleFavorite } from '@/lib/favorites'
-import { select, tap } from '@/lib/haptics'
+import { tap } from '@/lib/haptics'
 import { seekPlayback, skipToNextSafe, skipToPreviousSmart, togglePlay } from '@/player/controller'
 import { usePlayerStore } from '@/player/store'
 import { useIsAudioLoading } from '@/player/use-audio-loading'
-import { radius, spacing, typography } from '@/theme/tokens'
-import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
+import { spacing } from '@/theme/tokens'
+import { useThemeColors } from '@/theme/theme-provider'
+import { useStyles } from './player-deck.styles'
+import { DeckMoreButton } from './deck-more-button'
+import { VolumeBar } from './deck-volume-bar'
+
+// DeckMoreButton 拆到独立文件后仍从本模块转出，current-track-card 等调用方 import 路径不变。
+export { DeckMoreButton } from './deck-more-button'
 
 interface PlayerDeckProps {
   current: QueueItem
@@ -241,173 +240,3 @@ export function PlayerDeck({
     </View>
   )
 }
-
-/**
- * 自绘音量条：完美的 Apple Music 胶囊外观，左右图标在胶囊内部。
- * 利用透明的 SystemVolumeSlider 拦截手势并抑制系统音量弹窗。
- */
-function VolumeBar({ onInteractionStart, onInteractionEnd }: { onInteractionStart?: () => void; onInteractionEnd?: () => void }) {
-  const colors = useThemeColors()
-  const styles = useStyles()
-  const currentVol = getSystemVolume()
-  const volume = useSharedValue(currentVol)
-  const pressed = useSharedValue(0)
-  const initialVolume = useSharedValue(currentVol)
-  const sliderWidth = useSharedValue(300)
-
-  useEffect(() => {
-    // 挂载时立即拉取真实系统音量校准
-    const latest = getSystemVolume()
-    if (pressed.value === 0 && Math.abs(volume.value - latest) > 0.005) {
-      volume.value = latest
-    }
-    const sub = addVolumeListener((e) => {
-      // 只有在没被按住的时候，才接受系统音量变化
-      if (pressed.value === 0) {
-        volume.value = withSpring(e.volume, { damping: 34.6, stiffness: 300 })
-      }
-    })
-    return () => sub.remove()
-  }, [volume, pressed])
-
-  const pan = Gesture.Pan()
-    .failOffsetY([-14, 14])
-    .onBegin(() => {
-      if (onInteractionStart) runOnJS(onInteractionStart)()
-      runOnJS(select)()
-      pressed.value = withSpring(1, { damping: 34.6, stiffness: 300 })
-      initialVolume.value = volume.value
-    })
-    .onChange((event) => {
-      const width = sliderWidth.value || 300
-      const delta = event.translationX / width
-      let next = initialVolume.value + delta
-      next = Math.max(0, Math.min(1, next))
-      volume.value = next
-      runOnJS(setSystemVolume)(next)
-    })
-    .onFinalize(() => {
-      if (onInteractionEnd) runOnJS(onInteractionEnd)()
-      pressed.value = withTiming(0, { duration: 250 })
-    })
-
-  const trackStyle = useAnimatedStyle(() => ({
-    height: 6 + (6 * 3 - 6) * pressed.value,
-  }))
-
-  const fillStyle = useAnimatedStyle(() => ({
-    width: `${Math.max(0, Math.min(1, volume.value)) * 100}%`,
-    height: '100%',
-  }))
-
-  return (
-    <View style={styles.volumeRow}>
-      <Icon name="volumeDown" size={iconSize.md} color={colors.iconDim} />
-      
-      <GestureDetector gesture={pan}>
-        <View
-          style={styles.volumeSliderContainer}
-          hitSlop={{ top: 12, bottom: 12 }}
-          onLayout={(e) => {
-            sliderWidth.value = e.nativeEvent.layout.width
-          }}
-        >
-          <Animated.View style={[styles.volumeTrack, trackStyle]}>
-            <Animated.View style={[styles.volumeFill, fillStyle]} />
-          </Animated.View>
-
-          {/* 纯粹用于抑制系统音量 HUD 的幽灵视图，没有实际 UI 和交互 */}
-          <SystemVolumeSlider pointerEvents="none" style={StyleSheet.absoluteFill} />
-        </View>
-      </GestureDetector>
-
-      <Icon name="volumeUp" size={iconSize.md} color={colors.iconDim} />
-    </View>
-  )
-}
-
-/**
- * 「···」按钮 + 系统原生快捷菜单 (iOS: UIContextMenu / Android: PopupMenu)。
- */
-export function DeckMoreButton({
-  current,
-  onBeforeOpen,
-  onDismissWithAction,
-  onMenuOpenChange,
-  popDirection = 'up',
-}: {
-  current: QueueItem
-  onBeforeOpen?: () => boolean
-  onDismissWithAction?: (action: () => void) => void
-  onMenuOpenChange?: (open: boolean) => void
-  popDirection?: 'up' | 'down'
-}) {
-  return (
-    <TrackMenuButton
-      variant="iconButton"
-      context="current"
-      popDirection={popDirection}
-      onBeforeOpen={onBeforeOpen}
-      onMenuOpenChange={onMenuOpenChange}
-      onNavigate={onDismissWithAction}
-      accessibilityLabel="更多快捷操作"
-      subject={{
-        trackId: current.trackId,
-        title: current.title,
-        artistText: current.artistText,
-        ...(current.albumId ? { albumId: current.albumId } : {}),
-        ...(current.albumText ? { albumText: current.albumText } : {}),
-        ...(current.artistId ? { artistId: current.artistId } : {}),
-        durationMs: current.durationMs,
-        ...(current.coverId ? { coverId: current.coverId } : {}),
-        ...(current.isFavorite === undefined ? {} : { isFavorite: current.isFavorite }),
-      }}
-    />
-  )
-}
-
-const useStyles = createThemedStyles((colors) => ({
-  container: { gap: spacing.lg },
-  containerCompact: {
-    gap: spacing.xl,
-    justifyContent: 'center',
-  },
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
-  // 歌名占满剩余宽度，两个图标按钮自然贴到行尾
-  titleText: { flex: 1, gap: 2, paddingRight: spacing.sm },
-  title: { ...typography.title, color: colors.textPrimary },
-  artist: { ...typography.callout, color: colors.textSecondary },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 0 },
-  // 两个图标容器严格等大 (44x44)，依赖 Flex 居中对齐
-  menuWrapper: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.lg,
-    // 平衡播放 glyph 到时间文字、音量轨道的视觉间距；上下净高度不变。
-    marginTop: 6,
-    marginBottom: -6,
-  },
-  controlsCompact: { gap: spacing.xl },
-  playControlHit: { minWidth: 88, minHeight: 88, borderRadius: 44 },
-  playControlHitCompact: { minWidth: 64, minHeight: 64, borderRadius: 32 },
-  sideControlHit: { minWidth: 72, minHeight: 72, borderRadius: 36 },
-  sideControlHitCompact: { minWidth: 48, minHeight: 48, borderRadius: 24 },
-  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  volumeSliderContainer: {
-    flex: 1,
-    height: 32, // Apple Music 原生音量滑块高度，确保响应区域和视觉居中
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  volumeTrack: {
-    backgroundColor: colors.playerProgressTrack,
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-    height: 6, // 默认细度，与进度条对齐
-  },
-  volumeFill: {
-    backgroundColor: colors.playerProgressFill,
-  },
-}))

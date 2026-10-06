@@ -20,7 +20,6 @@
       "apps/mobile/src/app/player.tsx": 1,
       "apps/mobile/src/components/confirm-modal.tsx": 1,
       "apps/mobile/src/components/lyric-view.tsx": 1,
-      "apps/mobile/src/components/player/player-deck.tsx": 1,
       "apps/mobile/src/components/player/player-queue.tsx": 1,
       "apps/mobile/src/components/prompt-modal.tsx": 1,
       "apps/mobile/src/lib/use-track-menu.ts": 1,
@@ -41,7 +40,6 @@
     },
     "components-per-file": {
       "apps/mobile/src/components/list-states.tsx": 1,
-      "apps/mobile/src/components/player/player-deck.tsx": 1,
       "apps/mobile/src/components/player/player-toolbar.tsx": 1,
       "apps/mobile/src/components/skeleton.tsx": 1
     }
