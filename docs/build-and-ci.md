@@ -306,8 +306,13 @@ npx eas-cli build --platform all --profile preview
 ```bash
 node scripts/verify.mjs
 node scripts/verify.mjs --only lint        # 只跑某一类：guard | docs | lint | typecheck | test
-node scripts/verify.mjs --skip-guard       # 跳过两个守卫（架构守卫 + 文档事实守卫）
+node scripts/verify.mjs --skip-guard       # 只跳过架构守卫（文档事实守卫照常跑）
+node scripts/verify.mjs --skip-docs        # 只跳过文档事实守卫
 ```
+
+> skip 参数**一个只管一个守卫**。早先只有 `--skip-guard`，但它同时压掉了两个守卫 ——
+> 名字是单数、行为是复数，结果就是「我以为文档校验跑过了」这种静默失效。
+> 全跳过请显式写两个参数；`--only` 与对应的 skip 参数互相矛盾，会直接报错退出。
 
 但每次修改完成后的验收入口是：
 

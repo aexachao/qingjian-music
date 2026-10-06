@@ -18,7 +18,8 @@
  *   node scripts/verify.mjs --only lint
  *   node scripts/verify.mjs --only typecheck
  *   node scripts/verify.mjs --only test
- *   node scripts/verify.mjs --skip-guard    # 同时跳过架构守卫与文档事实守卫
+ *   node scripts/verify.mjs --skip-guard    # 只跳过架构守卫
+ *   node scripts/verify.mjs --skip-docs     # 只跳过文档事实守卫
  *
  * 完整验收（含 SwiftLint + iOS 编译）用 node scripts/verify-full.mjs；
  * 各步骤清单与计数见 docs/现状基线.md —— 不要在别处复述项数。
@@ -59,26 +60,36 @@ const c = {
 const argv = process.argv.slice(2)
 const onlyIndex = argv.indexOf('--only')
 const only = onlyIndex >= 0 ? argv[onlyIndex + 1] : null
-const skipGuard = argv.includes('--skip-guard')
+/**
+ * skip 参数与被跳过步骤的对应关系 —— **一个参数只管一个守卫**。
+ *
+ * 之前只有 `--skip-guard`，而它同时压掉了架构守卫和文档事实守卫：名字说的是
+ * 「守卫」（单数），行为却是「两个都不查」。表现是「我以为文档校验跑过了」——
+ * 正是本仓库最警惕的那类静默失效。所以拆成 `--skip-guard` / `--skip-docs`。
+ */
+const SKIP_FLAGS = { '--skip-guard': 'guard', '--skip-docs': 'docs' }
+const skipStep = new Set(Object.entries(SKIP_FLAGS).filter(([flag]) => argv.includes(flag)).map(([, step]) => step))
 const validOnlyValues = new Set(['guard', 'docs', 'lint', 'typecheck', 'test'])
 
 if (onlyIndex >= 0 && (!only || only.startsWith('--') || !validOnlyValues.has(only))) {
   console.error(`--only 必须是以下值之一：${[...validOnlyValues].join(', ')}`)
   process.exit(2)
 }
-const consumedArgs = new Set(['--skip-guard'])
+const consumedArgs = new Set(Object.keys(SKIP_FLAGS))
 if (onlyIndex >= 0) {
   consumedArgs.add('--only')
   consumedArgs.add(only)
 }
 const unknownArgs = argv.filter((arg) => !consumedArgs.has(arg))
-const expectedArgCount = (onlyIndex >= 0 ? 2 : 0) + (skipGuard ? 1 : 0)
+// 用**去重后**的 skip 数量核对长度：重复写同一个 skip 参数会让 argv.length 超过期望值而被拒。
+// （写成「出现次数」等于自己把这条校验抹掉了 —— 期望值也跟着长，永远对得上。）
+const expectedArgCount = (onlyIndex >= 0 ? 2 : 0) + skipStep.size
 if (unknownArgs.length > 0 || argv.length !== expectedArgCount) {
   console.error(`不支持或重复的参数：${argv.join(' ')}`)
   process.exit(2)
 }
-if (only === 'guard' && skipGuard) {
-  console.error('--only guard 不能与 --skip-guard 同时使用')
+if (only && skipStep.has(only)) {
+  console.error(`--only ${only} 与对应的 skip 参数互相矛盾，不能同时使用`)
   process.exit(2)
 }
 
@@ -104,13 +115,13 @@ function missingBinary(dir, relPath) {
 }
 
 // ── 1. 架构守卫 ──────────────────────────────────────────────────────────────
-if ((!only && !skipGuard) || only === 'guard') {
+if ((!only && !skipStep.has('guard')) || only === 'guard') {
   run('架构守卫', process.execPath, [join(ROOT, 'scripts', 'guard-architecture.mjs')], ROOT)
 }
 
 // ── 2. 文档事实守卫 ──────────────────────────────────────────────────────────
 // 放在 ESLint 前面：它只读 git 跟踪集与文件系统，不到 1 秒，文档错了没必要等 lint。
-if ((!only && !skipGuard) || only === 'docs') {
+if ((!only && !skipStep.has('docs')) || only === 'docs') {
   run('文档事实守卫', process.execPath, [join(ROOT, 'scripts', 'check-docs.mjs')], ROOT)
 }
 
