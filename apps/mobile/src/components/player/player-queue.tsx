@@ -2,15 +2,12 @@ import { useToast } from '@/components/toast'
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react'
 import {
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
   Animated as RNAnimated,
-  type LayoutChangeEvent,
-  type LayoutRectangle,
 } from 'react-native'
 import { useConfirm } from '@/components/confirm-modal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -22,8 +19,6 @@ import { LinearGradient } from 'expo-linear-gradient'
 import * as Haptics from 'expo-haptics'
 import Animated, {
   Easing,
-  Extrapolation,
-  interpolate,
   runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -32,8 +27,8 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated'
 
-import type { QueueItem, PlayMode } from '@qj/core-domain'
-import { Icon, IconButton, iconSize, type IconName } from '@/components/icon'
+import type { QueueItem } from '@qj/core-domain'
+import { Icon, IconButton, iconSize } from '@/components/icon'
 import { TrackMenuButton } from '@/components/track-menu-button'
 import { isGlobalMenuInteracting } from '@/lib/menu-guard'
 import { useServerSession } from '@/lib/server-session'
@@ -41,41 +36,40 @@ import {
   clearHistory,
   removeHistoryItem,
   clearUpcoming,
-  cycleRepeat,
   extendWithRadio,
   fillRadio,
   moveInQueue,
   playHistoryItem,
   RADIO_UPCOMING_KEEP,
   removeFromQueue,
-  setShuffledOrder,
   skipToIndex,
   togglePlay,
 } from '@/player/controller'
 import { useIsPlaying } from 'react-native-track-player'
 import { CoverImage } from '@/components/cover-image'
-import { CoverBackdrop } from './cover-backdrop'
 import { resolveAmbientPalette, type AmbientPalette } from '@/theme/ambient-palette'
 import { usePlayerStore } from '@/player/store'
-import { fonts, radius, spacing, typography } from '@/theme/tokens'
-import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
-import { useToggleFavorite } from '@/lib/favorites'
-import { DeckMoreButton } from '@/components/player/player-deck'
+import { radius, spacing } from '@/theme/tokens'
+import { useThemeColors } from '@/theme/theme-provider'
+import { CurrentTrackCard } from '@/components/player/current-track-card'
+import { QueueEmptyState } from '@/components/player/queue-empty-state'
+import { ModesHeader } from '@/components/player/queue-modes-header'
+import {
+  LONG_PRESS_MS,
+  RADIO_FETCH_MORE,
+  SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE,
+  SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT,
+  SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE,
+  SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT,
+  TAP_SLOP,
+  useQueueStyles,
+  type QueueTab,
+} from '@/components/player/queue-shared'
 
-const LONG_PRESS_MS = 350
-const TAP_SLOP = 12
-const RADIO_FETCH_MORE = 10
-const SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT = 104
-const SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE = 88
-const SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT = 64
-const SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE = 40
-
-function getSwipeDeleteHitWidth(tab: QueueTab, isLandscape: boolean): number {
-  if (tab === 'history') {
-    return isLandscape ? SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT
-  }
-  return isLandscape ? SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE : SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT
-}
+// 公开给播放页复用的子组件（拆分后仍从本模块转出，调用方 import 路径不变）
+export { CurrentTrackCard } from '@/components/player/current-track-card'
+export { QueueEmptyState } from '@/components/player/queue-empty-state'
+export type { EmptyStateAction, QueueEmptyStateProps } from '@/components/player/queue-empty-state'
 
 // 互斥的左滑删除引用
 let openSwipeableRef: Swipeable | null = null
@@ -86,8 +80,6 @@ export const closeOpenQueueAction = (): boolean => {
   openSwipeableRef = null
   return true
 }
-
-type QueueTab = 'upcoming' | 'history'
 
 type UpcomingRowData =
   | { id: string; type: 'upcomingTrack'; item: QueueItem; index: number }
@@ -138,7 +130,7 @@ export function PlayerQueue({
   isLandscape?: boolean
 }) {
   const toast = useToast()
-  const styles = useStyles()
+  const styles = useQueueStyles()
   const insets = useSafeAreaInsets()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   const stageTopOffset = propStageTopOffset ?? (insets.top + spacing.sm + 50 + spacing.xs)
@@ -833,343 +825,6 @@ export function PlayerQueue({
   )
 }
 
-export function CurrentTrackCard({
-  item,
-  consumeOpenAction = () => false,
-  onDismissWithAction,
-  onMenuOpenChange,
-}: {
-  item: QueueItem
-  listAnim?: SharedValue<number>
-  consumeOpenAction?: () => boolean
-  onDismissWithAction?: (action: () => void) => void
-  onMenuOpenChange?: (open: boolean) => void
-}) {
-  const colors = useThemeColors()
-  const styles = useStyles()
-  const toggleFavorite = useToggleFavorite()
-
-  return (
-    <View style={styles.currentCard}>
-      <CoverImage resource={item.artwork} size={64} borderRadius={radius.md} />
-      <View style={styles.currentInfo}>
-        <View style={styles.currentTitleRow}>
-          <Text style={styles.currentTitle} numberOfLines={1}>{item.title}</Text>
-        </View>
-        <Text style={styles.currentArtist} numberOfLines={1}>{item.artistText}</Text>
-      </View>
-      <View style={styles.currentActions}>
-        <IconButton
-          name="heart"
-          size={iconSize.lg}
-          color={item.isFavorite ? colors.like : colors.iconMid}
-          filled={true}
-          onPress={() => {
-            if (consumeOpenAction()) return
-            void toggleFavorite(item.trackId, !item.isFavorite)
-          }}
-          accessibilityLabel={item.isFavorite ? '取消喜欢' : '喜欢'}
-        />
-        <DeckMoreButton
-          current={item}
-          onBeforeOpen={consumeOpenAction}
-          onDismissWithAction={onDismissWithAction}
-          onMenuOpenChange={onMenuOpenChange}
-          popDirection="down"
-        />
-      </View>
-    </View>
-  )
-}
-
-function ModesHeader({
-  palette,
-  artwork,
-  stageTopOffset,
-  stageLeftOffset = 0,
-  modesContentOffset,
-  scrollY,
-  screenWidth,
-  screenHeight,
-  playMode,
-  autoplay,
-  tab,
-  historyCount,
-  upcomingCount,
-  provider,
-  onTabChange,
-  consumeOpenAction,
-  onClearHistory,
-  onClearUpcoming,
-  onToggleAutoplay,
-  isLandscape = false,
-}: {
-  palette?: AmbientPalette
-  artwork?: any
-  stageTopOffset: number
-  stageLeftOffset?: number
-  modesContentOffset: number
-  scrollY: SharedValue<number>
-  screenWidth: number
-  screenHeight: number
-  playMode: PlayMode
-  autoplay: boolean
-  tab: QueueTab
-  historyCount: number
-  upcomingCount: number
-  provider: any
-  onTabChange: (tab: QueueTab) => void
-  consumeOpenAction: () => boolean
-  onClearHistory: () => void
-  onClearUpcoming: () => void
-  onToggleAutoplay: () => void
-  isLandscape?: boolean
-}) {
-  const styles = useStyles()
-  const tabLayouts = useRef<{ upcoming?: LayoutRectangle; history?: LayoutRectangle }>({})
-  const indicatorX = useSharedValue(isLandscape ? 16 : 24)
-  const indicatorOpacity = useSharedValue(1)
-
-  const updateIndicator = useCallback((activeTab: QueueTab, animate = true) => {
-    const layout = tabLayouts.current[activeTab]
-    if (!layout) return
-    const targetX = layout.x + (layout.width - 16) / 2
-    if (animate) {
-      indicatorX.value = withTiming(targetX, {
-        duration: 360,
-        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-      })
-    } else {
-      indicatorX.value = targetX
-    }
-    indicatorOpacity.value = 1
-  }, [])
-
-  useEffect(() => {
-    updateIndicator(tab, true)
-  }, [tab, updateIndicator])
-
-  const onTabLayout = (t: QueueTab, layout: LayoutRectangle) => {
-    tabLayouts.current[t] = layout
-    if (t === tab) {
-      updateIndicator(t, false)
-    }
-  }
-
-  const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: indicatorX.value }],
-    opacity: indicatorOpacity.value,
-  }))
-
-  const bgStyle = useAnimatedStyle(() => {
-    const currentScreenY = stageTopOffset + Math.max(0, modesContentOffset - scrollY.value)
-    return {
-      transform: [
-        { translateX: -stageLeftOffset },
-        { translateY: -currentScreenY },
-      ],
-    }
-  })
-
-  const bgContainerStyle = useAnimatedStyle(() => {
-    // scrollY == 0 时背景透明（完全显示屏幕根背景，0色差）；滚动吸顶过程中平滑淡入到 1，作为全屏大背景的严密切片遮挡下方穿透上来的歌曲
-    const offset = modesContentOffset > 0 ? modesContentOffset : 24
-    const opacity = interpolate(scrollY.value, [0, offset], [0, 1], Extrapolation.CLAMP)
-    return { opacity }
-  })
-
-  return (
-    <View style={[styles.modesHeader, isLandscape && styles.modesHeaderLandscape]}>
-      <Animated.View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }, bgContainerStyle]} pointerEvents="none">
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: screenWidth,
-              height: screenHeight,
-            },
-            bgStyle,
-          ]}
-        >
-          <CoverBackdrop artwork={artwork} palette={palette} />
-        </Animated.View>
-      </Animated.View>
-      <View style={styles.modes}>
-        <ModeButton
-          icon="shuffle"
-          label="随机播放"
-          active={playMode.shuffle}
-          onPress={() => {
-            if (consumeOpenAction()) return
-            void setShuffledOrder(!playMode.shuffle)
-          }}
-        />
-        <ModeButton
-          icon={playMode.repeat === 'one' ? 'repeatOne' : 'repeat'}
-          label={playMode.repeat === 'one' ? '单曲循环' : playMode.repeat === 'queue' ? '列表循环' : '顺序播放'}
-          active={playMode.repeat !== 'off'}
-          onPress={() => {
-            if (consumeOpenAction()) return
-            void cycleRepeat()
-          }}
-        />
-        {provider?.capabilities.radio ? (
-          <ModeButton
-            icon="infinity"
-            label="无限播放"
-            active={autoplay}
-            onPress={() => {
-              if (consumeOpenAction()) return
-              onToggleAutoplay()
-            }}
-          />
-        ) : null}
-      </View>
-      <View style={styles.queueTabsContainer}>
-        <View style={styles.queueTabs} accessibilityRole="tablist">
-          <QueueTabButton
-            label="继续播放"
-            selected={tab === 'upcoming'}
-            onPress={() => onTabChange('upcoming')}
-            onLayout={(e) => onTabLayout('upcoming', e.nativeEvent.layout)}
-          />
-          <QueueTabButton
-            label="历史记录"
-            selected={tab === 'history'}
-            onPress={() => onTabChange('history')}
-            onLayout={(e) => onTabLayout('history', e.nativeEvent.layout)}
-          />
-          <View style={styles.queueTabSpacer} />
-          {tab === 'history' && historyCount > 0 ? (
-            <Pressable
-              onPress={onClearHistory}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="清除播放历史"
-            >
-              <Text style={styles.listClear}>清除</Text>
-            </Pressable>
-          ) : null}
-          {tab === 'upcoming' && upcomingCount > 0 ? (
-            <Pressable
-              onPress={onClearUpcoming}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="清空待播列表"
-            >
-              <Text style={styles.listClear}>清空</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <Animated.View style={[styles.queueTabIndicator, indicatorStyle]} />
-      </View>
-    </View>
-  )
-}
-
-function QueueTabButton({
-  label,
-  selected,
-  onPress,
-  onLayout,
-}: {
-  label: string
-  selected: boolean
-  onPress: () => void
-  onLayout?: (e: LayoutChangeEvent) => void
-}) {
-  const styles = useStyles()
-  return (
-    <Pressable
-      onPress={onPress}
-      onLayout={onLayout}
-      style={styles.queueTab}
-      accessibilityRole="tab"
-      accessibilityState={{ selected }}
-    >
-      <Text style={[styles.queueTabText, selected && styles.queueTabTextActive]}>{label}</Text>
-    </Pressable>
-  )
-}
-
-function ModeButton({ icon, label, active, onPress }: { icon: IconName; label: string; active: boolean; onPress: () => void }) {
-  const colors = useThemeColors()
-  const styles = useStyles()
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.mode, active && styles.modeActive]}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={active ? `${label}（已开启）` : label}
-    >
-      <Icon name={icon} size={iconSize.lg} color={active ? colors.bgPrimary : colors.textSecondary} />
-    </Pressable>
-  )
-}
-
-export interface EmptyStateAction {
-  label: string
-  onPress: () => void
-}
-
-export interface QueueEmptyStateProps {
-  title: string
-  description?: string
-  action?: EmptyStateAction
-  minHeight?: number
-  scrollY?: SharedValue<number>
-}
-
-export function QueueEmptyState({
-  title,
-  description,
-  action,
-  minHeight,
-  scrollY,
-}: QueueEmptyStateProps) {
-  const styles = useStyles()
-  const animatedStyle = useAnimatedStyle(() => {
-    // 动态垂直居中：根据上方循环工具栏是否吸顶，动态计算 list 视口高度并垂直居中
-    // scrollY == 0（未吸顶）：视口为 stageHeight - 194，相对于容器（stageHeight - 106）向上偏移 44pt
-    // scrollY >= 88（吸顶）：视口为 stageHeight - 106，无偏移（正好居中）
-    const currentScrollY = scrollY ? Math.min(88, Math.max(0, scrollY.value)) : 0
-    const shiftY = -(88 - currentScrollY) / 2
-    return {
-      transform: [
-        { translateY: shiftY },
-      ],
-    }
-  })
-
-  return (
-    <View
-      style={[
-        styles.emptyStateContainer,
-        minHeight !== undefined && { height: minHeight },
-      ]}
-    >
-      <Animated.View style={[styles.emptyStateContent, animatedStyle]}>
-        <Text style={styles.emptyStateTitle}>{title}</Text>
-        {description ? <Text style={styles.emptyStateSubtitle}>{description}</Text> : null}
-        {action ? (
-          <Pressable
-            onPress={action.onPress}
-            hitSlop={8}
-            style={({ pressed }) => [styles.emptyStateButton, pressed && styles.emptyStateButtonPressed]}
-            accessibilityRole="button"
-            accessibilityLabel={action.label}
-          >
-            <Text style={styles.emptyStateButtonText}>{action.label}</Text>
-          </Pressable>
-        ) : null}
-      </Animated.View>
-    </View>
-  )
-}
-
 function QueueRow({
   item,
   queueIndex,
@@ -1195,7 +850,7 @@ function QueueRow({
   isLandscape?: boolean
 }) {
   const colors = useThemeColors()
-  const styles = useStyles()
+  const styles = useQueueStyles()
   const isActive = useIsActive()
   const drag = useReorderableDrag()
   const elevation = useSharedValue(0)
@@ -1422,185 +1077,3 @@ function QueueRow({
     </Swipeable>
   )
 }
-
-const useStyles = createThemedStyles((colors) => ({
-  container: { flex: 1, overflow: 'hidden' },
-  headerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-  },
-  pagerViewport: {
-    flex: 1,
-  },
-  pagerViewportContainer: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  pagerTrack: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  page: {
-    flex: 1,
-    height: '100%',
-  },
-  list: { paddingBottom: spacing.xxl + spacing.md },
-  empty: { ...typography.callout, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
-  
-  modesHeader: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.sm,
-    backgroundColor: 'transparent',
-    overflow: 'hidden',
-  },
-  modesHeaderLandscape: {
-    paddingHorizontal: 0,
-  },
-  modes: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: spacing.lg,
-  },
-  mode: {
-    flex: 1,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.pill,
-    backgroundColor: colors.bgButtonSecondary,
-  },
-  modeActive: { backgroundColor: colors.textPrimary },
-  
-  queueTabsContainer: {
-    position: 'relative',
-    minHeight: 34,
-    justifyContent: 'flex-start',
-  },
-  queueTabs: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.lg,
-  },
-  queueTab: { minHeight: 30, justifyContent: 'flex-start' },
-  queueTabText: {
-    fontSize: 16,
-    fontFamily: fonts.regular,
-    fontWeight: '400',
-    color: colors.textSecondary,
-    letterSpacing: -0.2,
-  },
-  queueTabTextActive: {
-    fontFamily: fonts.bold,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  queueTabIndicator: {
-    position: 'absolute',
-    top: 26,
-    left: 0,
-    width: 16,
-    height: 2.5,
-    borderRadius: radius.pill,
-    backgroundColor: colors.textPrimary,
-  },
-  queueTabSpacer: { flex: 1 },
-  listClear: { ...typography.callout, color: colors.iconMid },
-  emptyStateContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xxl,
-  },
-  emptyStateContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    width: '100%',
-  },
-  emptyStateTitle: {
-    ...typography.subhead,
-    fontFamily: fonts.semibold,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  emptyStateSubtitle: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  emptyStateButton: {
-    marginTop: spacing.sm,
-    height: 32,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
-    backgroundColor: colors.bgButtonSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyStateButtonPressed: {
-    backgroundColor: colors.bgCardHover,
-  },
-  emptyStateButtonText: {
-    fontSize: 13,
-    fontFamily: fonts.medium,
-    fontWeight: '500',
-    color: colors.textPrimary,
-  },
-
-  currentCard: {
-    height: 88,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    gap: spacing.md,
-    overflow: 'hidden',
-  },
-  currentInfo: { flex: 1, justifyContent: 'center' },
-  currentTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  currentTitle: { ...typography.title, color: colors.textPrimary, flexShrink: 1 },
-  currentArtist: { ...typography.callout, color: colors.textSecondary, marginTop: 2 },
-  currentActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-
-  row: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.xl,
-  },
-  // 待播行：主触控区与右侧控件区是兄弟节点，物理隔离事件
-  rowWrapper: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-  },
-  rowWrapperLandscape: {
-    paddingHorizontal: 0,
-  },
-  rowMain: {
-    flex: 1,
-    height: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  rowText: { flex: 1, gap: 2, justifyContent: 'center' },
-  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  rowTitle: { ...typography.callout, color: colors.textPrimary, flexShrink: 1 },
-  rowMeta: { ...typography.caption, color: colors.textSecondary },
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  
-  deleteAction: { backgroundColor: colors.danger || 'red', justifyContent: 'center', alignItems: 'center', width: 80, height: '100%' },
-  deleteIconBg: { backgroundColor: colors.textOnAccent, borderRadius: 12, width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
-  dragSlot: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  playingIconBg: { backgroundColor: colors.textPrimary, borderRadius: radius.pill, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-}))

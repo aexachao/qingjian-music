@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { readSource } from '../support/source'
 
 const queueSource = readSource('components/player/player-queue.tsx')
+const queueHeaderSource = readSource('components/player/queue-modes-header.tsx')
+const queueSharedSource = readSource('components/player/queue-shared.ts')
 const playerSource = readSource('app/player.tsx')
 
 describe('播放器队列 Tab 交互', () => {
   it('默认展示继续播放并在原标题位置提供历史记录 Tab', () => {
     expect(queueSource).toContain("useState<QueueTab>('upcoming')")
-    expect(queueSource).toContain('label="继续播放"')
-    expect(queueSource).toContain('label="历史记录"')
-    expect(queueSource).toContain('accessibilityRole="tablist"')
+    expect(queueHeaderSource).toContain('label="继续播放"')
+    expect(queueHeaderSource).toContain('label="历史记录"')
+    expect(queueHeaderSource).toContain('accessibilityRole="tablist"')
   })
 
   it('不再使用隐藏历史区、初始偏移或吸附', () => {
@@ -29,17 +31,17 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain("title: '清除历史记录？'")
     expect(queueSource).toContain("confirmText: '清除'")
     expect(queueSource).toContain('destructive: true')
-    expect(queueSource).toContain('<View style={styles.queueTabSpacer} />')
+    expect(queueHeaderSource).toContain('<View style={styles.queueTabSpacer} />')
   })
 
   it('选中横条缩窄为精致胶囊并支持平滑位移与非选中项 regular 字体', () => {
-    expect(queueSource).toContain('width: 16')
-    expect(queueSource).toContain('fontFamily: fonts.regular')
-    expect(queueSource).toContain('indicatorX.value = withTiming')
+    expect(queueSharedSource).toContain('width: 16')
+    expect(queueSharedSource).toContain('fontFamily: fonts.regular')
+    expect(queueHeaderSource).toContain('indicatorX.value = withTiming')
   })
 
   it('排序把手需长按 350ms 才激活', () => {
-    expect(queueSource).toContain('const LONG_PRESS_MS = 350')
+    expect(queueSharedSource).toContain('export const LONG_PRESS_MS = 350')
     expect(queueSource).toContain('onLongPress={() => {')
     expect(queueSource).toContain('delayLongPress={LONG_PRESS_MS}')
     expect(queueSource.indexOf('setDragHandlePressed(true)')).toBeGreaterThan(queueSource.indexOf('onLongPress={() => {'))
@@ -76,17 +78,18 @@ describe('播放器队列 Tab 交互', () => {
   it('播放器与播放列表中的收藏 icon 统一采用面性（实心）形态', () => {
     const iconSource = readSource('components/icon.tsx')
     const deckSource = readSource('components/player/player-deck.tsx')
-    const queueSrc = readSource('components/player/player-queue.tsx')
+    // 当前曲目卡片的收藏按钮已拆分到 current-track-card.tsx
+    const currentCardSrc = readSource('components/player/current-track-card.tsx')
 
     // 通用图标支持线性收藏；播放器仍显式固定为面性。
     expect(iconSource).toContain("heart: 'heart-outline'")
 
-    // PlayerDeck 使用 Apple Music 星标收藏，PlayerQueue 保留收藏 icon
-    // PlayerDeck 和 PlayerQueue 均使用 filled={true} 的心形收藏
+    // PlayerDeck 使用 Apple Music 星标收藏，当前曲目卡片保留收藏 icon
+    // PlayerDeck 和当前曲目卡片均使用 filled={true} 的心形收藏
     expect(deckSource).toContain('name="heart"')
     expect(deckSource).toContain('filled={true}')
-    expect(queueSrc).toContain('name="heart"')
-    expect(queueSrc).toContain('filled={true}')
+    expect(currentCardSrc).toContain('name="heart"')
+    expect(currentCardSrc).toContain('filled={true}')
   })
 
   it('上一首切歌逻辑接入 restorePreviousTrack 与 pendingPreviousActivation', () => {
@@ -128,11 +131,11 @@ describe('播放器队列 Tab 交互', () => {
     expect(queueSource).toContain('gesture={pagerPanGesture}')
     expect(queueSource).toContain('.activeOffsetX([-18, 18])')
     expect(queueSource).toContain('.failOffsetY([-12, 12])')
-    // 物理隔离左滑删除范围与切 Tab 手势
-    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT = 104')
-    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE = 88')
-    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT = 64')
-    expect(queueSource).toContain('const SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE = 40')
+    // 物理隔离左滑删除范围与切 Tab 手势（命中宽度常量已收口到 queue-shared.ts）
+    expect(queueSharedSource).toContain('export const SWIPE_DELETE_HIT_WIDTH_UPCOMING_PORTRAIT = 104')
+    expect(queueSharedSource).toContain('export const SWIPE_DELETE_HIT_WIDTH_UPCOMING_LANDSCAPE = 88')
+    expect(queueSharedSource).toContain('export const SWIPE_DELETE_HIT_WIDTH_HISTORY_PORTRAIT = 64')
+    expect(queueSharedSource).toContain('export const SWIPE_DELETE_HIT_WIDTH_HISTORY_LANDSCAPE = 40')
     expect(queueSource).toContain('hitSlop={swipeHitSlop}')
     expect(queueSource).toContain('const swipeHitSlop = useMemo(')
   })

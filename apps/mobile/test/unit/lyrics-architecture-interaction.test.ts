@@ -7,10 +7,12 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   const lyricRowSource = readSource('components/player/lyric-row.tsx')
   const lyricKaraokeSource = readSource('lib/lyric-karaoke.ts')
   const queueSource = readSource('components/player/player-queue.tsx')
+  const currentTrackCardSource = readSource('components/player/current-track-card.tsx')
 
   it('播放列表导出 CurrentTrackCard，并在歌词页吸顶固定复用', () => {
-    // CurrentTrackCard 设为 export
-    expect(queueSource).toContain('export function CurrentTrackCard')
+    // CurrentTrackCard 定义在 current-track-card.tsx 并由 player-queue 转出
+    expect(currentTrackCardSource).toContain('export function CurrentTrackCard')
+    expect(queueSource).toContain("export { CurrentTrackCard }")
     // player.tsx 导入 CurrentTrackCard
     expect(playerSource).toContain('CurrentTrackCard')
     // 歌词模式下顶部吸顶固定渲染 CurrentTrackCard

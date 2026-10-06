@@ -42,7 +42,6 @@
     "components-per-file": {
       "apps/mobile/src/components/list-states.tsx": 1,
       "apps/mobile/src/components/player/player-deck.tsx": 1,
-      "apps/mobile/src/components/player/player-queue.tsx": 1,
       "apps/mobile/src/components/player/player-toolbar.tsx": 1,
       "apps/mobile/src/components/skeleton.tsx": 1
     }
