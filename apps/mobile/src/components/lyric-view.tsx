@@ -1,11 +1,8 @@
 /* eslint-disable react-hooks/immutability */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
-  ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -13,8 +10,6 @@ import {
 } from 'react-native'
 import Animated, {
   Easing,
-  interpolate,
-  interpolateColor,
   runOnJS,
   useAnimatedRef,
   useAnimatedScrollHandler,
@@ -24,30 +19,30 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIsPlaying } from 'react-native-track-player'
-import * as Clipboard from 'expo-clipboard'
-import * as Haptics from 'expo-haptics'
 import MaskedView from '@react-native-masked-view/masked-view'
 import { LinearGradient } from 'expo-linear-gradient'
 import type { LyricLine } from '@qj/core-domain'
 import { LyricStageMask, type LyricStageMaskProps } from '@/components/player/lyric-stage-mask'
+import { LyricRow } from '@/components/player/lyric-row'
+import { LyricsSheetModal } from '@/components/player/lyrics-sheet-modal'
 import { ErrorState } from '@/components/list-states'
-import { Icon, iconSize, IconButton } from '@/components/icon'
+import {
+  FALLBACK_LINE_MS,
+  LYRIC_MOTION,
+  activeIndexOf,
+  isKaraokeLine,
+  litProgressChars,
+} from '@/lib/lyric-karaoke'
 import { useLyricSheet } from '@/lib/lyric-offset'
 import { lyricScrollGeometry } from '@/lib/lyric-scroll-geometry'
 import { usePlayerStore } from '@/player/store'
-import { fonts, radius, spacing, typography } from '@/theme/tokens'
+import { radius, spacing, typography } from '@/theme/tokens'
 import { createThemedStyles, useThemeColors } from '@/theme/theme-provider'
 
-/** 没有下一行时，假设当前行唱这么久（逐词进度的兜底） */
-const FALLBACK_LINE_MS = 4000
 const EMPTY_LINES: LyricLine[] = []
-/** 长按多久进入歌词分享 */
-const LONG_PRESS_MS = 320
 const DOWNWARD_FLING_MIN_DISTANCE = 24
 const DOWNWARD_FLING_MIN_VELOCITY = 650
-const LYRIC_MOTION = { focusMs: 180, wordMs: 100, readIdleMs: 6000, restingScale: 0.96 } as const
 
 /** 跨组件与切页持久缓存的行坐标与视口高度，避免切回歌词页重新排版导致的滚动跳跃 */
 const trackOffsetsCache = new Map<string, number[]>()
@@ -100,50 +95,6 @@ interface LyricViewProps {
   foreground?: boolean
   followLocked?: boolean
   onFlingReveal?: () => void
-}
-
-/** 找到当前该高亮的行：最后一个开始时间 <= 当前时间的行 */
-function activeIndexOf(lines: LyricLine[], atMs: number): number {
-  let index = -1
-  for (let i = 0; i < lines.length; i += 1) {
-    const lineAtMs = lines[i]?.atMs ?? 0
-    if (lineAtMs < 0) continue // 标题/歌手等元数据没有演唱时间，不参与高亮
-    if (lineAtMs <= atMs) index = i
-    else break
-  }
-  return index
-}
-
-/**
- * 这一行是不是卡拉OK行：文件里给了一行内的逐词时间（增强型 LRC）才算，
- * 用「下一个词的开始时间」而不是平均拍脑袋，才能跟得上人声。
- */
-function isKaraokeLine(line: LyricLine): boolean {
-  return Array.isArray(line.words) && line.words.length >= 2
-}
-
-/**
- * 当前唱到第几个字。逐词推进：
- * 每个词里的字均分「这个词到下一个词」的时间，唱到哪个字的开始时间就亮到哪。
- */
-function litProgressChars(line: LyricLine, atMs: number, nextLineAtMs: number): number {
-  const words = line.words ?? []
-  if (words.length === 0) return 0
-  let progress = 0
-  for (let i = 0; i < words.length; i += 1) {
-    const word = words[i]!
-    const wordChars = Array.from(word.text)
-    const spanStart = word.atMs
-    const spanEnd = words[i + 1]?.atMs ?? nextLineAtMs
-    const span = Math.max(spanEnd - spanStart, 1)
-    for (let c = 0; c < wordChars.length; c += 1) {
-      const charStart = spanStart + (span * c) / wordChars.length
-      const charEnd = spanStart + (span * (c + 1)) / wordChars.length
-      if (atMs >= charEnd) progress += 1
-      else if (atMs > charStart) progress += (atMs - charStart) / Math.max(charEnd - charStart, 1)
-    }
-  }
-  return progress
 }
 
 export function LyricView({
@@ -826,309 +777,7 @@ export function LyricView({
   )
 }
 
-interface LyricRowProps {
-  index: number
-  line: LyricLine
-  /** 正在唱的这一句 */
-  active: boolean
-  viewActive: boolean
-  /** 正在被点击/选中的这一句 */
-  selected?: boolean
-  /**
-   * 当前唱到的连续字数（浮点）：
-   * 卡拉OK行（文件带逐词时间）给数字 → 逐字平滑扫亮；
-   * 其余给 undefined → 整行高亮（信息行 / 没有逐词数据的普通 LRC）。
-   */
-  litProgress?: number
-  synced: boolean
-  renderKaraoke: boolean
-  onTap: (index: number, atMs: number) => void
-  onLongPress: (index: number) => void
-  onPressIn: (index: number) => void
-  onPressOut: (index: number) => void
-  onLayout: (index: number, y: number, height: number) => void
-}
-
-/**
- * 卡拉OK单字：颜色按「已唱字数 lit」与自身字序的距离在 UI 线程平滑插值（pending→sung）。
- * 嵌在父 Text 里保证排版与换行正常。
- */
-const KaraokeChar = memo(function KaraokeChar({
-  char,
-  index,
-  lit,
-  focus,
-  sungColor,
-  pendingColor,
-}: {
-  char: string
-  index: number
-  lit: SharedValue<number>
-  focus: SharedValue<number>
-  sungColor: string
-  pendingColor: string
-}) {
-  const animStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(focus.value, [0, 1], [
-      sungColor,
-      interpolateColor(lit.value, [index, index + 1], [pendingColor, sungColor]),
-    ]),
-  }))
-  return <Animated.Text style={animStyle}>{char}</Animated.Text>
-})
-
-const LyricRow = memo(function LyricRow({
-  index,
-  line,
-  active,
-  viewActive,
-  selected = false,
-  litProgress,
-  synced,
-  renderKaraoke,
-  onTap,
-  onLongPress,
-  onPressIn,
-  onPressOut,
-  onLayout,
-}: LyricRowProps) {
-  const colors = useThemeColors()
-  const styles = useStyles()
-  const reduceMotion = useReducedMotion()
-  // 仅当前行与相邻过渡行使用逐字节点，避免整首长歌词创建数千个动画订阅。
-  // 自然换行时上一行保留文本树，随焦点渐隐；远离当前行后恢复普通文本。
-  const untimedMetadata = line.atMs < 0
-  const seekable = synced && !untimedMetadata
-  const karaoke = seekable && renderKaraoke
-  const chars = useMemo(() => karaoke ? Array.from(line.text ?? '') : [], [karaoke, line.text])
-
-  // 卡拉OK平滑扫过：把「已唱字数(浮点)」放进 UI 线程 SharedValue，
-  // 每次位置 tick(≈100ms) 来时用同周期线性插值，避免反复重启动画造成拖尾，
-  // 每个字的颜色按 lit 与字序的距离平滑插值（带 1 个字的柔边）。
-  const lit = useSharedValue(litProgress ?? 0)
-  const previousLitProgress = useRef<number | undefined>(undefined)
-  useEffect(() => {
-    const previous = previousLitProgress.current
-    previousLitProgress.current = litProgress
-    if (litProgress === undefined) return
-    // 重新进入/倒退 seek 直接对齐；只对正常向前推进做插值，避免反向扫亮。
-    lit.value = reduceMotion || !viewActive || previous === undefined || litProgress < previous
-      ? litProgress
-      : withTiming(litProgress, { duration: LYRIC_MOTION.wordMs, easing: Easing.linear })
-  }, [litProgress, lit, reduceMotion, viewActive])
-
-  const focused = !untimedMetadata && synced && active
-  const activeAnim = useSharedValue(focused ? 1 : 0)
-
-  useEffect(() => {
-    activeAnim.value = viewActive && !reduceMotion ? withTiming(focused ? 1 : 0, {
-      duration: LYRIC_MOTION.focusMs,
-      easing: Easing.bezier(0.22, 1, 0.36, 1),
-    }) : focused ? 1 : 0
-  }, [focused, viewActive, activeAnim, reduceMotion])
-
-  const animatedContentStyle = useAnimatedStyle(() => {
-    const scale = reduceMotion ? 1 : interpolate(activeAnim.value, [0, 1], [LYRIC_MOTION.restingScale, 1.0])
-    const opacity = interpolate(activeAnim.value, [0, 1], [0.38, 1.0])
-    return {
-      opacity: selected ? 1.0 : !synced ? 0.68 : opacity,
-      transform: [{ scale: !synced ? 1 : scale }],
-    }
-  })
-
-  const animatedTranslationStyle = useAnimatedStyle(() => ({
-    color: selected ? colors.textPrimary : interpolateColor(
-      activeAnim.value, [0, 1], [colors.textSecondary, colors.textPrimary],
-    ),
-  }))
-
-  const handlePress = useCallback(() => {
-    void Haptics.selectionAsync()
-    onTap(index, line.atMs)
-  }, [onTap, index, line.atMs])
-
-  const handleLongPress = useCallback(() => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    onLongPress(index)
-  }, [onLongPress, index])
-
-  return (
-    <Pressable
-      onPress={seekable ? handlePress : undefined}
-      onPressIn={() => onPressIn(index)}
-      onPressOut={() => onPressOut(index)}
-      onLongPress={handleLongPress}
-      delayLongPress={LONG_PRESS_MS}
-      onLayout={(event) => onLayout(index, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}
-      accessibilityRole={seekable ? 'button' : 'text'}
-      accessibilityActions={[{ name: 'showLyrics', label: '选择分享歌词' }]}
-      onAccessibilityAction={({ nativeEvent }) => {
-        if (nativeEvent.actionName === 'showLyrics') handleLongPress()
-      }}
-      accessibilityLabel={`${line.text}${active ? '（正在播放）' : ''}${seekable ? '，点按从这句开始播放，长按选择分享歌词' : '，长按选择分享歌词'}`}
-      style={[
-        styles.rowContainer,
-        selected && styles.rowSelected,
-      ]}
-    >
-      <Animated.View style={[styles.rowInner, animatedContentStyle]}>
-        {line.text ? (
-          <Text
-            style={[
-              styles.line,
-              active && !karaoke && styles.lineActive,
-              karaoke && styles.lineKaraoke,
-              selected && styles.lineSelected,
-            ]}
-          >
-            {karaoke
-              ? chars.map((char, index) => (
-                  <KaraokeChar
-                    key={index}
-                    char={char}
-                    index={index}
-                    lit={lit}
-                    focus={activeAnim}
-                    sungColor={colors.textPrimary}
-                    pendingColor={colors.textTertiary}
-                  />
-                ))
-              : line.text}
-          </Text>
-        ) : (
-          // 前奏 / 间奏这类空行用声波图标占位，不用音符字符
-          <Icon name="playing" size={iconSize.lg} color={active ? colors.playing : colors.iconDim} />
-        )}
-        {line.translation ? (
-          <Animated.Text style={[styles.translation, animatedTranslationStyle]}>
-            {line.translation}
-          </Animated.Text>
-        ) : null}
-      </Animated.View>
-    </Pressable>
-  )
-})
-
-/** 长按默认选中该句；选择顺序始终按歌词原顺序导出。 */
-function LyricsSheetModal({ title, artist, lines, initialIndex, onClose }: {
-  title: string
-  artist?: string
-  lines: LyricLine[]
-  initialIndex: number
-  onClose: () => void
-}) {
-  const colors = useThemeColors()
-  const styles = useStyles()
-  const reduceMotion = useReducedMotion()
-  const insets = useSafeAreaInsets()
-  const [selected, setSelected] = useState<Set<number>>(() => new Set([initialIndex]))
-  const [copyLabel, setCopyLabel] = useState('复制')
-  const [shareError, setShareError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
-  const scrollRef = useRef<ScrollView>(null)
-  const rowY = useRef<number[]>([])
-  const [viewH, setViewH] = useState(0)
-  const available = useMemo(() => lines.flatMap((line, index) => line.text?.trim() ? [index] : []), [lines])
-  const selectedLines = available.filter((index) => selected.has(index))
-  const allSelected = selectedLines.length === available.length
-  const selectedText = selectedLines.map((index) => lines[index]!.text).join('\n')
-
-  useEffect(() => {
-    if (viewH <= 0) return
-    const timer = setTimeout(() => {
-      const y = rowY.current[initialIndex]
-      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(y - viewH / 3, 0), animated: false })
-    }, 60)
-    return () => clearTimeout(timer)
-  }, [initialIndex, viewH])
-
-  const changeSelection = (next: Set<number>) => {
-    if (busyRef.current) return
-    setSelected(next)
-    setCopyLabel('复制')
-    setShareError(null)
-  }
-  const toggleLine = (index: number) => {
-    const next = new Set(selected)
-    if (next.has(index)) next.delete(index)
-    else next.add(index)
-    changeSelection(next)
-  }
-  const perform = async (action: 'copy' | 'share') => {
-    if (!selectedText || busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setShareError(null)
-    try {
-      if (action === 'copy') {
-        await Clipboard.setStringAsync(selectedText)
-        setCopyLabel('已复制')
-      } else {
-        const identity = [title, artist].filter(Boolean).join(' · ')
-        await Share.share({ message: [selectedText, identity].filter(Boolean).join('\n\n') })
-      }
-    } catch {
-      if (action === 'copy') setCopyLabel('复制失败，重试')
-      else setShareError('分享未完成，请重试')
-    } finally {
-      busyRef.current = false
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Modal visible presentationStyle="pageSheet" allowSwipeDismissal animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={onClose}>
-      <View style={[styles.sheetCard, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} accessibilityViewIsModal>
-        <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>分享歌词</Text>
-          <IconButton name="close" size={iconSize.lg} color={colors.iconMid} onPress={onClose} accessibilityLabel="关闭歌词分享" />
-        </View>
-        <View style={styles.sheetIdentity}>
-          <Text style={styles.sheetSong} numberOfLines={2}>{title || '当前歌曲'}</Text>
-          {artist ? <Text style={styles.sheetArtist} numberOfLines={1}>{artist}</Text> : null}
-        </View>
-        <View style={styles.sheetSelectionBar}>
-          <Text style={styles.sheetHint}>点选想分享的歌词</Text>
-          <Pressable onPress={() => changeSelection(new Set(allSelected ? [] : available))} disabled={busy} accessibilityRole="button" accessibilityLabel={allSelected ? '取消全选' : '全选歌词'} style={styles.sheetSelectAll}>
-            <Text style={styles.sheetSelectAllLabel}>{allSelected ? '取消全选' : '全选'}</Text>
-          </Pressable>
-        </View>
-        <ScrollView ref={scrollRef} style={styles.sheetScroll} onLayout={(event) => setViewH(event.nativeEvent.layout.height)} contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
-          {available.map((index) => {
-            const line = lines[index]!
-            const checked = selected.has(index)
-            return (
-              <Pressable key={`${line.atMs}-${index}`} onLayout={(event) => { rowY.current[index] = event.nativeEvent.layout.y }} onPress={() => toggleLine(index)} disabled={busy} accessibilityRole="checkbox" accessibilityLabel={line.text} accessibilityState={{ checked, disabled: busy }} style={({ pressed }) => [styles.sheetRow, checked && styles.sheetRowSelected, pressed && styles.sheetButtonPressed]}>
-                <View style={styles.sheetRowText}>
-                  <Text style={[styles.sheetLine, checked && styles.sheetLineSelected]}>{line.text}</Text>
-                  {line.translation ? <Text style={styles.sheetTranslation}>{line.translation}</Text> : null}
-                </View>
-              </Pressable>
-            )
-          })}
-        </ScrollView>
-        <View style={styles.sheetFooter}>
-          <Text style={styles.sheetCount} accessibilityLiveRegion="polite">{selectedLines.length ? `已选 ${selectedLines.length} 句` : '请选择歌词'}</Text>
-          <View style={styles.sheetActions}>
-            <Pressable style={({ pressed }) => [styles.sheetButton, pressed && styles.sheetButtonPressed, (!selectedText || busy) && styles.sheetButtonDisabled]} onPress={() => void perform('copy')} disabled={!selectedText || busy} accessibilityRole="button" accessibilityLabel={copyLabel === '复制' ? '复制所选歌词' : copyLabel} accessibilityState={{ disabled: !selectedText || busy, busy }}>
-              <Icon name="copy" size={iconSize.md} color={colors.textPrimary} />
-              <Text style={styles.sheetButtonLabel} accessibilityLiveRegion="polite">{copyLabel}</Text>
-            </Pressable>
-            <Pressable style={({ pressed }) => [styles.sheetButton, styles.sheetShareButton, pressed && styles.sheetButtonPressed, (!selectedText || busy) && styles.sheetButtonDisabled]} onPress={() => void perform('share')} disabled={!selectedText || busy} accessibilityRole="button" accessibilityLabel="分享所选歌词" accessibilityState={{ disabled: !selectedText || busy, busy }}>
-              <Icon name="share" size={iconSize.md} color={colors.textOnAccent} />
-              <Text style={[styles.sheetButtonLabel, styles.sheetShareLabel]}>分享</Text>
-            </Pressable>
-          </View>
-          {shareError ? <Text style={styles.sheetFeedback} accessibilityRole="alert">{shareError}</Text> : null}
-        </View>
-      </View>
-    </Modal>
-  )
-}
-
 const useStyles = createThemedStyles((colors) => ({
-  sheetFeedback: { ...typography.footnote, color: colors.textSecondary, textAlign: 'center', paddingBottom: spacing.md },
   wrapper: { flex: 1 },
   returnCurrent: { position: 'absolute', alignSelf: 'center', top: spacing.md, zIndex: 5, minHeight: 44, justifyContent: 'center' },
   returnCurrentPressable: { minHeight: 44, justifyContent: 'center' },
@@ -1152,86 +801,4 @@ const useStyles = createThemedStyles((colors) => ({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { ...typography.subhead, color: colors.textTertiary },
 
-  // —— 歌词行容器与选中浅色矩形板 ——
-  rowContainer: {
-    width: '100%',
-    alignSelf: 'stretch',
-    borderRadius: radius.lg,
-    paddingVertical: 10,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  rowSelected: {
-    backgroundColor: colors.bgListItem,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-  },
-  rowInner: {
-    width: '100%',
-    alignSelf: 'stretch',
-    transformOrigin: 'left center',
-  },
-
-  // —— 歌词文字：保持统一 28pt 行高 40，杜绝重排抖动，通过 GPU 缩放与透明度实现丝滑聚焦 ——
-  line: {
-    fontSize: 28,
-    lineHeight: 40,
-    fontFamily: fonts.bold,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  // 正在唱的整行：纯白高亮，拉开视觉对比
-  lineActive: {
-    fontSize: 28,
-    lineHeight: 40,
-    color: colors.textPrimary,
-  },
-  // 卡拉OK当前行：唱到的字逐字纯白
-  lineKaraoke: {
-    fontSize: 28,
-    lineHeight: 40,
-    color: colors.textPrimary,
-  },
-  // 选中的那一行（点击/长按反馈）：变纯白清晰
-  lineSelected: {
-    color: colors.textPrimary,
-  },
-  charSung: { color: colors.textPrimary },
-  charPending: { color: colors.textTertiary },
-
-  // —— 翻译 ——
-  translation: {
-    ...typography.subhead,
-    marginTop: spacing.xs,
-    color: colors.textSecondary,
-  },
-  // —— 歌词选择与分享 ——
-  sheetCard: { flex: 1, backgroundColor: colors.bgModal },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: spacing.xl, paddingRight: spacing.md, paddingTop: spacing.sm },
-  sheetTitle: { ...typography.headline, color: colors.textPrimary },
-  sheetIdentity: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.sm },
-  sheetSong: { ...typography.title3, color: colors.textPrimary },
-  sheetArtist: { ...typography.subhead, color: colors.textSecondary, marginTop: spacing.xs },
-  sheetSelectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl },
-  sheetHint: { ...typography.footnote, color: colors.textSecondary },
-  sheetSelectAll: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
-  sheetSelectAllLabel: { ...typography.subhead, color: colors.actionText },
-  sheetScroll: { flex: 1 },
-  sheetList: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
-  sheetRow: { flexDirection: 'row', alignItems: 'flex-start', minHeight: 48, paddingVertical: spacing.md, paddingHorizontal: spacing.sm, borderRadius: radius.md, gap: spacing.md },
-  sheetRowSelected: { backgroundColor: colors.bgButtonSecondary },
-  sheetRowText: { flex: 1 },
-  sheetLine: { ...typography.body, color: colors.textSecondary, lineHeight: 26 },
-  sheetLineSelected: { color: colors.textPrimary, fontWeight: '600' },
-  sheetTranslation: { ...typography.footnote, color: colors.textSecondary, marginTop: spacing.xs },
-  sheetFooter: { paddingTop: spacing.md, paddingHorizontal: spacing.xl, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle },
-  sheetCount: { ...typography.footnote, color: colors.textSecondary, marginBottom: spacing.sm },
-  sheetActions: { flexDirection: 'row', gap: spacing.md },
-  sheetButton: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderRadius: radius.md, backgroundColor: colors.bgButtonSecondary },
-  sheetShareButton: { backgroundColor: colors.primaryAction },
-  sheetShareLabel: { color: colors.textOnAccent },
-  sheetButtonPressed: { opacity: 0.65 },
-  sheetButtonDisabled: { opacity: 0.4 },
-  sheetButtonLabel: { ...typography.callout, color: colors.textPrimary },
 }))

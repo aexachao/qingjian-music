@@ -10,8 +10,9 @@ import * as Haptics from 'expo-haptics'
  * 这类问题不该靠 review 一个个抓，而是让「加触感」只有一个地方可写。
  *
  * ── 用法约定 ───────────────────────────────────────────────────────────────
- *   tap()    离散按钮点击：播放/暂停、上一首/下一首、列表项、工具栏按钮
- *   select() 连续可调控件在滑动过程中：进度条拖动、音量条
+ *   tap()      离散按钮点击：播放/暂停、上一首/下一首、列表项、工具栏按钮
+ *   select()   连续可调控件在滑动过程中：进度条拖动、音量条
+ *   longPress() 长按进入次级操作：歌词行长按进入分享面板
  *
  * 两种都吞掉 Promise：触感是锦上添花，失败（设备不支持、系统设置关闭）
  * 绝不能冒泡成未处理的 rejection，更不能影响主流程。
@@ -25,4 +26,9 @@ export function tap(): void {
 /** 连续控件滑动 */
 export function select(): void {
   void Haptics.selectionAsync().catch(() => {})
+}
+
+/** 长按进入次级操作（比 tap 更重，提示「触发了不一样的动作」） */
+export function longPress(): void {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
 }

@@ -2,7 +2,6 @@
   "rules": {
     "haptics-centralized": {
       "apps/mobile/src/components/confirm-modal.tsx": 4,
-      "apps/mobile/src/components/lyric-view.tsx": 2,
       "apps/mobile/src/components/option-picker-modal.tsx": 1,
       "apps/mobile/src/components/player/player-queue.tsx": 2,
       "apps/mobile/src/components/progress-bar.tsx": 1,
@@ -42,7 +41,6 @@
     },
     "components-per-file": {
       "apps/mobile/src/components/list-states.tsx": 1,
-      "apps/mobile/src/components/lyric-view.tsx": 1,
       "apps/mobile/src/components/player/player-deck.tsx": 1,
       "apps/mobile/src/components/player/player-queue.tsx": 1,
       "apps/mobile/src/components/player/player-toolbar.tsx": 1,

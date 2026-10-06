@@ -4,6 +4,8 @@ import { readSource } from '../support/source'
 describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   const playerSource = readSource('app/player.tsx')
   const lyricViewSource = readSource('components/lyric-view.tsx')
+  const lyricRowSource = readSource('components/player/lyric-row.tsx')
+  const lyricKaraokeSource = readSource('lib/lyric-karaoke.ts')
   const queueSource = readSource('components/player/player-queue.tsx')
 
   it('播放列表导出 CurrentTrackCard，并在歌词页吸顶固定复用', () => {
@@ -43,16 +45,16 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('歌词无模糊，正在唱的歌词字号提升至 28pt，滑动时不亮起矩形，仅选中时显示浅色圆角矩形板', () => {
-    // 彻底移除 textShadowRadius 高斯模糊
-    expect(lyricViewSource).not.toContain('textShadowRadius')
+    // 彻底移除 textShadowRadius 高斯模糊（渲染层已拆分到 lyric-row.tsx）
+    expect(lyricRowSource).not.toContain('textShadowRadius')
     // 正在唱的整行字号提升至 28
-    expect(lyricViewSource).toContain('fontSize: 28')
+    expect(lyricRowSource).toContain('fontSize: 28')
     // 滑动按住时不亮起矩形底板（去掉 pressed）
-    expect(lyricViewSource).toContain('selected && styles.rowSelected')
-    expect(lyricViewSource).not.toContain('(pressed || selected) && styles.rowSelected')
+    expect(lyricRowSource).toContain('selected && styles.rowSelected')
+    expect(lyricRowSource).not.toContain('(pressed || selected) && styles.rowSelected')
     // 选中浅色矩形底板
-    expect(lyricViewSource).toContain('rowSelected')
-    expect(lyricViewSource).toContain('backgroundColor: colors.bgListItem')
+    expect(lyricRowSource).toContain('rowSelected')
+    expect(lyricRowSource).toContain('backgroundColor: colors.bgListItem')
   })
 
   it('手势与歌词动画防冲突：交互硬锁定、视口容差与宽容冷却期', () => {
@@ -66,8 +68,9 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('单行 LRC 严格使用整行高亮，不叠加无时间戳的虚假卡拉OK', () => {
-    expect(lyricViewSource).toContain('isKaraokeLine(line: LyricLine)')
-    expect(lyricViewSource).toContain('Array.isArray(line.words) && line.words.length >= 2')
+    // 卡拉OK判定逻辑已拆分到 lib/lyric-karaoke.ts
+    expect(lyricKaraokeSource).toContain('isKaraokeLine(line: LyricLine)')
+    expect(lyricKaraokeSource).toContain('Array.isArray(line.words) && line.words.length >= 2')
   })
 
   it('底部工具栏预留底边距，空状态提示词上下居中', () => {
@@ -100,14 +103,14 @@ describe('播放器歌词页极简常驻架构与交互规范验证', () => {
   })
 
   it('歌词底板矩形宽度撑满对齐、顺滑圆角与按压态离开即消', () => {
-    // 宽度与对齐：撑满宽度、去除单边负外边距
-    expect(lyricViewSource).toContain("width: '100%'")
-    expect(lyricViewSource).toContain("alignSelf: 'stretch'")
-    expect(lyricViewSource).not.toContain('marginHorizontal: -spacing.md')
+    // 宽度与对齐：撑满宽度、去除单边负外边距（行容器样式在 lyric-row.tsx）
+    expect(lyricRowSource).toContain("width: '100%'")
+    expect(lyricRowSource).toContain("alignSelf: 'stretch'")
+    expect(lyricRowSource).not.toContain('marginHorizontal: -spacing.md')
     // 顺滑圆角与防溢出剪裁
-    expect(lyricViewSource).toContain('borderRadius: radius.lg')
-    expect(lyricViewSource).toContain("overflow: 'hidden'")
-    // 按压态驱动：按下亮起、离开立即消失、滑动即刻熄灭
+    expect(lyricRowSource).toContain('borderRadius: radius.lg')
+    expect(lyricRowSource).toContain("overflow: 'hidden'")
+    // 按压态驱动：按下亮起、离开立即消失、滑动即刻熄灭（状态仍由 lyric-view.tsx 统管）
     expect(lyricViewSource).toContain('pressingRowIndex')
     expect(lyricViewSource).toContain('onPressIn')
     expect(lyricViewSource).toContain('onPressOut')

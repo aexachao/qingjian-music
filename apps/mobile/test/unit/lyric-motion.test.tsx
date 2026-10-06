@@ -28,7 +28,7 @@ vi.mock('react-native-reanimated', async () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 34 }) }))
 vi.mock('react-native-track-player', () => ({ useIsPlaying: () => ({ playing: true }) }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: scenario.copy }))
-vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(), impactAsync: vi.fn(), ImpactFeedbackStyle: {} }))
+vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(() => Promise.resolve()), impactAsync: vi.fn(() => Promise.resolve()), ImpactFeedbackStyle: {} }))
 vi.mock('../../src/components/list-states', () => ({ ErrorState: 'ErrorState' }))
 vi.mock('../../src/components/player/lyric-stage-mask', () => ({ LyricStageMask: 'LyricStageMask' }))
 vi.mock('../../src/components/icon', () => ({ Icon: 'Icon', IconButton: 'IconButton', iconSize: {} }))
