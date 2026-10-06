@@ -15,6 +15,38 @@
       "apps/mobile/src/components/stack-back-button.tsx": 1,
       "apps/mobile/src/lib/use-track-menu.ts": 1,
       "apps/mobile/src/screens/home/SectionHeader.tsx": 1
+    },
+    "file-size-budget": {
+      "apps/mobile/src/app/login.tsx": 1,
+      "apps/mobile/src/app/player.tsx": 1,
+      "apps/mobile/src/components/confirm-modal.tsx": 1,
+      "apps/mobile/src/components/lyric-view.tsx": 1,
+      "apps/mobile/src/components/player/player-deck.tsx": 1,
+      "apps/mobile/src/components/player/player-queue.tsx": 1,
+      "apps/mobile/src/components/prompt-modal.tsx": 1,
+      "apps/mobile/src/lib/use-track-menu.ts": 1,
+      "apps/mobile/src/player/audio-cache.ts": 1,
+      "apps/mobile/src/player/controller.ts": 1,
+      "apps/mobile/src/player/downloads.ts": 1,
+      "apps/mobile/src/screens/album-detail.tsx": 1,
+      "apps/mobile/src/screens/artist-detail.tsx": 1,
+      "apps/mobile/src/screens/cache-settings.tsx": 1,
+      "apps/mobile/src/screens/external-sources.tsx": 1,
+      "apps/mobile/src/screens/favorites.tsx": 1,
+      "apps/mobile/src/screens/genre-detail.tsx": 1,
+      "apps/mobile/src/screens/playlist-detail.tsx": 1,
+      "apps/mobile/src/screens/settings.tsx": 1,
+      "apps/mobile/src/screens/support.tsx": 1,
+      "packages/provider-fnos/src/fn-connect.ts": 1,
+      "packages/provider-fnos/src/provider.ts": 1
+    },
+    "components-per-file": {
+      "apps/mobile/src/components/list-states.tsx": 1,
+      "apps/mobile/src/components/lyric-view.tsx": 1,
+      "apps/mobile/src/components/player/player-deck.tsx": 1,
+      "apps/mobile/src/components/player/player-queue.tsx": 1,
+      "apps/mobile/src/components/player/player-toolbar.tsx": 1,
+      "apps/mobile/src/components/skeleton.tsx": 1
     }
   },
   "note": "架构守卫基线：由 `node scripts/guard-architecture.mjs --update-baseline` 生成。只允许下调。"

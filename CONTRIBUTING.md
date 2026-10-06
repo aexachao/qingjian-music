@@ -48,6 +48,9 @@ node scripts/verify-full.mjs
 
 - 新增路由后 `.expo/types/router.d.ts` 不会自动更新，索引 `useSegments()` 一律用 `.at(i)`；
 - 纯逻辑必须放 `*-policy.ts`（不能 import RN / expo），否则架构守卫会拦；
+- **一个文件只做一件事**：单文件不得超过 400 行，单个 `.tsx` 顶层组件不得超过 3 个
+  （两条都走棘轮，存量记在 `scripts/guard-baseline.json`，只减不增）。拆分方式——
+  屏幕/组件抽子组件到同目录独立文件、纯逻辑挪到 `lib/*`；大逻辑模块按领域拆分再 re-export；
 - 新增守卫规则分两种：`ratchet: true` 的规则要把存量债务写进 `scripts/guard-baseline.json`；
   零容忍规则**不要**登记进基线 —— 登记等于给它开后门，规则从此永远为真；
 - 无论哪种，都要先造一个违规样本确认**它会失败**（和第四节对测试的要求是同一个道理）；
